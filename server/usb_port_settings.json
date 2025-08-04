@@ -1,0 +1,6 @@
+{
+  "chamber": "ttyUSB1",
+  "power": "ttyUSB2",
+  "load": "ttyUSB3",
+  "relay": "ttyUSB0"
+}

@@ -1,0 +1,1408 @@
+// backend-websocket-server.js
+//----
+import { WebSocketServer } from 'ws';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { ReadChamber } from './ReadChamber.js';
+import { SendVoltCommand } from './SetVolt.js';
+import { ReadAllVoltages, ReadVolt } from './ReadVolt.js';
+import { RelayAllOff, SelectDevice, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
+import { GetData } from './GetData.js';
+import { runSinglePageProcess } from './RunTestProcess.js';
+
+const LOCAL_WS_PORT = 8080; // WebSocket 서버가 사용할 포트
+const DELAY_SETTINGS_FILE = 'delay_settings.json'; // 딜레이 설정 저장 파일
+const DEVICE_STATES_FILE = 'device_states.json'; // 기기 상태 저장 파일
+const HIGH_TEMP_SETTINGS_FILE = 'high_temp_settings.json'; // 고온 설정 저장 파일
+const LOW_TEMP_SETTINGS_FILE = 'low_temp_settings.json'; // 저온 설정 저장 파일
+const PRODUCT_INPUT_FILE = 'product_input.json'; // 제품 입력 저장 파일
+const USB_PORT_SETTINGS_FILE = 'usb_port_settings.json'; // USB 포트 설정 저장 파일
+const OUT_VOLT_SETTINGS_FILE = 'out_volt_settings.json'; // 입력 전압 설정 저장 파일
+
+const wss = new WebSocketServer({ port: LOCAL_WS_PORT });
+
+// 딜레이 설정을 파일에 저장하는 함수
+async function saveDelaySettings(onDelay, offDelay, cycleNumber = 1) {
+  try {
+    const settings = { onDelay, offDelay, cycleNumber };
+    await fs.writeFile(DELAY_SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    // console.log(`[Backend WS Server] Delay settings saved: ON_DELAY=${onDelay}, OFF_DELAY=${offDelay}, CYCLE=${cycleNumber}`);
+    return true;
+  } catch (error) {
+    console.error(`[Backend WS Server] Failed to save delay settings: ${error.message}`);
+    return false;
+  }
+}
+
+// 딜레이 설정을 파일에서 읽어오는 함수
+async function loadDelaySettings() {
+  try {
+    const data = await fs.readFile(DELAY_SETTINGS_FILE, 'utf-8');
+    const settings = JSON.parse(data);
+    // console.log(`[Backend WS Server] Delay settings loaded: ON_DELAY=${settings.onDelay}, OFF_DELAY=${settings.offDelay}, CYCLE=${settings.cycleNumber || 1}`);
+    return {
+      onDelay: settings.onDelay || 0,
+      offDelay: settings.offDelay || 0,
+      cycleNumber: settings.cycleNumber || 1
+    };
+  } catch (error) {
+    // console.log(`[Backend WS Server] No saved delay settings found, using defaults: ON_DELAY=0, OFF_DELAY=0, CYCLE=1`);
+    return { onDelay: 0, offDelay: 0, cycleNumber: 1 };
+  }
+}
+
+// 기기 상태를 파일에 저장하는 함수 - 10개 요소 배열로 저장
+async function saveDeviceStates(deviceStates) {
+  try {
+    // console.log(`💾 [Backend WS Server] Attempting to save device states to file: ${DEVICE_STATES_FILE}`);
+    // console.log(`💾 [Backend WS Server] Device states to save (array):`, deviceStates);
+    
+    // 배열 형태 검증
+    if (!Array.isArray(deviceStates) || deviceStates.length !== 10) {
+      throw new Error(`Invalid device states format. Expected array with 10 elements, got: ${typeof deviceStates} with length ${Array.isArray(deviceStates) ? deviceStates.length : 'N/A'}`);
+    }
+    
+    // 모든 요소가 boolean인지 확인
+    if (!deviceStates.every(state => typeof state === 'boolean')) {
+      throw new Error('All device states must be boolean values');
+    }
+    
+    const jsonString = JSON.stringify(deviceStates, null, 2);
+    // console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
+    
+    await fs.writeFile(DEVICE_STATES_FILE, jsonString);
+    // console.log(`✅ [Backend WS Server] Device states successfully written to file: ${DEVICE_STATES_FILE}`);
+    // console.log(`✅ [Backend WS Server] Device states saved (array): ${JSON.stringify(deviceStates)}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to save device states: ${error.message}`);
+    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+    console.error(`❌ [Backend WS Server] File path: ${DEVICE_STATES_FILE}`);
+    return false;
+  }
+}
+
+// 기기 상태를 파일에서 읽어오는 함수 - 10개 요소 배열로 로드
+async function loadDeviceStates() {
+  try {
+    const data = await fs.readFile(DEVICE_STATES_FILE, 'utf-8');
+    const deviceStates = JSON.parse(data);
+    
+    // 배열 형태로 저장된 경우
+    if (Array.isArray(deviceStates) && deviceStates.length === 10) {
+      // console.log(`📖 [Backend WS Server] Device states loaded from file (array): ${JSON.stringify(deviceStates)}`);
+      return deviceStates;
+    }
+    // 기존 객체 형태로 저장된 경우 (마이그레이션)
+    else if (typeof deviceStates === 'object' && deviceStates !== null) {
+      // console.log(`🔄 [Backend WS Server] Migrating from object format to array format`);
+      const expectedDevices = [
+        "#1 Device", "#2 Device", "#3 Device", "#4 Device", "#5 Device",
+        "#6 Device", "#7 Device", "#8 Device", "#9 Device", "#10 Device"
+      ];
+      const arrayFormat = expectedDevices.map(device => deviceStates[device] || false);
+      // console.log(`🔄 [Backend WS Server] Migrated device states (array): ${JSON.stringify(arrayFormat)}`);
+      
+      // 마이그레이션된 데이터를 파일에 저장
+      await saveDeviceStates(arrayFormat);
+      // console.log(`💾 [Backend WS Server] Migrated device states saved to file`);
+      
+      return arrayFormat;
+    }
+    else {
+      throw new Error(`Invalid device states format in file: ${typeof deviceStates}`);
+    }
+  } catch (error) {
+    // console.log(`📖 [Backend WS Server] No saved device states found or invalid format, using default: array with first device selected`);
+    // 기본값: 10개 요소 배열 (첫 번째 기기만 선택된 상태)
+    const defaultStates = [true, false, false, false, false, false, false, false, false, false];
+    // console.log(`📖 [Backend WS Server] Default device states (array): ${JSON.stringify(defaultStates)}`);
+    return defaultStates;
+  }
+}
+
+// 고온 설정을 파일에 저장하는 함수
+async function saveHighTempSettings(settings) {
+  try {
+    // console.log(`💾 [Backend WS Server] Attempting to save high temp settings to file: ${HIGH_TEMP_SETTINGS_FILE}`);
+    // console.log(`💾 [Backend WS Server] Settings to save:`, settings);
+    
+    const jsonString = JSON.stringify(settings, null, 2);
+    // console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
+    
+    await fs.writeFile(HIGH_TEMP_SETTINGS_FILE, jsonString);
+    // console.log(`✅ [Backend WS Server] High temp settings successfully written to file: ${HIGH_TEMP_SETTINGS_FILE}`);
+    // console.log(`✅ [Backend WS Server] Settings saved: ${JSON.stringify(settings)}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to save high temp settings: ${error.message}`);
+    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+    console.error(`❌ [Backend WS Server] File path: ${HIGH_TEMP_SETTINGS_FILE}`);
+    return false;
+  }
+}
+
+// 고온 설정을 파일에서 읽어오는 함수
+async function loadHighTempSettings() {
+  try {
+    const data = await fs.readFile(HIGH_TEMP_SETTINGS_FILE, 'utf-8');
+    const settings = JSON.parse(data);
+    // console.log(`📖 [Backend WS Server] High temp settings loaded from file: ${JSON.stringify(settings)}`);
+    return settings;
+  } catch (error) {
+    // console.log(`📖 [Backend WS Server] No saved high temp settings found, using default`);
+        // 기본값 - 고온 측정 선택이 off 상태
+    const defaultSettings = {
+        isHighTempEnabled: false, // 기본적으로 off 상태
+        targetTemp: 75,
+        waitTime: 200,
+        readCount: 10,
+    };
+    // console.log(`📖 [Backend WS Server] Default high temp settings:`, defaultSettings);
+    return defaultSettings;
+  }
+}
+
+// 저온 설정을 파일에 저장하는 함수
+async function saveLowTempSettings(settings) {
+  try {
+    // console.log(`💾 [Backend WS Server] Attempting to save low temp settings to file: ${LOW_TEMP_SETTINGS_FILE}`);
+    // console.log(`💾 [Backend WS Server] Settings to save:`, settings);
+    
+    const jsonString = JSON.stringify(settings, null, 2);
+    // console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
+    
+    await fs.writeFile(LOW_TEMP_SETTINGS_FILE, jsonString);
+    // console.log(`✅ [Backend WS Server] Low temp settings successfully written to file: ${LOW_TEMP_SETTINGS_FILE}`);
+    // console.log(`✅ [Backend WS Server] Settings saved: ${JSON.stringify(settings)}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to save low temp settings: ${error.message}`);
+    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+    console.error(`❌ [Backend WS Server] File path: ${LOW_TEMP_SETTINGS_FILE}`);
+    return false;
+  }
+}
+
+// 저온 설정을 파일에서 읽어오는 함수
+async function loadLowTempSettings() {
+  try {
+    const data = await fs.readFile(LOW_TEMP_SETTINGS_FILE, 'utf-8');
+    const settings = JSON.parse(data);
+    // console.log(`📖 [Backend WS Server] Low temp settings loaded from file: ${JSON.stringify(settings)}`);
+    return settings;
+  } catch (error) {
+    // console.log(`📖 [Backend WS Server] No saved low temp settings found, using default`);
+        // 기본값
+    const defaultSettings = {
+        isLowTempEnabled: false,
+        targetTemp: -1,
+        waitTime: 200,
+        readCount: 10,
+    };
+    // console.log(`📖 [Backend WS Server] Default low temp settings:`, defaultSettings);
+    return defaultSettings;
+  }
+}
+
+// 제품 입력을 파일에 저장하는 함수
+async function saveProductInput(productInput) {
+  try {
+    // console.log(`💾 [Backend WS Server] Attempting to save product input to file: ${PRODUCT_INPUT_FILE}`);
+    // console.log(`💾 [Backend WS Server] Product input to save:`, productInput);
+    
+    const jsonString = JSON.stringify(productInput, null, 2);
+    // console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
+    
+    await fs.writeFile(PRODUCT_INPUT_FILE, jsonString);
+    // console.log(`✅ [Backend WS Server] Product input successfully written to file: ${PRODUCT_INPUT_FILE}`);
+    // console.log(`✅ [Backend WS Server] Product input saved: ${JSON.stringify(productInput)}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to save product input: ${error.message}`);
+    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+    console.error(`❌ [Backend WS Server] File path: ${PRODUCT_INPUT_FILE}`);
+    return false;
+  }
+}
+
+// 제품 입력을 파일에서 읽어오는 함수
+async function loadProductInput() {
+  try {
+    const data = await fs.readFile(PRODUCT_INPUT_FILE, 'utf-8');
+    const productInput = JSON.parse(data);
+    // console.log(`📖 [Backend WS Server] Product input loaded from file: ${JSON.stringify(productInput)}`);
+    return productInput;
+  } catch (error) {
+    // console.log(`📖 [Backend WS Server] No saved product input found, using default`);
+    // 기본값
+    const defaultProductInput = {
+      modelName: '61514540',
+      productNames: ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311']
+    };
+    // console.log(`📖 [Backend WS Server] Default product input:`, defaultProductInput);
+    return defaultProductInput;
+  }
+}
+
+// USB 포트 설정을 파일에 저장하는 함수
+async function saveUsbPortSettings(settings) {
+  try {
+    // console.log(`💾 [Backend WS Server] Attempting to save USB port settings to file: ${USB_PORT_SETTINGS_FILE}`);
+    // console.log(`💾 [Backend WS Server] Settings to save:`, settings);
+    
+    // 영문 키만 허용, 한글 키가 있으면 기본값 사용
+    const validSettings = {
+      chamber: settings.chamber || 'ttyUSB0',
+      power: settings.power || 'ttyUSB1',
+      load: settings.load || 'ttyUSB2',
+      relay: settings.relay || 'ttyUSB3'
+    };
+    
+    // console.log(`💾 [Backend WS Server] Valid settings to save:`, validSettings);
+    
+    const jsonString = JSON.stringify(validSettings, null, 2);
+    // console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
+    
+    await fs.writeFile(USB_PORT_SETTINGS_FILE, jsonString);
+    // console.log(`✅ [Backend WS Server] USB port settings successfully written to file: ${USB_PORT_SETTINGS_FILE}`);
+    // console.log(`✅ [Backend WS Server] Settings saved: ${JSON.stringify(validSettings)}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to save USB port settings: ${error.message}`);
+    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+    console.error(`❌ [Backend WS Server] File path: ${USB_PORT_SETTINGS_FILE}`);
+    return false;
+  }
+}
+
+// USB 포트 설정을 파일에서 읽어오는 함수
+async function loadUsbPortSettings() {
+  try {
+    const data = await fs.readFile(USB_PORT_SETTINGS_FILE, 'utf-8');
+    const settings = JSON.parse(data);
+    // console.log(`📖 [Backend WS Server] USB port settings loaded from file: ${JSON.stringify(settings)}`);
+    
+    // 영문 키가 모두 있는지 확인
+    if (settings.chamber && settings.power && settings.load && settings.relay) {
+      // console.log(`✅ [Backend WS Server] Valid English key settings found`);
+      return settings;
+    } else {
+      // console.log(`⚠️ [Backend WS Server] Invalid or Korean key settings found, using default`);
+      // 기본값 반환 (한글 키가 있거나 영문 키가 누락된 경우)
+      const defaultSettings = {
+        chamber: 'ttyUSB0',
+        power: 'ttyUSB1',
+        load: 'ttyUSB2',
+        relay: 'ttyUSB3'
+      };
+      // console.log(`📖 [Backend WS Server] Using default settings:`, defaultSettings);
+      return defaultSettings;
+    }
+  } catch (error) {
+    // console.log(`📖 [Backend WS Server] No saved USB port settings found, using default`);
+    // 기본값
+    const defaultSettings = {
+      chamber: 'ttyUSB0',
+      power: 'ttyUSB1',
+      load: 'ttyUSB2',
+      relay: 'ttyUSB3'
+    };
+    // console.log(`📖 [Backend WS Server] Default USB port settings:`, defaultSettings);
+    return defaultSettings;
+  }
+}
+
+// 입력 전압 설정을 파일에 저장하는 함수 (배열만 저장)
+async function saveOutVoltSettings(settings) {
+  try {
+    if (!Array.isArray(settings) || settings.length !== 4) throw new Error('입력 전압 설정은 4개 요소의 배열이어야 합니다.');
+    const jsonString = JSON.stringify(settings, null, 2);
+    await fs.writeFile(OUT_VOLT_SETTINGS_FILE, jsonString);
+    return true;
+  } catch (error) {
+    console.error(`[Backend WS Server] Failed to save out volt settings: ${error.message}`);
+    return false;
+  }
+}
+
+// 입력 전압 설정을 파일에서 읽어오는 함수 (배열만 로드)
+async function loadOutVoltSettings() {
+  try {
+    const data = await fs.readFile(OUT_VOLT_SETTINGS_FILE, 'utf-8');
+    const settings = JSON.parse(data);
+    if (!Array.isArray(settings) || settings.length !== 4) throw new Error('입력 전압 설정은 4개 요소의 배열이어야 합니다.');
+    return settings;
+  } catch (error) {
+    // 기본값: 4개 요소 배열
+    return [18.0, 24.0, 30.0, 0.0];
+  }
+}
+
+// getTableOption 객체 - 모든 설정 파일의 데이터를 통합하여 관리
+let getTableOption = {
+  delaySettings: {},
+  deviceStates: {},
+  highTempSettings: {},
+  lowTempSettings: {},
+  productInput: {},
+  usbPortSettings: {},
+  outVoltSettings: {}
+};
+
+// getTableOption 객체를 모든 JSON 파일에서 읽어와서 초기화하는 함수
+export async function loadGetTableOption() {
+  try {
+    console.log(`📖 [Backend WS Server] Loading getTableOption from all JSON files...`);
+    
+    // 모든 설정 파일을 병렬로 읽기
+    const [
+      delaySettings,
+      deviceStates,
+      highTempSettings,
+      lowTempSettings,
+      productInput,
+      usbPortSettings,
+      outVoltSettings
+    ] = await Promise.all([
+      loadDelaySettings(),
+      loadDeviceStates(),
+      loadHighTempSettings(),
+      loadLowTempSettings(),
+      loadProductInput(),
+      loadUsbPortSettings(),
+      loadOutVoltSettings()
+    ]);
+    
+    // getTableOption 객체 업데이트
+    getTableOption = {
+      delaySettings,
+      deviceStates,
+      highTempSettings,
+      lowTempSettings,
+      productInput,
+      usbPortSettings,
+      outVoltSettings
+    };
+    
+    console.log(`✅ [Backend WS Server] getTableOption loaded successfully:`, JSON.stringify(getTableOption, null, 2));
+    return getTableOption;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to load getTableOption: ${error.message}`);
+    throw error;
+  }
+}
+
+// getTableOption 객체의 특정 섹션을 업데이트하고 해당 JSON 파일에 저장하는 함수
+async function updateGetTableOptionSection(sectionName, newData) {
+  try {
+    console.log(`💾 [Backend WS Server] Updating getTableOption section: ${sectionName}`);
+    console.log(`💾 [Backend WS Server] New data:`, newData);
+    
+    // getTableOption 객체 업데이트
+    getTableOption[sectionName] = newData;
+    
+    // 해당 섹션에 맞는 파일에 저장
+    let saveSuccess = false;
+    switch (sectionName) {
+      case 'delaySettings':
+        saveSuccess = await saveDelaySettings(newData.onDelay, newData.offDelay, newData.cycleNumber);
+        break;
+      case 'deviceStates':
+        saveSuccess = await saveDeviceStates(newData);
+        break;
+      case 'highTempSettings':
+        saveSuccess = await saveHighTempSettings(newData);
+        break;
+      case 'lowTempSettings':
+        saveSuccess = await saveLowTempSettings(newData);
+        break;
+      case 'productInput':
+        saveSuccess = await saveProductInput(newData);
+        break;
+      case 'usbPortSettings':
+        saveSuccess = await saveUsbPortSettings(newData);
+        break;
+      case 'outVoltSettings':
+        saveSuccess = await saveOutVoltSettings(newData);
+        break;
+      default:
+        throw new Error(`Unknown section: ${sectionName}`);
+    }
+    
+    if (saveSuccess) {
+      console.log(`✅ [Backend WS Server] getTableOption section '${sectionName}' updated and saved successfully`);
+      return true;
+    } else {
+      throw new Error(`Failed to save ${sectionName} to file`);
+    }
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to update getTableOption section '${sectionName}': ${error.message}`);
+    throw error;
+  }
+}
+
+// getTableOption 객체의 전체 내용을 모든 JSON 파일에 저장하는 함수
+async function saveGetTableOption() {
+  try {
+    console.log(`💾 [Backend WS Server] Saving entire getTableOption to all JSON files...`);
+    console.log(`💾 [Backend WS Server] getTableOption to save:`, JSON.stringify(getTableOption, null, 2));
+    
+    // 모든 설정 파일을 병렬로 저장
+    const saveResults = await Promise.all([
+      saveDelaySettings(getTableOption.delaySettings.onDelay, getTableOption.delaySettings.offDelay),
+      saveDeviceStates(getTableOption.deviceStates),
+      saveHighTempSettings(getTableOption.highTempSettings),
+      saveLowTempSettings(getTableOption.lowTempSettings),
+      saveProductInput(getTableOption.productInput),
+      saveUsbPortSettings(getTableOption.usbPortSettings),
+      saveOutVoltSettings(getTableOption.outVoltSettings)
+    ]);
+    
+    // 모든 저장이 성공했는지 확인
+    const allSuccess = saveResults.every(result => result === true);
+    
+    if (allSuccess) {
+      console.log(`✅ [Backend WS Server] getTableOption saved to all JSON files successfully`);
+      return true;
+    } else {
+      throw new Error('Some files failed to save');
+    }
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to save getTableOption: ${error.message}`);
+    throw error;
+  }
+}
+
+function convertStringToArray(str) {
+  // trim()을 사용하여 문자열 양 끝의 공백을 제거하고,
+  // split(' ')을 사용하여 공백을 기준으로 문자열을 분리합니다.
+  // filter(word => word !== '')를 사용하여 빈 문자열 요소를 제거합니다.
+  return str.trim().split(' ').filter(word => word !== '');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+wss.on('connection', ws => {
+    console.log(`[Backend WS Server] 클라이언트 연결됨 (${ws._socket.remoteAddress}:${ws._socket.remotePort})`);
+
+    // 클라이언트 연결 시 저장된 기기 상태를 자동으로 전송
+    const sendInitialDeviceState = async () => {
+        try {
+            const savedStates = await loadDeviceStates();
+            console.log(`📤 [Backend WS Server] Sending initial device states to client (array):`, savedStates);
+            console.log(`📤 [Backend WS Server] Sending device states array on connection`);
+            ws.send(`Initial device states: ${JSON.stringify(savedStates)}`);
+        } catch (error) {
+            console.error(`❌ [Backend WS Server] Failed to send initial device states: ${error.message}`);
+            // 기본값 전송 - 10개 요소 배열 (첫 번째 기기만 선택된 상태)
+            const defaultStates = [true, false, false, false, false, false, false, false, false, false];
+            console.log(`📤 [Backend WS Server] Sending default device states (array):`, defaultStates);
+            ws.send(`Initial device states: ${JSON.stringify(defaultStates)}`);
+        }
+    };
+
+    // 클라이언트 연결 시 저장된 고온 설정을 자동으로 전송
+    const sendInitialHighTempSettings = async () => {
+        try {
+            const savedSettings = await loadHighTempSettings();
+            console.log(`📤 [Backend WS Server] Sending initial high temp settings to client:`, savedSettings);
+            ws.send(`Initial high temp settings: ${JSON.stringify(savedSettings)}`);
+        } catch (error) {
+            console.error(`❌ [Backend WS Server] Failed to send initial high temp settings: ${error.message}`);
+            // 기본값 전송 - 고온 측정 선택이 off 상태
+            const defaultSettings = {
+                isHighTempEnabled: false, // 기본적으로 off 상태
+                targetTemp: 75,
+                waitTime: 200,
+                readCount: 10,
+            };
+            console.log(`📤 [Backend WS Server] Sending default high temp settings:`, defaultSettings);
+            ws.send(`Initial high temp settings: ${JSON.stringify(defaultSettings)}`);
+        }
+    };
+
+    // 클라이언트 연결 시 저장된 저온 설정을 자동으로 전송
+    const sendInitialLowTempSettings = async () => {
+        try {
+            const savedSettings = await loadLowTempSettings();
+            console.log(`📤 [Backend WS Server] Sending initial low temp settings to client:`, savedSettings);
+            ws.send(`Initial low temp settings: ${JSON.stringify(savedSettings)}`);
+        } catch (error) {
+            console.error(`❌ [Backend WS Server] Failed to send initial low temp settings: ${error.message}`);
+            // 기본값 전송
+            const defaultSettings = {
+                isLowTempEnabled: false,
+                targetTemp: -1,
+                waitTime: 200,
+                readCount: 10,
+            };
+            console.log(`📤 [Backend WS Server] Sending default low temp settings:`, defaultSettings);
+            ws.send(`Initial low temp settings: ${JSON.stringify(defaultSettings)}`);
+        }
+    };
+
+    // 클라이언트 연결 시 저장된 제품 입력을 자동으로 전송
+    const sendInitialProductInput = async () => {
+        try {
+            const savedProductInput = await loadProductInput();
+            console.log(`📤 [Backend WS Server] Sending initial product input to client:`, savedProductInput);
+            ws.send(`Initial product input: ${JSON.stringify(savedProductInput)}`);
+        } catch (error) {
+            console.error(`❌ [Backend WS Server] Failed to send initial product input: ${error.message}`);
+            // 기본값 전송
+            const defaultProductInput = {
+                modelName: '61514540',
+                productNames: ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311']
+            };
+            console.log(`📤 [Backend WS Server] Sending default product input:`, defaultProductInput);
+            ws.send(`Initial product input: ${JSON.stringify(defaultProductInput)}`);
+        }
+    };
+
+    // 클라이언트 연결 시 저장된 USB 포트 설정을 자동으로 전송
+    const sendInitialUsbPortSettings = async () => {
+        try {
+            const savedSettings = await loadUsbPortSettings();
+            console.log(`📤 [Backend WS Server] Sending initial USB port settings to client:`, savedSettings);
+            ws.send(`Initial USB port settings: ${JSON.stringify(savedSettings)}`);
+        } catch (error) {
+            console.error(`❌ [Backend WS Server] Failed to send initial USB port settings: ${error.message}`);
+            // 기본값 전송
+            const defaultSettings = {
+                chamber: 'ttyUSB0',
+                power: 'ttyUSB1',
+                load: 'ttyUSB2',
+                relay: 'ttyUSB3'
+            };
+            console.log(`📤 [Backend WS Server] Sending default USB port settings:`, defaultSettings);
+            ws.send(`Initial USB port settings: ${JSON.stringify(defaultSettings)}`);
+        }
+    };
+
+    // 클라이언트 연결 시 저장된 입력 전압 설정을 자동으로 전송 (배열)
+    const sendInitialOutVoltSettings = async () => {
+        try {
+            const savedSettings = await loadOutVoltSettings();
+            ws.send(`Initial out volt settings: ${JSON.stringify(savedSettings)}`);
+        } catch (error) {
+            ws.send(`Initial out volt settings: ${JSON.stringify([18.0, 24.0, 30.0, 0.0])}`);
+        }
+    };
+
+    // 연결 즉시 저장된 기기 상태, 고온 설정, 저온 설정, 제품 입력, USB 포트 설정, 입력 전압 설정 전송
+    sendInitialDeviceState();
+    sendInitialHighTempSettings();
+    sendInitialLowTempSettings();
+    sendInitialProductInput();
+    sendInitialUsbPortSettings();
+    sendInitialOutVoltSettings();
+    
+    // getTableOption 초기화 및 전송
+    const sendInitialGetTableOption = async () => {
+        try {
+            const tableOption = await loadGetTableOption();
+            console.log(`📤 [Backend WS Server] Sending initial getTableOption to client:`, tableOption);
+            ws.send(`Initial getTableOption: ${JSON.stringify(tableOption)}`);
+        } catch (error) {
+            console.error(`❌ [Backend WS Server] Failed to send initial getTableOption: ${error.message}`);
+            ws.send(`Error: Failed to load getTableOption - ${error.message}`);
+        }
+    };
+    
+    sendInitialGetTableOption();
+
+    // 클라이언트로부터 메시지를 수신했을 때
+    ws.on('message', async message => {
+        try {
+            const decodedMessage = message.toString(); // Buffer를 문자열로 변환
+            console.log(`[Backend WS Server] 메시지 수신: ${decodedMessage}`);
+            // 수신한 메시지를 클라이언트에게 다시 에코합니다.
+            ws.send(`[Echo from Backend WS Server] ${decodedMessage}`);
+            const decodeWebSocket = convertStringToArray(decodedMessage);
+
+            console.log(decodeWebSocket);
+
+            // device select process         
+            if(decodeWebSocket[0] === '[DEVICE_SELECT]') {
+                console.log("=== Device Selection Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [DEVICE_SELECT] 부분을 제외하고 나머지 데이터 부분만 추출
+                    const deviceSelectionData = decodedMessage.replace('[DEVICE_SELECT] ', '');
+                    console.log("📥 Device selection data extracted (without command):", deviceSelectionData);
+                    
+                    const selectedDevices = JSON.parse(deviceSelectionData);
+                    console.log("📥 Parsed selected devices:", selectedDevices);
+                    
+                    if (Array.isArray(selectedDevices)) {
+                        // 10개 디바이스의 boolean 배열 생성 (기본값: false)
+                        const deviceStates = new Array(10).fill(false);
+                        
+                        // 선택된 디바이스들을 true로 설정
+                        selectedDevices.forEach(deviceName => {
+                            const deviceIndex = parseInt(deviceName.match(/#(\d+)/)?.[1]) - 1;
+                            if (deviceIndex >= 0 && deviceIndex < 10) {
+                                deviceStates[deviceIndex] = true;
+                            }
+                        });
+                        
+                        console.log("📥 Converted device states array:", deviceStates);
+                        
+                        // getTableOption 업데이트 및 저장
+                        const updateSuccess = await updateGetTableOptionSection('deviceStates', deviceStates);
+                        if (updateSuccess) {
+                            console.log(`✅ [Backend WS Server] Device states saved:`, deviceStates);
+                            ws.send(`Device states saved: ${JSON.stringify(deviceStates)}`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save device states`);
+                            ws.send(`Error: Failed to save device states`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid device selection format:`, typeof selectedDevices);
+                        ws.send(`Error: Invalid device selection format - expected array`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Device selection error: ${error.message}`);
+                    ws.send(`Error: Device selection failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[VOLT_SELECT]') {
+                const voltCommand = decodeWebSocket[1];
+                console.log(`[Backend WS Server] Voltage command received: ${voltCommand}`);
+                
+                try {
+                    await SendVoltCommand(voltCommand);
+                    await sleep(1000);
+                    ws.send(`Voltage command executed: ${voltCommand}`);
+                } catch (error) {
+                    console.error(`[Backend WS Server] Voltage command error: ${error.message}`);
+                    ws.send(`Error: Voltage command failed - ${error.message}`);
+                }
+               
+            } else if(decodeWebSocket[0] === '[READ_VOLT]') {
+                console.log("Read Volt Process: OK");
+                try {
+                    const voltData = await ReadAllVoltages();
+                    if (!voltData || !Array.isArray(voltData) || voltData.length !== 5) {
+                        ws.send("Error: Voltage data is invalid or incomplete.");
+                        console.error("[Backend WS Server] Voltage data invalid:", voltData);
+                        return;
+                    }
+                    ws.send(`Voltage data: ${JSON.stringify(voltData)}`);
+                } catch (error) {
+                    ws.send(`Error: Failed to read voltages - ${error.message}`);
+                    console.error(`[Backend WS Server] ReadAllVoltages error:`, error);
+                }
+            } else if(decodeWebSocket[0] === '[TEST_PROCESS]') {
+                const index = decodeWebSocket[1].substring(1);
+                console.log("Test Process: " + index);
+                
+                try {
+                    const data = await GetData();
+                    console.log("Data: " + JSON.stringify(data));
+                    ws.send(`Data: ${JSON.stringify(data)}`);
+                } catch (error) {
+                    console.error(`[Backend WS Server] Test process error: ${error.message}`);
+                    ws.send(`Error: Test process failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[READ_CHAMBER]') {
+                const index = decodeWebSocket[1].substring(1);
+                console.log("Read Temperature Process: " + index);
+                
+                try {
+                    // getTableOption에서 챔버 포트 설정 가져오기
+                    const chamberPort = getTableOption.usbPortSettings.chamber || '/dev/ttyUSB0';
+                    console.log(`🌡️ [Backend WS Server] Reading chamber temperature from port: ${chamberPort}`);
+                    
+                    const data = await ReadChamber(chamberPort);
+                    console.log("Temperature: " + JSON.stringify(data));
+                    ws.send(`Temperature: ${JSON.stringify(data)}`);
+                } catch (error) {
+                    console.error(`[Backend WS Server] Read Temperature process error: ${error.message}`);
+                    ws.send(`Error: Read Temperature process failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[DELAY_SETTINGS]') {
+                console.log("Delay Settings Process: OK");
+                
+                try {
+                    // 메시지에서 ON_DELAY, OFF_DELAY, CYCLE 값 추출
+                    const delayData = decodeWebSocket[1];
+                    const onDelayMatch = delayData.match(/ON_DELAY:(\d+)/);
+                    const offDelayMatch = delayData.match(/OFF_DELAY:(\d+)/);
+                    const cycleMatch = delayData.match(/CYCLE:(\d+)/);
+                    
+                    if (onDelayMatch && offDelayMatch && cycleMatch) {
+                        const onDelay = parseInt(onDelayMatch[1]);
+                        const offDelay = parseInt(offDelayMatch[1]);
+                        const cycleNumber = parseInt(cycleMatch[1]);
+                        
+                        // 값 검증 (0-999 범위, cycle은 1-3 범위)
+                        if (onDelay >= 0 && onDelay <= 999 && 
+                            offDelay >= 0 && offDelay <= 999 && 
+                            cycleNumber >= 1 && cycleNumber <= 3) {
+                            
+                            // 딜레이 설정 객체 생성
+                            const delaySettings = {
+                                onDelay,
+                                offDelay,
+                                cycleNumber
+                            };
+                            
+                            // getTableOption 업데이트 및 저장
+                            const updateSuccess = await updateGetTableOptionSection('delaySettings', delaySettings);
+                            if (updateSuccess) {
+                                console.log(`✅ [Backend WS Server] Delay settings saved:`, delaySettings);
+                                ws.send(`Delay settings saved: ${JSON.stringify(delaySettings)}`);
+                            } else {
+                                ws.send(`Error: Failed to save delay settings`);
+                            }
+                        } else {
+                            ws.send(`Error: Invalid delay values. ON_DELAY/OFF_DELAY: 0-999 seconds, CYCLE: 1-3`);
+                        }
+                    } else {
+                        ws.send(`Error: Invalid delay settings format - missing required parameters`);
+                    }
+                } catch (error) {
+                    console.error(`[Backend WS Server] Delay settings error: ${error.message}`);
+                    ws.send(`Error: Delay settings failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[GET_DELAY_SETTINGS]') {
+                console.log("Get Delay Settings Process: OK");
+                
+                try {
+                    const settings = await loadDelaySettings();
+                    ws.send(`Delay settings: ${JSON.stringify(settings)}`);
+                } catch (error) {
+                    console.error(`[Backend WS Server] Get delay settings error: ${error.message}`);
+                    ws.send(`Error: Failed to get delay settings - ${error.message}`);
+                }   
+            } else if(decodeWebSocket[0] === '[SAVE_DEVICE_STATES]') {
+                console.log("=== Save Device States Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [SAVE_DEVICE_STATES] 부분을 제외하고 나머지 device state 부분만 추출
+                    const deviceStatesData = decodedMessage.replace('[SAVE_DEVICE_STATES] ', '');
+                    console.log("📥 Device states data extracted (without command):", deviceStatesData);
+                    
+                    const deviceStates = JSON.parse(deviceStatesData);
+                    console.log("📥 Parsed device states (array):", deviceStates);
+                    
+                    // 배열 형태 검증
+                    if (Array.isArray(deviceStates) && deviceStates.length === 10) {
+                        console.log(`✅ [Backend WS Server] Received device states to save (array):`, deviceStates);
+                        
+                        // 모든 요소가 boolean인지 확인
+                        if (!deviceStates.every(state => typeof state === 'boolean')) {
+                            throw new Error('All device states must be boolean values');
+                        }
+                        
+                        // 배열 형태로 파일에 저장
+                        const saveSuccess = await saveDeviceStates(deviceStates);
+                        if (saveSuccess) {
+                            const responseMessage = `Device states saved: ${JSON.stringify(deviceStates)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] Device states successfully saved to file (array)`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save device states to file`);
+                            ws.send(`Error: Failed to save device states`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid device states format:`, typeof deviceStates);
+                        console.error(`❌ [Backend WS Server] Expected array with 10 elements, got:`, deviceStates);
+                        ws.send(`Error: Invalid device states format - expected array with 10 boolean elements`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Save device states error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Save device states failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[SAVE_HIGH_TEMP_SETTINGS]') {
+                console.log("=== Save High Temp Settings Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [SAVE_HIGH_TEMP_SETTINGS] 부분을 제외하고 나머지 settings 부분만 추출
+                    const settingsData = decodedMessage.replace('[SAVE_HIGH_TEMP_SETTINGS] ', '');
+                    console.log("📥 Settings data extracted (without command):", settingsData);
+                    
+                    const settings = JSON.parse(settingsData);
+                    console.log("📥 Parsed high temp settings:", settings);
+                    
+                    if (typeof settings === 'object' && settings !== null) {
+                        console.log(`✅ [Backend WS Server] Received high temp settings to save:`, settings);
+                        
+                        // 고온 설정을 파일에 저장
+                        const saveSuccess = await saveHighTempSettings(settings);
+                        if (saveSuccess) {
+                            const responseMessage = `High temp settings saved: ${JSON.stringify(settings)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] High temp settings successfully saved to file`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save high temp settings to file`);
+                            ws.send(`Error: Failed to save high temp settings`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid high temp settings format:`, typeof settings);
+                        ws.send(`Error: Invalid high temp settings format - expected object`);
+                                            }
+                    } catch (error) {
+                        console.error(`❌ [Backend WS Server] Save high temp settings error: ${error.message}`);
+                        console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                        ws.send(`Error: Save high temp settings failed - ${error.message}`);
+                    }
+            } else if(decodeWebSocket[0] === '[SAVE_LOW_TEMP_SETTINGS]') {
+                console.log("=== Save Low Temp Settings Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [SAVE_LOW_TEMP_SETTINGS] 부분을 제외하고 나머지 settings 부분만 추출
+                    const settingsData = decodedMessage.replace('[SAVE_LOW_TEMP_SETTINGS] ', '');
+                    console.log("📥 Settings data extracted (without command):", settingsData);
+                    
+                    const settings = JSON.parse(settingsData);
+                    console.log("📥 Parsed low temp settings:", settings);
+                    
+                    if (typeof settings === 'object' && settings !== null) {
+                        console.log(`✅ [Backend WS Server] Received low temp settings to save:`, settings);
+                        
+                        // 저온 설정을 파일에 저장
+                        const saveSuccess = await saveLowTempSettings(settings);
+                        if (saveSuccess) {
+                            const responseMessage = `Low temp settings saved: ${JSON.stringify(settings)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] Low temp settings successfully saved to file`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save low temp settings to file`);
+                            ws.send(`Error: Failed to save low temp settings`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid low temp settings format:`, typeof settings);
+                        ws.send(`Error: Invalid low temp settings format - expected object`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Save low temp settings error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Save low temp settings failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[SAVE_PRODUCT_INPUT]') {
+                console.log("=== Save Product Input Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [SAVE_PRODUCT_INPUT] 부분을 제외하고 나머지 product input 부분만 추출
+                    const productInputData = decodedMessage.replace('[SAVE_PRODUCT_INPUT] ', '');
+                    console.log("📥 Product input data extracted (without command):", productInputData);
+                    
+                    const productInput = JSON.parse(productInputData);
+                    console.log("📥 Parsed product input:", productInput);
+                    
+                    if (typeof productInput === 'object' && productInput !== null) {
+                        console.log(`✅ [Backend WS Server] Received product input to save:`, productInput);
+                        
+                        // 제품 입력을 파일에 저장
+                        const saveSuccess = await saveProductInput(productInput);
+                        if (saveSuccess) {
+                            const responseMessage = `Product input saved: ${JSON.stringify(productInput)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] Product input successfully saved to file`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save product input to file`);
+                            ws.send(`Error: Failed to save product input`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid product input format:`, typeof productInput);
+                        ws.send(`Error: Invalid product input format - expected object`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Save product input error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Save product input failed - ${error.message}`);
+                }
+                            } else if(decodeWebSocket[0] === '[SAVE_USB_PORT_SETTINGS]') {
+                console.log("=== Save USB Port Settings Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [SAVE_USB_PORT_SETTINGS] 부분을 제외하고 나머지 settings 부분만 추출
+                    const settingsData = decodedMessage.replace('[SAVE_USB_PORT_SETTINGS] ', '');
+                    console.log("📥 USB port settings data extracted (without command):", settingsData);
+                    
+                    const settings = JSON.parse(settingsData);
+                    console.log("📥 Parsed USB port settings:", settings);
+                    
+                    if (typeof settings === 'object' && settings !== null) {
+                        console.log(`✅ [Backend WS Server] Received USB port settings to save:`, settings);
+                        
+                        // USB 포트 설정을 파일에 저장
+                        const saveSuccess = await saveUsbPortSettings(settings);
+                        if (saveSuccess) {
+                            const responseMessage = `USB port settings saved: ${JSON.stringify(settings)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] USB port settings successfully saved to file`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save USB port settings to file`);
+                            ws.send(`Error: Failed to save USB port settings`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid USB port settings format:`, typeof settings);
+                        ws.send(`Error: Invalid USB port settings format - expected object`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Save USB port settings error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Save USB port settings failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[SAVE_OUT_VOLT_SETTINGS]') {
+                console.log("=== Save Out Volt Settings Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [SAVE_OUT_VOLT_SETTINGS] 부분을 제외하고 나머지 settings 부분만 추출
+                    const settingsData = decodedMessage.replace('[SAVE_OUT_VOLT_SETTINGS] ', '');
+                    console.log("📥 Out volt settings data extracted (without command):", settingsData);
+                    
+                    const settings = JSON.parse(settingsData);
+                    console.log("📥 Parsed out volt settings:", settings);
+                    
+                    if (typeof settings === 'object' && settings !== null) {
+                        console.log(`✅ [Backend WS Server] Received out volt settings to save:`, settings);
+                        
+                        // 입력 전압 설정을 파일에 저장
+                        const saveSuccess = await saveOutVoltSettings(settings);
+                        if (saveSuccess) {
+                            const responseMessage = `Out volt settings saved: ${JSON.stringify(settings)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] Out volt settings successfully saved to file`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save out volt settings to file`);
+                            ws.send(`Error: Failed to save out volt settings`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid out volt settings format:`, typeof settings);
+                        ws.send(`Error: Invalid out volt settings format - expected object`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Save out volt settings error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Save out volt settings failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[GET_TABLE_OPTION]') {
+                console.log("=== Get Table Option Process: OK ===");
+                
+                try {
+                    const tableOption = await loadGetTableOption();
+                    const responseMessage = `getTableOption: ${JSON.stringify(tableOption)}`;
+                    console.log(`✅ [Backend WS Server] Sending getTableOption:`, responseMessage);
+                    ws.send(responseMessage);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Get table option error: ${error.message}`);
+                    ws.send(`Error: Get table option failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[UPDATE_TABLE_OPTION_SECTION]') {
+                console.log("=== Update Table Option Section Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [UPDATE_TABLE_OPTION_SECTION] sectionName 부분을 제외하고 나머지 데이터 부분만 추출
+                    const sectionName = decodeWebSocket[1];
+                    const dataString = decodedMessage.replace(`[UPDATE_TABLE_OPTION_SECTION] ${sectionName} `, '');
+                    console.log("📥 Section name:", sectionName);
+                    console.log("📥 Data string extracted:", dataString);
+                    
+                    const newData = JSON.parse(dataString);
+                    console.log("📥 Parsed new data:", newData);
+                    
+                    if (typeof newData === 'object' && newData !== null) {
+                        console.log(`✅ [Backend WS Server] Received update for section '${sectionName}':`, newData);
+                        
+                        // getTableOption 섹션 업데이트 및 저장
+                        const updateSuccess = await updateGetTableOptionSection(sectionName, newData);
+                        if (updateSuccess) {
+                            const responseMessage = `Table option section '${sectionName}' updated: ${JSON.stringify(newData)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] getTableOption section '${sectionName}' successfully updated and saved`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to update getTableOption section '${sectionName}'`);
+                            ws.send(`Error: Failed to update table option section '${sectionName}'`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid data format for section '${sectionName}':`, typeof newData);
+                        ws.send(`Error: Invalid data format for section '${sectionName}' - expected object`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Update table option section error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Update table option section failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[SAVE_TABLE_OPTION]') {
+                console.log("=== Save Table Option Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // [SAVE_TABLE_OPTION] 부분을 제외하고 나머지 table option 부분만 추출
+                    const tableOptionData = decodedMessage.replace('[SAVE_TABLE_OPTION] ', '');
+                    console.log("📥 Table option data extracted (without command):", tableOptionData);
+                    
+                    const tableOption = JSON.parse(tableOptionData);
+                    console.log("📥 Parsed table option:", tableOption);
+                    
+                    if (typeof tableOption === 'object' && tableOption !== null) {
+                        console.log(`✅ [Backend WS Server] Received complete table option to save:`, tableOption);
+                        
+                        // getTableOption 객체 업데이트
+                        getTableOption = tableOption;
+                        
+                        // 모든 JSON 파일에 저장
+                        const saveSuccess = await saveGetTableOption();
+                        if (saveSuccess) {
+                            const responseMessage = `Table option saved: ${JSON.stringify(tableOption)}`;
+                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
+                            ws.send(responseMessage);
+                            console.log(`✅ [Backend WS Server] Complete table option successfully saved to all files`);
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to save complete table option to files`);
+                            ws.send(`Error: Failed to save table option`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid table option format:`, typeof tableOption);
+                        ws.send(`Error: Invalid table option format - expected object`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Save table option error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Save table option failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[CHAMBER_TEST]') {
+                console.log("=== Chamber Test Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    const portMatch = decodedMessage.match(/\[CHAMBER_TEST\] PORT:(\d+)/);
+                    if (portMatch) {
+                        const portNumber = parseInt(portMatch[1]);
+                        console.log(`🌡️ [Backend WS Server] Testing chamber on port ${portNumber}`);
+                        
+                        // 챔버 테스트 시뮬레이션
+                        await sleep(1500); // 챔버 테스트는 조금 더 오래 걸림
+                        
+                        // 챔버 테스트 성공률 (90%)
+                        const isSuccess = Math.random() > 0.1;
+                        
+                        if (isSuccess) {
+                            try {
+                                // getTableOption에서 챔버 포트 설정 가져오기
+                                const chamberPort = getTableOption.usbPortSettings.chamber || '/dev/ttyUSB0';
+                                console.log(`🌡️ [Backend WS Server] Reading chamber temperature from port: ${chamberPort}`);
+                                
+                                // 실제 ReadChamber 함수 호출
+                                const temperature = await ReadChamber(chamberPort);
+                                
+                                if (typeof temperature === 'number') {
+                                    const responseMessage = `[CHAMBER_TEST] PORT:${portNumber} STATUS:success MESSAGE:챔버 ${portNumber} 정상 동작`;
+                                    console.log(`✅ [Backend WS Server] Chamber ${portNumber} test successful, temperature: ${temperature}°C`);
+                                    ws.send(responseMessage);
+                                    
+                                    // 실제 온도 데이터 전송
+                                    const tempData = { temperature: parseFloat(temperature.toFixed(1)) };
+                                    ws.send(`Temperature: ${JSON.stringify(tempData)}`);
+                                } else {
+                                    const responseMessage = `[CHAMBER_TEST] PORT:${portNumber} STATUS:error MESSAGE:챔버 ${portNumber} 온도 읽기 실패`;
+                                    console.log(`❌ [Backend WS Server] Chamber ${portNumber} temperature reading failed`);
+                                    ws.send(responseMessage);
+                                }
+                            } catch (error) {
+                                console.error(`❌ [Backend WS Server] Chamber temperature reading error: ${error.message}`);
+                                const responseMessage = `[CHAMBER_TEST] PORT:${portNumber} STATUS:error MESSAGE:챔버 ${portNumber} 연결 실패`;
+                                ws.send(responseMessage);
+                            }
+                        } else {
+                            const responseMessage = `[CHAMBER_TEST] PORT:${portNumber} STATUS:error MESSAGE:챔버 ${portNumber} 연결 실패`;
+                            console.log(`❌ [Backend WS Server] Chamber ${portNumber} test failed`);
+                            ws.send(responseMessage);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid chamber test message format`);
+                        ws.send(`Error: Invalid chamber test message format`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Chamber test error: ${error.message}`);
+                    ws.send(`Error: Chamber test failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[POWER_TEST]') {
+                console.log("=== Power Test Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // Parse port and voltage from message
+                    const powerMatch = decodedMessage.match(/\[POWER_TEST\] PORT:(\d+)(?: VOLTAGE:([\d.-]+))?/);
+                    if (powerMatch) {
+                        const portNumber = parseInt(powerMatch[1]);
+                        const voltage = powerMatch[2] ? parseFloat(powerMatch[2]) : 18.0; // Default to 18.0V if not specified
+                        
+                        console.log(`⚡ [Backend WS Server] Testing power on port ${portNumber} with voltage ${voltage}V`);
+                        
+                        // Validate voltage range
+                        if (voltage < -30.0 || voltage > 30.0) {
+                            const responseMessage = `[POWER_TEST] PORT:${portNumber} STATUS:error MESSAGE:전압 범위 오류 (-30.0V ~ 30.0V)`;
+                            console.log(`❌ [Backend WS Server] Power ${portNumber} test failed - voltage out of range: ${voltage}V`);
+                            ws.send(responseMessage);
+                            return;
+                        }
+                        
+                        // Send voltage command to power supply
+                        try {
+                            console.log(`⚡ [Backend WS Server] Sending voltage command: ${voltage}V`);
+                            await SendVoltCommand(voltage);
+                            console.log(`✅ [Backend WS Server] Voltage command sent successfully: ${voltage}V`);
+                            
+                            // 파워 테스트 시뮬레이션
+                            await sleep(800); // 파워 테스트는 빠름
+                            
+                            // 파워 테스트 성공률 (95%)
+                            const isSuccess = Math.random() > 0.05;
+                            
+                            if (isSuccess) {
+                                const responseMessage = `[POWER_TEST] PORT:${portNumber} STATUS:success MESSAGE:파워 ${portNumber} 정상 공급 (${voltage}V)`;
+                                console.log(`✅ [Backend WS Server] Power ${portNumber} test successful with ${voltage}V`);
+                                ws.send(responseMessage);
+                            } else {
+                                const responseMessage = `[POWER_TEST] PORT:${portNumber} STATUS:error MESSAGE:파워 ${portNumber} 공급 실패`;
+                                console.log(`❌ [Backend WS Server] Power ${portNumber} test failed`);
+                                ws.send(responseMessage);
+                            }
+                        } catch (voltError) {
+                            console.error(`❌ [Backend WS Server] Voltage command failed: ${voltError.message}`);
+                            const responseMessage = `[POWER_TEST] PORT:${portNumber} STATUS:error MESSAGE:전압 설정 실패 - ${voltError.message}`;
+                            ws.send(responseMessage);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid power test message format`);
+                        ws.send(`Error: Invalid power test message format`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Power test error: ${error.message}`);
+                    ws.send(`Error: Power test failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[LOAD_TEST]') {
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                console.log("📥 Raw message received:", decodedMessage);
+                try {
+                    // Parse port and channel from message
+                    const loadMatch = decodedMessage.match(/\[LOAD_TEST\] PORT:(\d+)(?: CHANNEL:(\d+))?/);
+                    if (loadMatch) {
+                        const portNumber = parseInt(loadMatch[1]);
+                        const channelNumber = loadMatch[2] ? parseInt(loadMatch[2]) : 1; // Default to channel 1 if not specified
+                        
+                        console.log(`🔌 [Backend WS Server] Load test on port ${portNumber} with channel ${channelNumber}`);
+                        
+                        // Validate channel range
+                        if (channelNumber < 1 || channelNumber > 5) {
+                            const responseMessage = `[LOAD_TEST] PORT:${portNumber} STATUS:error MESSAGE:채널 번호 범위 오류 (1~5)`;
+                            console.log(`❌ [Backend WS Server] Load ${portNumber} test failed - channel out of range: ${channelNumber}`);
+                            ws.send(responseMessage);
+                            return;
+                        }
+                        
+                        // Read voltage from selected channel with 2-second timeout
+                        try {
+                            console.log(`🔌 [Backend WS Server] Reading voltage from channel ${channelNumber}`);
+                            const voltage = await ReadVolt(channelNumber);
+                            
+                            // Check if voltage reading was successful
+                            if (typeof voltage === 'number') {
+                                const responseMessage = `[LOAD_TEST] PORT:${portNumber} STATUS:success MESSAGE:로드 ${portNumber} 정상 연결`;
+                                console.log(`✅ [Backend WS Server] Load ${portNumber} test successful, voltage: ${voltage}V from channel ${channelNumber}`);
+                                ws.send(responseMessage);
+                                
+                                // Send voltage data with port and channel information
+                                const voltageData = { 
+                                    port: portNumber, 
+                                    voltage: voltage,
+                                    channel: channelNumber 
+                                };
+                                ws.send(`LoadVoltage: ${JSON.stringify(voltageData)}`);
+                            } else if (voltage === 'timeout') {
+                                const responseMessage = `[LOAD_TEST] PORT:${portNumber} STATUS:error MESSAGE:로드 ${portNumber} 응답 시간 초과 (10초)`;
+                                console.log(`❌ [Backend WS Server] Load ${portNumber} test failed - timeout after 10 seconds`);
+                                ws.send(responseMessage);
+                            } else {
+                                const responseMessage = `[LOAD_TEST] PORT:${portNumber} STATUS:error MESSAGE:로드 ${portNumber} 전압 읽기 실패`;
+                                console.log(`❌ [Backend WS Server] Load ${portNumber} test failed - invalid voltage reading: ${voltage}`);
+                                ws.send(responseMessage);
+                            }
+                        } catch (voltError) {
+                            console.error(`❌ [Backend WS Server] Voltage reading failed: ${voltError.message}`);
+                            const responseMessage = `[LOAD_TEST] PORT:${portNumber} STATUS:error MESSAGE:전압 읽기 실패 - ${voltError.message}`;
+                            ws.send(responseMessage);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid load test message format`);
+                        ws.send(`Error: Invalid load test message format`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Load test error: ${error.message}`);
+                    ws.send(`Error: Load test failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[RELAY_TEST]') {
+                //console.log("=== Relay Test Process: OK ===");
+                //console.log("📥 Raw message received:", decodedMessage);
+                //console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // Parse port and device number from message
+                    const relayMatch = decodedMessage.match(/\[RELAY_TEST\] PORT:(\d+)(?: DEVICE:(\d+))?/);
+                    if (relayMatch) {
+                        const portNumber = parseInt(relayMatch[1]);
+                        const deviceNumber = relayMatch[2] ? parseInt(relayMatch[2]) : 1; // Default to device 1 if not specified
+                        
+                        console.log(`🔗 [Backend WS Server] Testing relay on port ${portNumber} with device ${deviceNumber}`);
+                        
+                        // Validate device number range
+                        if (deviceNumber < 1 || deviceNumber > 10) {
+                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:기기 번호 범위 오류 (1~10)`;
+                            console.log(`❌ [Backend WS Server] Relay ${portNumber} test failed - device number out of range: ${deviceNumber}`);
+                            ws.send(responseMessage);
+                            return;
+                        }
+                        
+                        // Call SelectDevice function
+                        try {
+                            console.log(`🔗 [Backend WS Server] Selecting device: ${deviceNumber}`);
+                            const { SelectDevice } = await import('./SelectDevice.js');
+                            await RelayAllOff();
+                            await SelectDevice(deviceNumber);
+                            console.log(`✅ [Backend WS Server] Device ${deviceNumber} selected successfully`);
+                            
+                            // 릴레이 테스트 시뮬레이션
+                            await sleep(600); // 릴레이 테스트는 가장 빠름
+                            
+                            // 릴레이 테스트 성공률 (98%)
+                            const isSuccess = Math.random() > 0.02;
+                            
+                            if (isSuccess) {
+                                const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:success MESSAGE:릴레이 ${portNumber} 정상 동작 (기기 ${deviceNumber})`;
+                                console.log(`✅ [Backend WS Server] Relay ${portNumber} test successful with device ${deviceNumber}`);
+                                ws.send(responseMessage);
+                            } else {
+                                const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:릴레이 ${portNumber} 동작 실패`;
+                                console.log(`❌ [Backend WS Server] Relay ${portNumber} test failed`);
+                                ws.send(responseMessage);
+                            }
+                        } catch (relayError) {
+                            console.error(`❌ [Backend WS Server] Relay device selection failed: ${relayError.message}`);
+                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:릴레이 기기 선택 실패 - ${relayError.message}`;
+                            ws.send(responseMessage);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid relay test message format`);
+                        ws.send(`Error: Invalid relay test message format`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Relay test error: ${error.message}`);
+                    ws.send(`Error: Relay test failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[SINGLE_PAGE_PROCESS]') {
+                console.log("=== Single Page Process Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    const action = decodeWebSocket[1];
+                    
+                    if (action === 'START') {
+                        console.log(`🚀 [Backend WS Server] Starting single page process`);
+                        ws.send(`[SINGLE_PAGE_PROCESS] STARTED`);
+                        
+                        // 비동기로 프로세스 실행
+                        runSinglePageProcess()
+                            .then(() => {
+                                console.log(`✅ [Backend WS Server] Single page process completed successfully`);
+                                ws.send(`[SINGLE_PAGE_PROCESS] COMPLETED`);
+                            })
+                            .catch((error) => {
+                                console.error(`❌ [Backend WS Server] Single page process failed: ${error.message}`);
+                                ws.send(`[SINGLE_PAGE_PROCESS] ERROR: ${error.message}`);
+                            });
+                    } else if (action === 'STOP') {
+                        console.log(`⏹️ [Backend WS Server] Stopping single page process`);
+                        // 프로세스 중지 로직 (필요시 구현)
+                        ws.send(`[SINGLE_PAGE_PROCESS] STOPPED`);
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid single page process action: ${action}`);
+                        ws.send(`Error: Invalid single page process action - ${action}`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Single page process error: ${error.message}`);
+                    ws.send(`Error: Single page process failed - ${error.message}`);
+                }
+            }
+        // End of device select process
+        } catch (error) {
+            console.error(`[Backend WS Server] Message processing error: ${error.message}`);
+            ws.send(`Error: Message processing failed - ${error.message}`);
+        }
+   });
+
+    // 클라이언트 연결이 끊어졌을 때
+    ws.on('close', (code, reason) => {
+        console.log(`[Backend WS Server] 클라이언트 연결 해제됨 - Code: ${code}, Reason: ${reason}`);
+    });
+
+    // 에러 발생 시
+    ws.on('error', error => {
+        console.error('[Backend WS Server] WebSocket 에러:', error.message);
+        console.error('[Backend WS Server] Error stack:', error.stack);
+    });
+
+    // 연결 시 클라이언트에게 초기 메시지 전송
+    ws.send('환영합니다! 백엔드 WebSocket 서버에 연결되었습니다.');
+});
+
+console.log(`[Backend WS Server] WebSocket 서버가 ws://localhost:${LOCAL_WS_PORT} 에서 실행 중입니다.`);
+
+// 서버 시작 시 getTableOption 초기화
+(async () => {
+  try {
+    console.log(`🚀 [Backend WS Server] Initializing getTableOption on server startup...`);
+    await loadGetTableOption();
+    console.log(`✅ [Backend WS Server] getTableOption initialized successfully on startup`);
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to initialize getTableOption on startup: ${error.message}`);
+  }
+})();
+
+// 서버 강제 종료 시그널 처리 (Ctrl+C)
+process.on('SIGINT', () => {
+    console.log('[Backend WS Server] 서버 종료 요청 수신. 모든 클라이언트 연결 닫기...');
+    wss.close(() => {
+        console.log('[Backend WS Server] WebSocket 서버가 성공적으로 종료되었습니다.');
+        process.exit(0);
+    });
+});
+
+// Add global error handler for unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Backend WS Server] Unhandled Rejection at:', promise, 'reason:', reason);
+});

@@ -1,0 +1,175 @@
+/* 기본 리셋 및 전체 레이아웃 설정 */
+
+/* 전체 홈페이지 컨테이너 */
+.container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  background-color: #1a1a1a; /* 다크 모드: 어두운 배경색 */
+  color: #e0e0e0; /* 다크 모드: 밝은 기본 글자색 */
+  overflow: hidden; /* 전체 스크롤 방지 */
+}
+
+/* 헤더 스타일 */
+.header {
+  height: 10vh; /* 뷰포트 높이의 10% */
+  min-height: 60px; /* 최소 높이 보장 */
+  max-height: 100px; /* 최대 높이 제한 */
+  display: grid;
+  grid-template-columns: 160px 1fr 80px 80px; /* 반응형 그리드 */
+  align-items: center; /* 세로 중앙 정렬 */
+  padding: 8px; /* 좌우 패딩: 16px로 변경 */
+  gap: 8px; /* 그리드 아이템 간 간격: 16px로 변경 */
+  flex-shrink: 0; /* 헤더 크기 고정 */
+}
+
+.headerItem {
+  border-radius:  7px;
+  text-align: center;
+  padding: 8px;
+  background-color: rgba(60, 60, 60, 0.7); /* 다크 모드: 아이템 배경색 */
+  color: #e0e0e0; /* 다크 모드: 아이템 글자색 */
+  font-size: clamp(20px, 3vw, 40px); /* 반응형 폰트 크기 */
+  font-family: 'Malgun Gothic', '맑은 고딕', 'Gothic', sans-serif; /* 고딕체 폰트 패밀리 */
+  font-weight: bold; /* 굵은 글씨 */
+  width: 100%; /* 최대 너비로 설정 */
+  height: 100%; /* 최대 높이로 설정 */
+  display: flex; /* flexbox 사용 */
+  align-items: center; /* 세로 중앙 정렬 */
+  justify-content: center; /* 가로 중앙 정렬 */
+  box-sizing: border-box; /* 패딩과 보더를 포함한 크기 계산 */
+}
+
+/* 바디 스타일 */
+.bodyContent {
+  height: calc(100vh - 10vh - 25vh - 50px); /* 전체 높이에서 헤더(10vh)와 푸터(25vh)를 빼고 50px 추가로 감소 */
+  min-height: 0; /* flex 아이템 최소 높이 설정 */
+  display: grid;
+  grid-template-columns: 160px 1fr; /* 반응형 그리드 */
+  padding: 0 8px; /* 좌우 패딩: 16px로 변경 */
+  gap: 8px; /* 그리드 아이템 간 간격: 16px로 변경 */
+  font-size: clamp(16px, 2vw, 24px); /* 반응형 폰트 크기 */
+  color: #e0e0e0; /* 다크 모드: 바디 글자색 */
+  margin-top: 8px; /* 헤더와 바디 사이 간격 */
+  overflow: hidden; /* 바디 내부 스크롤 방지 */
+}
+
+.bodyItem {
+  border-radius:  7px;
+  text-align: center;
+  padding: 8px;
+  background-color: rgba(60, 60, 60, 0.7); /* 다크 모드: 아이템 배경색 */
+  color: #e0e0e0; /* 다크 모드: 아이템 글자색 */
+  overflow: hidden; /* 내용 오버플로우 방지 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 푸터 스타일 */
+.footer {
+  height: calc(25vh + 50px); /* 뷰포트 높이의 25% + 50px */
+  min-height: 250px; /* 최소 높이 보장 (200px + 50px) */
+  max-height: 350px; /* 최대 높이 제한 (300px + 50px) */
+  display: grid;
+  /* 반응형 그리드 - 화면 크기에 따라 조정 */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  align-items: stretch; /* 세로 늘림 */
+  padding: 0 8px; /* 좌우 패딩: 16px로 변경 */
+  gap: 8px; /* 그리드 아이템 간 간격: 16px로 변경 */
+  margin-top: 8px; /* 바디와 푸터 사이 간격 */
+  flex-shrink: 0; /* 푸터 크기 고정 */
+}
+
+.footerItem {
+  border-radius:  7px;
+  text-align: center;
+  padding: 8px;
+  width: 100%; /* 최대 너비로 설정 */
+  height: 100%; /* 최대 높이로 설정 */
+  display: flex; /* flexbox 사용 */
+  background-color: rgba(60, 60, 60, 0.6); /* 다크 모드: 아이템 배경색 */
+  color: #e0e0e0; /* 다크 모드: 아이템 글자색 */
+  overflow: hidden; /* 내용 오버플로우 방지 */
+}
+
+/*----------------------------*/
+
+/*-------- load8 ------*/
+
+.boxJsk{
+  display: flex;
+  height: 100%;
+  width: 100%;
+  position: relative;
+  transition: all .2s ease;
+  align-items: center;
+  justify-content: center;
+}
+
+/* for program running signal */
+
+.loader8{
+  position: relative;
+  width: 50px; 
+  height: 50px; 
+
+  border-radius: 25px;
+  background-color: rgba(255, 255, 255, .2);
+  border-width: 25px;
+  border-style: double;
+  border-color:transparent  greenyellow;
+
+  -webkit-box-sizing:border-box;
+  -moz-box-sizing:border-box;
+    box-sizing:border-box;
+
+  -webkit-transform-origin:  50% 50%;
+    transform-origin:  50% 50% ;
+  -webkit-animation: loader8 2s linear infinite;
+    animation: loader8 2s linear infinite;
+  
+}
+
+
+@-webkit-keyframes loader8{
+    0%{-webkit-transform:rotate(0deg);}
+    100%{-webkit-transform:rotate(360deg);}
+}
+
+@keyframes loader8{
+    0%{transform:rotate(0deg);}
+    100%{transform:rotate(360deg);}
+}
+
+/* 반응형 미디어 쿼리 */
+@media (max-width: 1200px) {
+  .header {
+    grid-template-columns: 120px 1fr 60px 60px;
+  }
+  
+  .bodyContent {
+    grid-template-columns: 120px 1fr;
+  }
+  
+  .footer {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    grid-template-columns: 80px 1fr 50px 50px;
+    height: 8vh;
+  }
+  
+  .bodyContent {
+    grid-template-columns: 80px 1fr;
+  }
+  
+  .footer {
+    height: 30vh;
+    grid-template-columns: 1fr;
+  }
+}

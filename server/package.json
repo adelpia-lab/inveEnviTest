@@ -1,0 +1,19 @@
+{
+  "name": "adeltestserver",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "backend-websocket-server.js",
+  "scripts": {
+    "start": "node backend-websocket-server.js",
+    "dev": "nodemon backend-websocket-server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.18.2"
+  }
+}
