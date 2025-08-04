@@ -26,14 +26,14 @@ const productInputSchema = z.object({
     z.string()
       .length(6, '제품명은 6자리여야 합니다')
       .regex(/^[A-Z]{2}\d{4}$/, '제품명은 2자리 대문자 + 4자리 숫자 형식이어야 합니다')
-  ).length(10, '제품명은 10개여야 합니다')
+  ).length(3, '제품명은 3개여야 합니다')
 });
 
 type ProductInputData = z.infer<typeof productInputSchema>;
 
 // 기본값 정의
 const MODEL_NAME_INIT = '61514540';
-const PRODUCT_NAME_INIT = ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311'];
+const PRODUCT_NAME_INIT = ['PL2222', 'PL2233', 'PL2244'];
 
 interface ProductInputProps {
   wsConnection?: WebSocket;
@@ -42,14 +42,14 @@ interface ProductInputProps {
 
 /**
  * 제품 입력 컴포넌트
- * 모델명(8자리 숫자)과 제품명(2자리 대문자 + 4자리 숫자) 10개를 입력받아 저장
+ * 모델명(8자리 숫자)과 제품명(2자리 대문자 + 4자리 숫자) 3개를 입력받아 저장
  */
 export default function ProductInput({ wsConnection, onSave }: ProductInputProps) {
   // 팝업창 열림/닫힘 상태
   const [open, setOpen] = useState(false);
   // 모델명 상태 - use default values to prevent hydration mismatch
   const [modelName, setModelName] = useState(MODEL_NAME_INIT);
-  // 제품명 배열 상태 (10개 필드로 고정) - use default values to prevent hydration mismatch
+  // 제품명 배열 상태 (3개 필드로 고정) - use default values to prevent hydration mismatch
   const [productNames, setProductNames] = useState<string[]>(PRODUCT_NAME_INIT);
   // 에러 상태
   const [error, setError] = useState<string | null>(null);

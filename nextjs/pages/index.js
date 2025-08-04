@@ -472,7 +472,7 @@ const sendMessage = () => {
                 alt="Adel Logo" 
               />
             </div>
-            <div className={styles.headerItem}> 아델피아 차기전차 컨버터 환경시험</div>
+            <div className={styles.headerItem}> 아델피아 인버터 환경시험</div>
 
             <div className={styles.headerItem}>
               <div className={styles.boxJsk}>

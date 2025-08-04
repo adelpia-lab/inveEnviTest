@@ -81,8 +81,8 @@ const RawVoltTable = [];
 // 첫 번째 차원 (3)
 for (let i = 0; i < 3; i++) {
   RawVoltTable[i] = []; // 두 번째 차원을 위한 배열 초기화
-  // 두 번째 차원 (10)
-  for (let j = 0; j < 10; j++) {
+  // 두 번째 차원 (3)
+  for (let j = 0; j < 3; j++) {
     RawVoltTable[i][j] = []; // 세 번째 차원을 위한 배열 초기화
     // 세 번째 차원 (4)
     for (let k = 0; k < 4; k++) {
@@ -154,9 +154,9 @@ function saveTotaReportTableToFile(data) {
       const voltageName = data.inputVolt[k] || `Voltage ${k+1}`;
       csvContent += `${voltageName} 테이블\n`;
       
-      // 헤더 라인: Device 1, Device 2, ..., Device 10
+      // 헤더 라인: Device 1, Device 2, Device 3
       csvContent += 'Channel,';
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 3; i++) {
         csvContent += `Device ${i+1},`;
       }
       csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
@@ -164,7 +164,7 @@ function saveTotaReportTableToFile(data) {
       // 4개 채널을 세로로 표시 (각 채널이 한 행)
       for (let j = 0; j < 4; j++) {
         csvContent += `Channel ${j+1},`;
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 3; i++) {
           const voltageValue = reportData.voltagTable[k][i][j] || '';
           csvContent += `${voltageValue},`;
         }
@@ -190,7 +190,7 @@ function saveTotaReportTableToFile(data) {
 
 export async function readVoltDataOneline() {
   const NUM_MEASUREMENTS = 10;
-  const NUM_DEVICES = 10;
+  const NUM_DEVICES = 3;
   const results = [];
 
   for (let measureIdx = 0; measureIdx < NUM_MEASUREMENTS; measureIdx++) {
@@ -253,7 +253,7 @@ export async function runSinglePageProcess() {
       console.log('[SinglePageProcess] 1. 전압 설정:', inputVolt);  
       await SendVoltCommand(inputVolt);  
       
-      for ( let i = 0; i < 10; i++) {
+      for ( let i = 0; i < 3; i++) {
           if (getTableOption.deviceStates[i] === false) {
             for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
               TotaReportTable.reportTable[0].voltagTable[k][i][j] = "-.-";

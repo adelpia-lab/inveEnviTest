@@ -8,7 +8,7 @@ The ProductInput component is a React component that allows users to input model
 ### Input Validation
 - **Model Name**: Must be exactly 8 digits (e.g., "61514540")
 - **Product Names**: Must be exactly 6 characters in the format "XX1234" (2 uppercase letters + 4 digits)
-- **Quantity**: Exactly 10 product names are required
+- **Quantity**: Exactly 3 product names are required
 
 ### Data Persistence
 - **localStorage**: Saves data locally in the browser
@@ -50,7 +50,7 @@ import ProductInput from './components/SystemSet/ProductInput';
 ```typescript
 interface ProductInputData {
   modelName: string;      // 8-digit number
-  productNames: string[]; // Array of 10 product names (6 characters each)
+  productNames: string[]; // Array of 3 product names (6 characters each)
 }
 ```
 
@@ -74,7 +74,7 @@ The component sends data to the backend using the following WebSocket message fo
 [SAVE_PRODUCT_INPUT] {"modelName":"61514540","productNames":["PL2222","PL2233",...]}
 ```
 
-The backend saves this data to a JSON file (`product_input.json`) and sends confirmation messages back to the client.
+The backend saves this data to a JSON file (`product_input.json`) and sends confirmation messages back to the client. The server expects exactly 3 product names in the array.
 
 ## Error Handling
 

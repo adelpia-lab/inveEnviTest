@@ -238,7 +238,7 @@ async function loadProductInput() {
     // 기본값
     const defaultProductInput = {
       modelName: '61514540',
-      productNames: ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311']
+      productNames: ['PL2222', 'PL2233', 'PL2244']
     };
     // console.log(`📖 [Backend WS Server] Default product input:`, defaultProductInput);
     return defaultProductInput;
@@ -555,7 +555,7 @@ wss.on('connection', ws => {
             // 기본값 전송
             const defaultProductInput = {
                 modelName: '61514540',
-                productNames: ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311']
+                productNames: ['PL2222', 'PL2233', 'PL2244']
             };
             console.log(`📤 [Backend WS Server] Sending default product input:`, defaultProductInput);
             ws.send(`Initial product input: ${JSON.stringify(defaultProductInput)}`);
