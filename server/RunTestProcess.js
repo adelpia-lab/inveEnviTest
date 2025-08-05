@@ -673,6 +673,24 @@ export async function runNextTankEnviTestProcess() {
               }
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 완료 (${highTempResults.length}개 결과 누적)`);
+            
+            // 고온 테스트 결과를 하나의 파일로 저장 (readCount만큼 누적)
+            if (highTempResults.length > 0) {
+              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 시작 (${highTempResults.length}개 세트)`);
+              const combinedHighTempData = combineTestResults(highTempResults);
+              const saveResult = saveTotaReportTableToFile(
+                combinedHighTempData, 
+                getTableOption.channelVoltages, 
+                cycle, 
+                'HighTemp'
+              );
+              if (saveResult.success) {
+                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 완료: ${saveResult.filename}`);
+              } else {
+                console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 실패: ${saveResult.error}`);
+              }
+            }
+            
             // 실행완료 하면 빠져 나감
             break;
           } else {
@@ -749,6 +767,24 @@ export async function runNextTankEnviTestProcess() {
               }
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 완료 (${lowTempResults.length}개 결과 누적)`);
+            
+            // 저온 테스트 결과를 하나의 파일로 저장 (lowReadCount만큼 누적)
+            if (lowTempResults.length > 0) {
+              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 시작 (${lowTempResults.length}개 세트)`);
+              const combinedLowTempData = combineTestResults(lowTempResults);
+              const saveResult = saveTotaReportTableToFile(
+                combinedLowTempData, 
+                getTableOption.channelVoltages, 
+                cycle, 
+                'LowTemp'
+              );
+              if (saveResult.success) {
+                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 완료: ${saveResult.filename}`);
+              } else {
+                console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 실패: ${saveResult.error}`);
+              }
+            }
+            
             // 실행완료 하면 빠져 나감
             break;
           } else {
@@ -757,42 +793,7 @@ export async function runNextTankEnviTestProcess() {
         }
       }
       
-      // 사이클별 결과를 하나의 파일로 저장
-      if (highTempResults.length > 0 || lowTempResults.length > 0) {
-        console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 결과 저장 시작`);
-        
-        // 고온 테스트 결과 저장
-        if (highTempResults.length > 0) {
-          const combinedHighTempData = combineTestResults(highTempResults);
-          const saveResult = saveTotaReportTableToFile(
-            combinedHighTempData, 
-            getTableOption.channelVoltages, 
-            cycle, 
-            'HighTemp'
-          );
-          if (saveResult.success) {
-            console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 완료: ${saveResult.filename}`);
-          } else {
-            console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 실패: ${saveResult.error}`);
-          }
-        }
-        
-        // 저온 테스트 결과 저장
-        if (lowTempResults.length > 0) {
-          const combinedLowTempData = combineTestResults(lowTempResults);
-          const saveResult = saveTotaReportTableToFile(
-            combinedLowTempData, 
-            getTableOption.channelVoltages, 
-            cycle, 
-            'LowTemp'
-          );
-          if (saveResult.success) {
-            console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 완료: ${saveResult.filename}`);
-          } else {
-            console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 실패: ${saveResult.error}`);
-          }
-        }
-      }
+
       
       console.log(`[NextTankEnviTestProcess] === 사이클 ${cycle}/${cycleNumber} 완료 ===`);
       

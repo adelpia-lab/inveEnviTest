@@ -641,7 +641,7 @@ wss.on('connection', ws => {
             console.error(`❌ [Backend WS Server] Failed to send initial high temp settings: ${error.message}`);
             // 기본값 전송 - 고온 측정 선택이 off 상태
             const defaultSettings = {
-                isHighTempEnabled: false, // 기본적으로 off 상태
+                highTemp: false, // 기본적으로 off 상태
                 targetTemp: 75,
                 waitTime: 200,
                 readCount: 10,
@@ -656,12 +656,14 @@ wss.on('connection', ws => {
         try {
             const savedSettings = await loadLowTempSettings();
             console.log(`📤 [Backend WS Server] Sending initial low temp settings to client:`, savedSettings);
+            console.log(`📤 [Backend WS Server] Saved settings lowTemp value:`, savedSettings.lowTemp);
+            console.log(`📤 [Backend WS Server] Saved settings lowTemp type:`, typeof savedSettings.lowTemp);
             ws.send(`Initial low temp settings: ${JSON.stringify(savedSettings)}`);
         } catch (error) {
             console.error(`❌ [Backend WS Server] Failed to send initial low temp settings: ${error.message}`);
-            // 기본값 전송
+            // 기본값 전송 - 저온 측정 선택이 off 상태
             const defaultSettings = {
-                lowTemp: false,
+                lowTemp: false, // 기본적으로 off 상태
                 targetTemp: -32,
                 waitTime: 200,
                 readCount: 10,
@@ -1028,12 +1030,33 @@ wss.on('connection', ws => {
                     } else {
                         console.error(`❌ [Backend WS Server] Invalid high temp settings format:`, typeof settings);
                         ws.send(`Error: Invalid high temp settings format - expected object`);
-                                            }
-                    } catch (error) {
-                        console.error(`❌ [Backend WS Server] Save high temp settings error: ${error.message}`);
-                        console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
-                        ws.send(`Error: Save high temp settings failed - ${error.message}`);
                     }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Save high temp settings error: ${error.message}`);
+                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
+                    ws.send(`Error: Save high temp settings failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[READ_HIGH_TEMP_SETTINGS]') {
+                console.log("=== Read High Temp Settings Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                
+                try {
+                    // 서버에서 고온 설정을 읽어와서 클라이언트에게 전송
+                    const savedSettings = await loadHighTempSettings();
+                    console.log(`📤 [Backend WS Server] Sending high temp settings to client:`, savedSettings);
+                    ws.send(`High temp settings read: ${JSON.stringify(savedSettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to read high temp settings: ${error.message}`);
+                    // 기본값 전송
+                    const defaultSettings = {
+                        highTemp: false,
+                        targetTemp: 75,
+                        waitTime: 200,
+                        readCount: 10,
+                    };
+                    console.log(`📤 [Backend WS Server] Sending default high temp settings:`, defaultSettings);
+                    ws.send(`High temp settings read: ${JSON.stringify(defaultSettings)}`);
+                }
             } else if(decodeWebSocket[0] === '[SAVE_LOW_TEMP_SETTINGS]') {
                 console.log("=== Save Low Temp Settings Process: OK ===");
                 console.log("📥 Raw message received:", decodedMessage);
@@ -1078,6 +1101,27 @@ wss.on('connection', ws => {
                     console.error(`❌ [Backend WS Server] Save low temp settings error: ${error.message}`);
                     console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
                     ws.send(`Error: Save low temp settings failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[READ_LOW_TEMP_SETTINGS]') {
+                console.log("=== Read Low Temp Settings Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                
+                try {
+                    // 서버에서 저온 설정을 읽어와서 클라이언트에게 전송
+                    const savedSettings = await loadLowTempSettings();
+                    console.log(`📤 [Backend WS Server] Sending low temp settings to client:`, savedSettings);
+                    ws.send(`Low temp settings read: ${JSON.stringify(savedSettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to read low temp settings: ${error.message}`);
+                    // 기본값 전송
+                    const defaultSettings = {
+                        lowTemp: false,
+                        targetTemp: -32,
+                        waitTime: 200,
+                        readCount: 10,
+                    };
+                    console.log(`📤 [Backend WS Server] Sending default low temp settings:`, defaultSettings);
+                    ws.send(`Low temp settings read: ${JSON.stringify(defaultSettings)}`);
                 }
             } else if(decodeWebSocket[0] === '[SAVE_PRODUCT_INPUT]') {
                 console.log("=== Save Product Input Process: OK ===");
