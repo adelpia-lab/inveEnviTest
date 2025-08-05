@@ -57,14 +57,14 @@ async function loadHighTempSettings() {
     const data = await fs.readFile(HIGH_TEMP_SETTINGS_FILE, 'utf-8');
     const settings = JSON.parse(data);
     return {
-      isHighTempEnabled: settings.isHighTempEnabled || false,
+      highTemp: settings.highTemp || false,
       targetTemp: settings.targetTemp || 75,
       waitTime: settings.waitTime || 200,
       readCount: settings.readCount || 10
     };
   } catch (error) {
     return {
-      isHighTempEnabled: false,
+      highTemp: false,
       targetTemp: 75,
       waitTime: 200,
       readCount: 10
@@ -78,14 +78,14 @@ async function loadLowTempSettings() {
     const data = await fs.readFile(LOW_TEMP_SETTINGS_FILE, 'utf-8');
     const settings = JSON.parse(data);
     return {
-      isLowTempEnabled: settings.isLowTempEnabled || false,
+      lowTemp: settings.lowTemp || false,
       targetTemp: settings.targetTemp || -32,
       waitTime: settings.waitTime || 200,
       readCount: settings.readCount || 10
     };
   } catch (error) {
     return {
-      isLowTempEnabled: false,
+      lowTemp: false,
       targetTemp: -32,
       waitTime: 200,
       readCount: 10

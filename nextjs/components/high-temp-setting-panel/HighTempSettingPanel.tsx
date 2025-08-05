@@ -5,7 +5,7 @@ import { Button, Switch, Typography } from '@mui/material';
 // Zod 스키마 정의
 const highTempSchema = z.object({
   highTemp: z.boolean(), // 새 토글 항목
-  targetTemp: z.number().min(50).max(99),
+  targetTemp: z.number().min(20).max(99),
   waitTime: z.number().min(1).max(999),
   readCount: z.number().min(1).max(10),
 });
@@ -53,7 +53,7 @@ export default function HighTempSettingPanel({
   };
 
   // UI 토글 상태 (렌더링용, 저장X)
-  const [isHighTempEnabled, setIsHighTempEnabled] = useState(false); // 항상 false로 시작
+  const [isHighTempEnabled, setIsHighTempEnabled] = useState(true); // 항상 활성화
   const [form, setForm] = useState<HighTempSetting>(() => {
     const initialSettings = getStoredHighTempSettings();
     return initialSettings;
@@ -71,12 +71,12 @@ export default function HighTempSettingPanel({
     const storedSettings = getStoredHighTempSettings();
     // console.log("💾 Loaded high temp settings from localStorage as fallback:", storedSettings);
     
-    // 고온 측정 선택을 강제로 off 상태로 설정
+    // 저장된 상태를 그대로 사용
     const safeSettings = {
       ...storedSettings,
-      highTemp: false // 강제로 off 상태로 설정
+      highTemp: storedSettings.highTemp // 저장된 상태 유지
     };
-    // console.log('🔄 Setting initial high temp settings with forced off state:', safeSettings);
+    // console.log('🔄 Setting initial high temp settings with stored state:', safeSettings);
     setForm(safeSettings);
     
     // 서버에서 자동으로 초기 상태를 전송하므로 로딩 상태만 설정
@@ -140,18 +140,18 @@ export default function HighTempSettingPanel({
             if (result.success) {
               // console.log('📥 Received valid initial high temp settings from server:', initialSettings);
               
-              // 서버에서 받은 초기 데이터로 상태 업데이트 (고온 측정 선택은 강제로 off)
+              // 서버에서 받은 초기 데이터로 상태 업데이트 (저장된 상태 유지)
               const safeServerSettings = {
                 ...initialSettings,
-                highTemp: false // 서버 데이터도 강제로 off 상태로 설정
+                highTemp: initialSettings.highTemp // 서버 데이터의 저장된 상태 유지
               };
-              // console.log('🔄 Setting form to server data with forced off state:', safeServerSettings);
+              // console.log('🔄 Setting form to server data with stored state:', safeServerSettings);
               setForm(safeServerSettings);
               
-              // localStorage에도 저장 (고온 측정 선택은 강제로 off)
+              // localStorage에도 저장 (저장된 상태 유지)
               if (typeof window !== 'undefined') {
                 localStorage.setItem('highTempSettings', JSON.stringify(safeServerSettings));
-                // console.log('💾 Updated localStorage with forced off state:', safeServerSettings);
+                // console.log('💾 Updated localStorage with stored state:', safeServerSettings);
               }
               
               // 로딩 상태 해제
@@ -297,12 +297,11 @@ export default function HighTempSettingPanel({
   
   
       <div className="flex items-center w-full justify-between mb-2 gap-2">
-        {/* 고온 측정토글 - 고온측정설정이 true일 때만 활성화 */}
+        {/* 고온 측정토글 - 저장된 상태 표시 */}
         <span className="font-medium px-2 py-1" style={{ fontSize: '1.2rem' }}>고온측정</span>
         <Switch
           checked={form.highTemp}
           onChange={e => handleChange('highTemp', e.target.checked)}
-          disabled={!isHighTempEnabled}
           sx={{
             '& .MuiSwitch-switchBase.Mui-checked': {
               color: '#9333ea',
@@ -321,7 +320,7 @@ export default function HighTempSettingPanel({
           type="number"
           className="text-right border border-gray-400 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
           value={form.targetTemp}
-          min={50}
+          min={20}
           max={99}
           onChange={e => handleChange('targetTemp', Number(e.target.value))}
           disabled={!isHighTempEnabled}
@@ -400,13 +399,13 @@ export default function HighTempSettingPanel({
       size="large"
       sx={{ 
         width: '120px',
-        opacity: (!isHighTempEnabled || isLoading) ? 0.3 : 1, // 더 투명하게
-        cursor: (!isHighTempEnabled || isLoading) ? 'not-allowed' : 'pointer',
-        backgroundColor: (!isHighTempEnabled || isLoading) ? '#e0e0e0' : 'transparent', // 더 회색으로
-        color: (!isHighTempEnabled || isLoading) ? '#666' : 'inherit', // 더 어둡게
-        pointerEvents: (!isHighTempEnabled || isLoading) ? 'none' : 'auto' // 클릭 완전 차단
+        opacity: (isLoading || !isHighTempEnabled) ? 0.3 : 1, // 로딩 중이거나 고온측정설정이 off일 때 투명하게
+        cursor: (isLoading || !isHighTempEnabled) ? 'not-allowed' : 'pointer',
+        backgroundColor: (isLoading || !isHighTempEnabled) ? '#e0e0e0' : 'transparent', // 로딩 중이거나 고온측정설정이 off일 때 회색으로
+        color: (isLoading || !isHighTempEnabled) ? '#666' : 'inherit', // 로딩 중이거나 고온측정설정이 off일 때 어둡게
+        pointerEvents: (isLoading || !isHighTempEnabled) ? 'none' : 'auto' // 클릭 완전 차단
       }}
-      disabled={!isHighTempEnabled || isLoading} 
+      disabled={isLoading || !isHighTempEnabled} 
     >
       SAVE
     </Button>

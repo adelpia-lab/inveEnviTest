@@ -146,8 +146,13 @@ useEffect(() => {
   ws.current.onmessage = (event) => {
     // console.log('메시지 수신:', event.data);
     
+    // [POWER_SWITCH] 메시지 처리
+    if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
+      console.log('🔌 Power switch message received:', event.data);
+      // PowerSwitch 컴포넌트에서 처리하므로 여기서는 로그만 출력
+    }
     // [SAVE_PRODUCT_INPUT] 메시지 처리
-    if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
+    else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
       try {
         const match = event.data.match(/\[SAVE_PRODUCT_INPUT\] (.*)/);
         if (match && match[1]) {
@@ -238,8 +243,13 @@ useEffect(() => {
             // console.log('재연결 후 메시지 수신:', event.data);
             // 기존 메시지 처리 로직과 동일하게 처리
             
+            // [POWER_SWITCH] 메시지 처리
+            if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
+              console.log('🔌 Power switch message received (reconnection):', event.data);
+              // PowerSwitch 컴포넌트에서 처리하므로 여기서는 로그만 출력
+            }
             // [SAVE_PRODUCT_INPUT] 메시지 처리
-            if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
+            else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
               try {
                 const match = event.data.match(/\[SAVE_PRODUCT_INPUT\] (.*)/);
                 if (match && match[1]) {
@@ -323,7 +333,14 @@ useEffect(() => {
         ws.current.onmessage = (event) => {
           // console.log('Auto-reconnected WebSocket message received:', event.data);
           // 기존 메시지 처리 로직과 동일하게 처리
-          if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
+          
+          // [POWER_SWITCH] 메시지 처리
+          if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
+            console.log('🔌 Power switch message received (auto-reconnection):', event.data);
+            // PowerSwitch 컴포넌트에서 처리하므로 여기서는 로그만 출력
+          }
+          // [SAVE_PRODUCT_INPUT] 메시지 처리
+          else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
             try {
               const match = event.data.match(/\[SAVE_PRODUCT_INPUT\] (.*)/);
               if (match && match[1]) {
@@ -469,7 +486,7 @@ const sendMessage = () => {
                 alt="Adel Logo" 
               />
             </div>
-            <div className={styles.headerItem}> 아델피아 차기전차 컨버터 환경시험</div>
+            <div className={styles.headerItem}> 아델피아랩 차기 전차  컨버터  환경 시험</div>
 
             <div className={styles.headerItem}>
               <div className={styles.boxJsk}>
@@ -479,7 +496,7 @@ const sendMessage = () => {
 
             <div className={styles.headerItem} style={{ backgroundColor: 'black' }}>
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', width: '100%', overflow: 'hidden' }}>
-                <PowerSwitch />
+                <PowerSwitch wsConnection={ws.current} />
               </div>
             </div>
 

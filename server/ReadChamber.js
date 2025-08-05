@@ -145,8 +145,42 @@ export async function ReadChamber() {
     const str = CHAMBER_STATUS_READ;
     const hexBuffer = Buffer.from(str, 'hex');
 
-    const response = await usbChamber(hexBuffer);
-    return response;
+    const maxRetries = 5;
+    const timeoutMs = 2000; // 2초 타임아웃
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`[ReadChamber] 시도 ${attempt}/${maxRetries}`);
+            
+            const response = await Promise.race([
+                usbChamber(hexBuffer),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('timeout')), timeoutMs)
+                )
+            ]);
+            
+            // 성공적인 응답인 경우
+            if (typeof response === 'number') {
+                console.log(`[ReadChamber] 성공: 온도 ${response}℃`);
+                return response;
+            } else if (response === 'bad' || response === 'timeout') {
+                console.warn(`[ReadChamber] 시도 ${attempt}/${maxRetries} 실패: ${response}`);
+                if (attempt < maxRetries) {
+                    console.log(`[ReadChamber] 1초 후 재시도...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+        } catch (error) {
+            console.error(`[ReadChamber] 시도 ${attempt}/${maxRetries} 에러: ${error.message}`);
+            if (attempt < maxRetries) {
+                console.log(`[ReadChamber] 1초 후 재시도...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    }
+    
+    console.error(`[ReadChamber] 모든 시도 실패 (${maxRetries}회)`);
+    return false;
 }
 
 

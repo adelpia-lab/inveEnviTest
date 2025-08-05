@@ -8,7 +8,7 @@ import { SendVoltCommand } from './SetVolt.js';
 import { ReadAllVoltages, ReadVolt } from './ReadVolt.js';
 import { RelayAllOff, SelectDevice, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { GetData } from './GetData.js';
-import { runSinglePageProcess } from './RunTestProcess.js';
+import { runSinglePageProcess, runNextTankEnviTestProcess } from './RunTestProcess.js';
 
 const LOCAL_WS_PORT = 8080; // WebSocket 서버가 사용할 포트
 const DELAY_SETTINGS_FILE = 'delay_settings.json'; // 딜레이 설정 저장 파일
@@ -19,6 +19,66 @@ const PRODUCT_INPUT_FILE = 'product_input.json'; // 제품 입력 저장 파일
 const USB_PORT_SETTINGS_FILE = 'usb_port_settings.json'; // USB 포트 설정 저장 파일
 const OUT_VOLT_SETTINGS_FILE = 'out_volt_settings.json'; // 입력 전압 설정 저장 파일
 const CHANNEL_VOLTAGES_FILE = 'channel_voltages.json'; // 채널 전압 설정 저장 파일
+
+// 전역 변수: 머신 실행 상태
+let machineRunning = false;
+
+// 전역 변수: 프로세스 중지 플래그
+let processStopRequested = false;
+
+// 머신 실행 상태를 가져오는 함수
+function getMachineRunningStatus() {
+    return machineRunning;
+}
+
+// 머신 실행 상태를 설정하는 함수
+function setMachineRunningStatus(status) {
+    machineRunning = status;
+    
+    // 모든 연결된 클라이언트에게 상태 변경 알림
+    wss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+            const statusMessage = `[POWER_SWITCH] ${status ? 'ON' : 'OFF'} - Machine running: ${status}`;
+            client.send(statusMessage);
+            console.log(`📤 [Backend WS Server] Power switch status broadcast: ${statusMessage}`);
+        }
+    });
+}
+
+// 프로세스 완료 시 클라이언트에게 알림을 보내는 함수
+function notifyProcessCompleted() {
+    wss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+            const completionMessage = `[POWER_SWITCH] PROCESS_COMPLETED`;
+            client.send(completionMessage);
+            console.log(`📤 [Backend WS Server] Process completion broadcast: ${completionMessage}`);
+        }
+    });
+}
+
+// 프로세스 중지 시 클라이언트에게 알림을 보내는 함수
+function notifyProcessStopped(reason = '사용자에 의해 중지됨') {
+    wss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+            const stopMessage = `[POWER_SWITCH] PROCESS_STOPPED: ${reason}`;
+            client.send(stopMessage);
+            console.log(`📤 [Backend WS Server] Process stop broadcast: ${stopMessage}`);
+        }
+    });
+}
+
+// 프로세스 중지 플래그를 가져오는 함수
+function getProcessStopRequested() {
+    return processStopRequested;
+}
+
+// 프로세스 중지 플래그를 설정하는 함수
+function setProcessStopRequested(status) {
+    processStopRequested = status;
+}
+
+// 머신 실행 상태와 프로세스 중지 플래그를 외부에서 접근할 수 있도록 export
+export { getMachineRunningStatus, setMachineRunningStatus, getProcessStopRequested, setProcessStopRequested };
 
 const wss = new WebSocketServer({ port: LOCAL_WS_PORT });
 
@@ -154,7 +214,7 @@ async function loadHighTempSettings() {
     // console.log(`📖 [Backend WS Server] No saved high temp settings found, using default`);
         // 기본값 - 고온 측정 선택이 off 상태
     const defaultSettings = {
-        isHighTempEnabled: false, // 기본적으로 off 상태
+        highTemp: false, // 기본적으로 off 상태
         targetTemp: 75,
         waitTime: 200,
         readCount: 10,
@@ -167,15 +227,36 @@ async function loadHighTempSettings() {
 // 저온 설정을 파일에 저장하는 함수
 async function saveLowTempSettings(settings) {
   try {
-    // console.log(`💾 [Backend WS Server] Attempting to save low temp settings to file: ${LOW_TEMP_SETTINGS_FILE}`);
-    // console.log(`💾 [Backend WS Server] Settings to save:`, settings);
+    console.log(`💾 [Backend WS Server] Attempting to save low temp settings to file: ${LOW_TEMP_SETTINGS_FILE}`);
+    console.log(`💾 [Backend WS Server] Settings to save:`, settings);
+    
+    // 입력값 검증
+    if (!settings || typeof settings !== 'object') {
+      console.error(`❌ [Backend WS Server] Invalid settings object:`, settings);
+      return false;
+    }
+    
+    // 필수 필드 확인
+    const requiredFields = ['lowTemp', 'targetTemp', 'waitTime', 'readCount'];
+    for (const field of requiredFields) {
+      if (!(field in settings)) {
+        console.error(`❌ [Backend WS Server] Missing required field: ${field}`);
+        return false;
+      }
+    }
     
     const jsonString = JSON.stringify(settings, null, 2);
-    // console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
+    console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
     
     await fs.writeFile(LOW_TEMP_SETTINGS_FILE, jsonString);
-    // console.log(`✅ [Backend WS Server] Low temp settings successfully written to file: ${LOW_TEMP_SETTINGS_FILE}`);
-    // console.log(`✅ [Backend WS Server] Settings saved: ${JSON.stringify(settings)}`);
+    console.log(`✅ [Backend WS Server] Low temp settings successfully written to file: ${LOW_TEMP_SETTINGS_FILE}`);
+    console.log(`✅ [Backend WS Server] Settings saved: ${JSON.stringify(settings)}`);
+    
+    // 저장 후 파일 내용 확인
+    const verifyData = await fs.readFile(LOW_TEMP_SETTINGS_FILE, 'utf-8');
+    const verifySettings = JSON.parse(verifyData);
+    console.log(`✅ [Backend WS Server] Verified saved settings:`, verifySettings);
+    
     return true;
   } catch (error) {
     console.error(`❌ [Backend WS Server] Failed to save low temp settings: ${error.message}`);
@@ -188,20 +269,24 @@ async function saveLowTempSettings(settings) {
 // 저온 설정을 파일에서 읽어오는 함수
 async function loadLowTempSettings() {
   try {
+    console.log(`📖 [Backend WS Server] Loading low temp settings from file: ${LOW_TEMP_SETTINGS_FILE}`);
     const data = await fs.readFile(LOW_TEMP_SETTINGS_FILE, 'utf-8');
+    console.log(`📖 [Backend WS Server] Raw file data:`, data);
+    
     const settings = JSON.parse(data);
-    // console.log(`📖 [Backend WS Server] Low temp settings loaded from file: ${JSON.stringify(settings)}`);
+    console.log(`📖 [Backend WS Server] Parsed low temp settings:`, settings);
     return settings;
   } catch (error) {
-    // console.log(`📖 [Backend WS Server] No saved low temp settings found, using default`);
-        // 기본값
+    console.log(`📖 [Backend WS Server] No saved low temp settings found, using default`);
+    console.log(`📖 [Backend WS Server] Error details:`, error.message);
+    // 기본값
     const defaultSettings = {
-        isLowTempEnabled: false,
-        targetTemp: -1,
+        lowTemp: false,
+        targetTemp: -32,
         waitTime: 200,
         readCount: 10,
     };
-    // console.log(`📖 [Backend WS Server] Default low temp settings:`, defaultSettings);
+    console.log(`📖 [Backend WS Server] Default low temp settings:`, defaultSettings);
     return defaultSettings;
   }
 }
@@ -423,6 +508,7 @@ export async function loadGetTableOption() {
     };
     
     console.log(`✅ [Backend WS Server] getTableOption loaded successfully:`, JSON.stringify(getTableOption, null, 2));
+    console.log(`📊 [Backend WS Server] Low temp settings loaded:`, lowTempSettings);
     return getTableOption;
   } catch (error) {
     console.error(`❌ [Backend WS Server] Failed to load getTableOption: ${error.message}`);
@@ -575,8 +661,8 @@ wss.on('connection', ws => {
             console.error(`❌ [Backend WS Server] Failed to send initial low temp settings: ${error.message}`);
             // 기본값 전송
             const defaultSettings = {
-                isLowTempEnabled: false,
-                targetTemp: -1,
+                lowTemp: false,
+                targetTemp: -32,
                 waitTime: 200,
                 readCount: 10,
             };
@@ -651,6 +737,12 @@ wss.on('connection', ws => {
     sendInitialUsbPortSettings();
     sendInitialOutVoltSettings();
     sendInitialChannelVoltages();
+    
+    // 현재 머신 실행 상태 전송
+    const currentMachineStatus = getMachineRunningStatus();
+    const statusMessage = `[POWER_SWITCH] STATUS - Machine running: ${currentMachineStatus}`;
+    ws.send(statusMessage);
+    console.log(`📤 [Backend WS Server] Sending current machine status: ${currentMachineStatus}`);
     
     // getTableOption 초기화 및 전송
     const sendInitialGetTableOption = async () => {
@@ -965,6 +1057,15 @@ wss.on('connection', ws => {
                             console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
                             ws.send(responseMessage);
                             console.log(`✅ [Backend WS Server] Low temp settings successfully saved to file`);
+                            
+                            // 설정 저장 후 getTableOption 즉시 리로드
+                            try {
+                                console.log(`🔄 [Backend WS Server] Reloading getTableOption after low temp settings save...`);
+                                await loadGetTableOption();
+                                console.log(`✅ [Backend WS Server] getTableOption reloaded successfully after low temp settings save`);
+                            } catch (reloadError) {
+                                console.error(`❌ [Backend WS Server] Failed to reload getTableOption: ${reloadError.message}`);
+                            }
                         } else {
                             console.error(`❌ [Backend WS Server] Failed to save low temp settings to file`);
                             ws.send(`Error: Failed to save low temp settings`);
@@ -1420,6 +1521,61 @@ wss.on('connection', ws => {
                     console.error(`❌ [Backend WS Server] Load test error: ${error.message}`);
                     ws.send(`Error: Load test failed - ${error.message}`);
                 }
+            } else if(decodeWebSocket[0] === '[POWER_SWITCH]') {
+                console.log("=== Power Switch Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    const powerState = decodeWebSocket[1]; // ON 또는 OFF
+                    console.log(`🔌 [Backend WS Server] Power switch command: ${powerState}`);
+                    
+                    if (powerState === 'ON') {
+                        // 머신 실행 상태를 true로 설정
+                        setMachineRunningStatus(true);
+                        console.log(`🔌 [Backend WS Server] Machine running status set to: true`);
+                        
+                        // 클라이언트에게 상태 확인 메시지 전송
+                        const responseMessage = `[POWER_SWITCH] ON - Machine running: true`;
+                        ws.send(responseMessage);
+                        console.log(`✅ [Backend WS Server] Power switch ON confirmation sent`);
+                        
+                        // runNextTankEnviTestProcess 실행
+                        try {
+                            console.log(`🚀 [Backend WS Server] Starting runNextTankEnviTestProcess...`);
+                            await runNextTankEnviTestProcess();
+                            console.log(`✅ [Backend WS Server] runNextTankEnviTestProcess completed successfully`);
+                        } catch (processError) {
+                            console.error(`❌ [Backend WS Server] runNextTankEnviTestProcess error: ${processError.message}`);
+                            const errorMessage = `[POWER_SWITCH] PROCESS_ERROR: ${processError.message}`;
+                            ws.send(errorMessage);
+                            
+                            // 에러 발생 시 머신 실행 상태를 false로 설정
+                            setMachineRunningStatus(false);
+                            const statusMessage = `[POWER_SWITCH] OFF - Machine running: false`;
+                            ws.send(statusMessage);
+                        }
+                    } else if (powerState === 'OFF') {
+                        // 머신 실행 상태를 false로 설정
+                        setMachineRunningStatus(false);
+                        console.log(`🔌 [Backend WS Server] Machine running status set to: false`);
+                        
+                        // 프로세스 중지 플래그 설정
+                        setProcessStopRequested(true);
+                        console.log(`🛑 [Backend WS Server] Process stop requested`);
+                        
+                        // 클라이언트에게 상태 확인 메시지 전송
+                        const responseMessage = `[POWER_SWITCH] OFF - Machine running: false`;
+                        ws.send(responseMessage);
+                        console.log(`✅ [Backend WS Server] Power switch OFF confirmation sent`);
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid power switch state: ${powerState}`);
+                        ws.send(`Error: Invalid power switch state - expected ON or OFF`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Power switch error: ${error.message}`);
+                    ws.send(`Error: Power switch failed - ${error.message}`);
+                }
             } else if(decodeWebSocket[0] === '[RELAY_TEST]') {
                 //console.log("=== Relay Test Process: OK ===");
                 //console.log("📥 Raw message received:", decodedMessage);
@@ -1432,33 +1588,27 @@ wss.on('connection', ws => {
                         const portNumber = parseInt(relayMatch[1]);
                         const deviceNumber = relayMatch[2] ? parseInt(relayMatch[2]) : 1; // Default to device 1 if not specified
                         
-                        console.log(`🔗 [Backend WS Server] Testing relay on port ${portNumber} with device ${deviceNumber}`);
+                        console.log(`🔌 [Backend WS Server] Relay test on port ${portNumber} with device ${deviceNumber}`);
                         
-                        // Validate device number range
+                        // Validate device range
                         if (deviceNumber < 1 || deviceNumber > 10) {
-                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:기기 번호 범위 오류 (1~10)`;
-                            console.log(`❌ [Backend WS Server] Relay ${portNumber} test failed - device number out of range: ${deviceNumber}`);
+                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~10)`;
+                            console.log(`❌ [Backend WS Server] Relay ${portNumber} test failed - device out of range: ${deviceNumber}`);
                             ws.send(responseMessage);
                             return;
                         }
                         
-                        // Call SelectDevice function
+                        // Simulate relay test with 2-second timeout
                         try {
-                            console.log(`🔗 [Backend WS Server] Selecting device: ${deviceNumber}`);
-                            const { SelectDevice } = await import('./SelectDevice.js');
-                            await RelayAllOff();
-                            await SelectDevice(deviceNumber);
-                            console.log(`✅ [Backend WS Server] Device ${deviceNumber} selected successfully`);
-                            
-                            // 릴레이 테스트 시뮬레이션
-                            await sleep(600); // 릴레이 테스트는 가장 빠름
+                            console.log(`🔌 [Backend WS Server] Testing relay on device ${deviceNumber}`);
+                            await sleep(800); // 릴레이 테스트는 빠름
                             
                             // 릴레이 테스트 성공률 (98%)
                             const isSuccess = Math.random() > 0.02;
                             
                             if (isSuccess) {
-                                const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:success MESSAGE:릴레이 ${portNumber} 정상 동작 (기기 ${deviceNumber})`;
-                                console.log(`✅ [Backend WS Server] Relay ${portNumber} test successful with device ${deviceNumber}`);
+                                const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:success MESSAGE:릴레이 ${portNumber} 정상 동작`;
+                                console.log(`✅ [Backend WS Server] Relay ${portNumber} test successful`);
                                 ws.send(responseMessage);
                             } else {
                                 const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:릴레이 ${portNumber} 동작 실패`;
@@ -1466,8 +1616,8 @@ wss.on('connection', ws => {
                                 ws.send(responseMessage);
                             }
                         } catch (relayError) {
-                            console.error(`❌ [Backend WS Server] Relay device selection failed: ${relayError.message}`);
-                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:릴레이 기기 선택 실패 - ${relayError.message}`;
+                            console.error(`❌ [Backend WS Server] Relay test failed: ${relayError.message}`);
+                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:릴레이 테스트 실패 - ${relayError.message}`;
                             ws.send(responseMessage);
                         }
                     } else {
@@ -1478,86 +1628,23 @@ wss.on('connection', ws => {
                     console.error(`❌ [Backend WS Server] Relay test error: ${error.message}`);
                     ws.send(`Error: Relay test failed - ${error.message}`);
                 }
-            } else if(decodeWebSocket[0] === '[SINGLE_PAGE_PROCESS]') {
-                console.log("=== Single Page Process Process: OK ===");
-                console.log("📥 Raw message received:", decodedMessage);
-                console.log("📥 Parsed message parts:", decodeWebSocket);
-                
-                try {
-                    const action = decodeWebSocket[1];
-                    
-                    if (action === 'START') {
-                        console.log(`🚀 [Backend WS Server] Starting single page process`);
-                        ws.send(`[SINGLE_PAGE_PROCESS] STARTED`);
-                        
-                        // 비동기로 프로세스 실행
-                        runSinglePageProcess()
-                            .then(() => {
-                                console.log(`✅ [Backend WS Server] Single page process completed successfully`);
-                                ws.send(`[SINGLE_PAGE_PROCESS] COMPLETED`);
-                            })
-                            .catch((error) => {
-                                console.error(`❌ [Backend WS Server] Single page process failed: ${error.message}`);
-                                ws.send(`[SINGLE_PAGE_PROCESS] ERROR: ${error.message}`);
-                            });
-                    } else if (action === 'STOP') {
-                        console.log(`⏹️ [Backend WS Server] Stopping single page process`);
-                        // 프로세스 중지 로직 (필요시 구현)
-                        ws.send(`[SINGLE_PAGE_PROCESS] STOPPED`);
-                    } else {
-                        console.error(`❌ [Backend WS Server] Invalid single page process action: ${action}`);
-                        ws.send(`Error: Invalid single page process action - ${action}`);
-                    }
-                } catch (error) {
-                    console.error(`❌ [Backend WS Server] Single page process error: ${error.message}`);
-                    ws.send(`Error: Single page process failed - ${error.message}`);
-                }
+            } else {
+                console.log("📥 Unknown message type:", decodeWebSocket[0]);
             }
-        // End of device select process
         } catch (error) {
-            console.error(`[Backend WS Server] Message processing error: ${error.message}`);
-            ws.send(`Error: Message processing failed - ${error.message}`);
+            console.error("❌ [Backend WS Server] Error processing message:", error);
+            ws.send(`Error: ${error.message}`);
         }
-   });
-
-    // 클라이언트 연결이 끊어졌을 때
-    ws.on('close', (code, reason) => {
-        console.log(`[Backend WS Server] 클라이언트 연결 해제됨 - Code: ${code}, Reason: ${reason}`);
     });
-
-    // 에러 발생 시
-    ws.on('error', error => {
-        console.error('[Backend WS Server] WebSocket 에러:', error.message);
-        console.error('[Backend WS Server] Error stack:', error.stack);
+    
+    ws.on('close', () => {
+        console.log("🔌 [Backend WS Server] Client disconnected");
     });
-
-    // 연결 시 클라이언트에게 초기 메시지 전송
-    ws.send('환영합니다! 백엔드 WebSocket 서버에 연결되었습니다.');
-});
-
-console.log(`[Backend WS Server] WebSocket 서버가 ws://localhost:${LOCAL_WS_PORT} 에서 실행 중입니다.`);
-
-// 서버 시작 시 getTableOption 초기화
-(async () => {
-  try {
-    console.log(`🚀 [Backend WS Server] Initializing getTableOption on server startup...`);
-    await loadGetTableOption();
-    console.log(`✅ [Backend WS Server] getTableOption initialized successfully on startup`);
-  } catch (error) {
-    console.error(`❌ [Backend WS Server] Failed to initialize getTableOption on startup: ${error.message}`);
-  }
-})();
-
-// 서버 강제 종료 시그널 처리 (Ctrl+C)
-process.on('SIGINT', () => {
-    console.log('[Backend WS Server] 서버 종료 요청 수신. 모든 클라이언트 연결 닫기...');
-    wss.close(() => {
-        console.log('[Backend WS Server] WebSocket 서버가 성공적으로 종료되었습니다.');
-        process.exit(0);
+    
+    ws.on('error', (error) => {
+        console.error("❌ [Backend WS Server] WebSocket error:", error);
     });
 });
 
-// Add global error handler for unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('[Backend WS Server] Unhandled Rejection at:', promise, 'reason:', reason);
-});
+console.log(`🚀 [Backend WS Server] WebSocket server running on port ${LOCAL_WS_PORT}`);
+console.log(`🔌 [Backend WS Server] WebSocket server ready for connections`);
