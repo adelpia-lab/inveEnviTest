@@ -110,6 +110,34 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
         }
         setIsLoading(false);
       }
+      
+      // 딜레이 설정 저장 응답 처리
+      if (typeof message === 'string' && message.startsWith('Delay settings saved:')) {
+        try {
+          const match = message.match(/Delay settings saved: (.*)/);
+          if (match && match[1]) {
+            const settings = JSON.parse(match[1]);
+            console.log('✅ [DelaySettingsPanel] Delay settings saved successfully:', settings);
+            // localStorage에도 저장
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('delaySettings', JSON.stringify(settings));
+            }
+            setError(null);
+            setIsDialogOpen(false); // 성공 시 다이얼로그 닫기
+          }
+        } catch (error) {
+          console.error('Failed to parse delay settings save response:', error);
+          setError('저장 응답 처리 중 오류가 발생했습니다.');
+        }
+        setIsLoading(false);
+      }
+      
+      // 딜레이 설정 저장 실패 응답 처리
+      if (typeof message === 'string' && message.startsWith('Error:')) {
+        console.error('❌ [DelaySettingsPanel] Delay settings save failed:', message);
+        setError('딜레이 설정 저장에 실패했습니다.');
+        setIsLoading(false);
+      }
     };
 
     wsConnection.addEventListener('message', handleMessage);
@@ -130,6 +158,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
       return;
     }
     setError(null);
+    setIsLoading(true);
     
     // localStorage에 저장
     if (typeof window !== 'undefined') {
@@ -140,13 +169,17 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
       const delayMessage = `[DELAY_SETTINGS] ON_DELAY:${form.onDelay} OFF_DELAY:${form.offDelay} CYCLE:${form.cycleNumber}`;
       console.log('📤 [DelaySettingsPanel] Sending delay settings to backend:', delayMessage);
+      console.log('📤 [DelaySettingsPanel] Message length:', delayMessage.length);
+      console.log('📤 [DelaySettingsPanel] Form data:', form);
       wsConnection.send(delayMessage);
     } else {
       console.warn('⚠️ [DelaySettingsPanel] WebSocket connection not available for sending delay settings');
+      setError('WebSocket 연결이 없습니다.');
+      setIsLoading(false);
     }
     
     onSave?.(form);
-    setIsDialogOpen(false); // 저장 후 팝업 닫기
+    // 팝업은 응답을 받은 후 닫기로 변경
   };
 
   const handleCancel = () => {
@@ -357,6 +390,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
           <Button
             variant="outlined"
             onClick={handleCancel}
+            disabled={isLoading}
             sx={{ 
               width: '100px',
               borderColor: '#666',
@@ -372,6 +406,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
           <Button
             variant="contained"
             onClick={handleSave}
+            disabled={isLoading}
             sx={{ 
               width: '100px',
               backgroundColor: '#9333ea',
@@ -380,7 +415,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
               }
             }}
           >
-            SAVE
+            {isLoading ? '저장 중...' : 'SAVE'}
           </Button>
         </DialogActions>
       </Dialog>

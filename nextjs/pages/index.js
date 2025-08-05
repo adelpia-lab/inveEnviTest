@@ -1,7 +1,7 @@
 // $sudo dmesg | grep tty 
-//const WEBSOCKET_SERVER_URL = 'ws://192.168.1.82:8080'; // 5 story
+const WEBSOCKET_SERVER_URL = 'ws://192.168.1.82:8080'; // 5 story
 //const WEBSOCKET_SERVER_URL = 'ws://172.30.1.69:8080'; // 6 stroy adelpia lab
-const WEBSOCKET_SERVER_URL = 'ws://localhost:8080';
+//const WEBSOCKET_SERVER_URL = 'ws://localhost:8080';
 //const WEBSOCKET_SERVER_URL = 'ws://192.168.219.107:8080'; //  Shaha
 
 /*
@@ -66,6 +66,7 @@ import LogoImage from "/components/LogoImage/LogoImage";
 import DebugLogoImage from "/components/LogoImage/DebugLogoImage";
 import DelaySettingsPanel from "/components/delay-settings-panel/DelaySettingsPanel";
 import TestSystemButton from "/components/TestSystem/TestSystemButton";
+import ChannelVoltageSettings from "/components/ChannelVoltageSettings/ChannelVoltageSettings";
 const PowerTable = dynamic(() => import('../components/power-table/PowerTable'), { ssr: false });
 // import WebSocketClient from "/components/WebSocketClient/WebSocketClient";
 
@@ -457,11 +458,7 @@ const sendMessage = () => {
     // USB 포트 설정은 이제 컴포넌트 내부에서 WebSocket을 통해 직접 처리됩니다.
   };
 
-  const handleDelaySettingsSave = (delayData) => {
-    // console.log("DelaySettingsPanel: 딜레이 설정이 저장되었습니다.", delayData);
-    const messageWithIdentifier = `[DELAY_SETTINGS] ON_DELAY:${delayData.onDelay},OFF_DELAY:${delayData.offDelay}`;
-    sendWebSocketMessage(messageWithIdentifier);
-  };
+
 
   return (
     <div className={styles.container}>
@@ -500,7 +497,8 @@ const sendMessage = () => {
         <footer className={styles.footer}>
             <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', padding: '10px' }}> 
               <ProductInput wsConnection={ws.current} /> 
-              <DelaySettingsPanel onSave={handleDelaySettingsSave} wsConnection={ws.current} />
+              <DelaySettingsPanel wsConnection={ws.current} />
+              <ChannelVoltageSettings wsConnection={ws.current} />
               <TestSystemButton wsConnection={ws.current} />
             </div>
             <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '10px' }}> 

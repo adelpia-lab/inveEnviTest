@@ -1,4 +1,5 @@
 {
-  "onDelay": 10,
-  "offDelay": 10
+  "onDelay": 1,
+  "offDelay": 1,
+  "cycleNumber": 2
 }

@@ -4,7 +4,7 @@ import { GetData } from './GetData.js';
 import { RelayAllOff, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { SendVoltCommand } from './SetVolt.js';
 import { ReadVolt } from './ReadVolt.js';
-import { loadGetTableOption } from './backend-websocket-server.js';
+import { loadGetTableOption } from './loadGetTableOption.js';
 import { ReadChamber } from './ReadChamber.js'; 
 import fs from 'fs';
 import path from 'path';
@@ -133,10 +133,10 @@ function getFormattedDateTime() {
  * TotaReportTable을 Excel에서 import할 수 있는 CSV 형식으로 저장
  * Model Name과 Product Number는 첫 번째 라인에, 각 전압 테이블은 별도 라인에 표시
  */
-function saveTotaReportTableToFile(data) {
+function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0]) {
   try {
     const filename = `${getFormattedDateTime()}.csv`;
-    const filePath = path.join(process.cwd(), filename);
+    const filePath = path.join(process.cwd(), '..', 'Data', filename);
     
     let csvContent = '';
     const reportData = data.reportTable[0];
@@ -147,6 +147,13 @@ function saveTotaReportTableToFile(data) {
     csvContent += `Test Date,${reportData.TestDate || ''}\n`;
     csvContent += `Test Time,${reportData.TestTime || ''}\n`;
     csvContent += `Test Temperature,${reportData.TestTemperature || ''}\n`;
+    
+    // 채널 전압 설정 정보 추가
+    csvContent += `Channel 1 설정 전압,${channelVoltages[0]}V\n`;
+    csvContent += `Channel 2 설정 전압,${channelVoltages[1]}V\n`;
+    csvContent += `Channel 3 설정 전압,${channelVoltages[2]}V\n`;
+    csvContent += `Channel 4 설정 전압,${channelVoltages[3]}V\n`;
+    csvContent += `허용 오차,±5%\n`;
     csvContent += '\n'; // 빈 줄 추가
     
     // 각 전압 테이블을 별도 라인에 표시
@@ -171,8 +178,55 @@ function saveTotaReportTableToFile(data) {
         csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
       }
       
+      // 비교 결과 요약 테이블 추가
+      csvContent += '\n비교 결과 요약 (G=Good, N=Not Good)\n';
+      csvContent += 'Channel,';
+      for (let i = 0; i < 10; i++) {
+        csvContent += `Device ${i+1},`;
+      }
+      csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
+      
+      for (let j = 0; j < 4; j++) {
+        csvContent += `Channel ${j+1},`;
+        for (let i = 0; i < 10; i++) {
+          const voltageValue = reportData.voltagTable[k][i][j] || '';
+          // "5.2V|G" 형식에서 "G" 부분만 추출
+          const comparisonResult = voltageValue.includes('|') ? voltageValue.split('|')[1] : '';
+          csvContent += `${comparisonResult},`;
+        }
+        csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
+      }
+      
       csvContent += '\n'; // 전압 테이블 간 빈 줄 추가
     }
+    
+    // 전체 통계 계산
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = 0;
+    
+    for (let k = 0; k < 3; k++) {
+      for (let i = 0; i < 10; i++) {
+        for (let j = 0; j < 4; j++) {
+          const voltageValue = reportData.voltagTable[k][i][j] || '';
+          if (voltageValue && voltageValue !== "-.-") {
+            totalTests++;
+            if (voltageValue.includes('|G')) {
+              passedTests++;
+            } else if (voltageValue.includes('|N')) {
+              failedTests++;
+            }
+          }
+        }
+      }
+    }
+    
+    // 통계 정보 추가
+    csvContent += '\n=== 테스트 통계 ===\n';
+    csvContent += `총 테스트 수,${totalTests}\n`;
+    csvContent += `통과 테스트 수,${passedTests}\n`;
+    csvContent += `실패 테스트 수,${failedTests}\n`;
+    csvContent += `통과율,${totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : 0}%\n`;
     
     // 파일에 저장
     fs.writeFileSync(filePath, csvContent, 'utf8');
@@ -180,6 +234,7 @@ function saveTotaReportTableToFile(data) {
     console.log(`[SaveData] CSV 파일 저장 완료: ${filename}`);
     console.log(`[SaveData] 파일 경로: ${filePath}`);
     console.log(`[SaveData] Excel에서 import 가능한 형식으로 저장됨`);
+    console.log(`[SaveData] 테스트 통계: 총 ${totalTests}개, 통과 ${passedTests}개, 실패 ${failedTests}개`);
     
     return { success: true, filename, filePath };
   } catch (error) {
@@ -223,6 +278,31 @@ export async function readVoltDataOneline() {
   return results;
 }
 
+/**
+ * 전압값을 설정값과 비교하여 ±5% 범위 내에 있는지 확인
+ * @param {number} readVoltage - 읽은 전압값
+ * @param {number} expectedVoltage - 설정된 전압값
+ * @returns {string} "G" (Good) 또는 "N" (Not Good)
+ */
+function compareVoltage(readVoltage, expectedVoltage) {
+  // 읽은 전압이 숫자가 아니거나 에러인 경우
+  if (typeof readVoltage !== 'number' || isNaN(readVoltage)) {
+    return "N";
+  }
+  
+  // ±5% 허용 오차 계산
+  const tolerance = expectedVoltage * 0.05;
+  const minVoltage = expectedVoltage - tolerance;
+  const maxVoltage = expectedVoltage + tolerance;
+  
+  // 범위 내에 있는지 확인
+  if (readVoltage >= minVoltage && readVoltage <= maxVoltage) {
+    return "G";
+  } else {
+    return "N";
+  }
+}
+
 // 페이지 단위 테스트 프로세스 실행
 export async function runSinglePageProcess() {
   try {
@@ -238,6 +318,9 @@ export async function runSinglePageProcess() {
     TotaReportTable.modelName = getTableOption.productInput.modelName;
     TotaReportTable.ProductNumber = getTableOption.productInput.productNames;
     TotaReportTable.inputVolt = getTableOption.outVoltSettings;
+
+    // 채널 전압 설정 로그 출력
+    console.log('[SinglePageProcess] 채널 전압 설정:', getTableOption.channelVoltages);
 
     // recode Date Time Temperature
     const dateTime = getDateTimeSeparated();
@@ -263,7 +346,15 @@ export async function runSinglePageProcess() {
             await sleep(onDelay);
             for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
               const voltData = await ReadVolt(j+1);
-              TotaReportTable.reportTable[0].voltagTable[k][i][j] = voltData;
+              const expectedVoltage = getTableOption.channelVoltages[j] || 0;
+              const comparisonResult = compareVoltage(voltData, expectedVoltage);
+              
+              // 전압값과 비교 결과를 함께 저장 (예: "5.2V|G" 또는 "5.2V|N")
+              const voltageWithComparison = `${voltData}V|${comparisonResult}`;
+              TotaReportTable.reportTable[0].voltagTable[k][i][j] = voltageWithComparison;
+              
+              // 로그 출력
+              console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 읽은값=${voltData}V, 설정값=${expectedVoltage}V, 결과=${comparisonResult}`);
             }
             await SelectDeviceOff(i+1); // 1 부터 시작 함
             await sleep(offDelay);
@@ -275,7 +366,7 @@ export async function runSinglePageProcess() {
     console.log('[SinglePageProcess] 테이블 출력:', TotaReportTable.reportTable[0].voltagTable);
     
     // TotaReportTable을 파일로 저장
-    const saveResult = saveTotaReportTableToFile(TotaReportTable);
+    const saveResult = saveTotaReportTableToFile(TotaReportTable, getTableOption.channelVoltages);
     if (saveResult.success) {
       console.log(`[SinglePageProcess] 데이터 저장 완료: ${saveResult.filename}`);
     } else {

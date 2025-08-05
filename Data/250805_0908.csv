@@ -1,0 +1,27 @@
+Model Name,61514543
+Product Number,PL2222;PL2233;PL2244;PL2255;PL2266;PL2277;PL2288;PL2299;PL2300;PL2311
+Test Date,2025년 8월 5일
+Test Time,09:03:19
+Test Temperature,23.61
+
+24 테이블
+Channel,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10
+Channel 1,-0.003,-.-,-0.003,-.-,-0.003,-.-,-0.003,-.-,-0.003,-.-
+Channel 2,0.003,-.-,0.003,-.-,0.002,-.-,0.003,-.-,0.003,-.-
+Channel 3,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-
+Channel 4,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-
+
+18 테이블
+Channel,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10
+Channel 1,-0.003,-.-,-0.003,-.-,-0.003,-.-,-0.003,-.-,-0.003,-.-
+Channel 2,0.003,-.-,0.003,-.-,0.003,-.-,0.003,-.-,0.003,-.-
+Channel 3,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-
+Channel 4,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-
+
+30 테이블
+Channel,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10
+Channel 1,-0.003,-.-,-0.003,-.-,-0.003,-.-,-0.003,-.-,-0.003,-.-
+Channel 2,0.003,-.-,0.002,-.-,0.003,-.-,0.003,-.-,0.003,-.-
+Channel 3,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-
+Channel 4,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-,0.001,-.-
+

@@ -26,11 +26,12 @@ const wss = new WebSocketServer({ port: LOCAL_WS_PORT });
 async function saveDelaySettings(onDelay, offDelay, cycleNumber = 1) {
   try {
     const settings = { onDelay, offDelay, cycleNumber };
+    console.log(`💾 [Backend WS Server] Saving delay settings to file:`, settings);
     await fs.writeFile(DELAY_SETTINGS_FILE, JSON.stringify(settings, null, 2));
-    // console.log(`[Backend WS Server] Delay settings saved: ON_DELAY=${onDelay}, OFF_DELAY=${offDelay}, CYCLE=${cycleNumber}`);
+    console.log(`✅ [Backend WS Server] Delay settings saved to file: ON_DELAY=${onDelay}, OFF_DELAY=${offDelay}, CYCLE=${cycleNumber}`);
     return true;
   } catch (error) {
-    console.error(`[Backend WS Server] Failed to save delay settings: ${error.message}`);
+    console.error(`❌ [Backend WS Server] Failed to save delay settings: ${error.message}`);
     return false;
   }
 }
@@ -341,13 +342,21 @@ async function loadOutVoltSettings() {
 }
 
 // 채널 전압 설정을 파일에 저장하는 함수
-async function saveChannelVoltages(channelVoltages) {
+async function saveChannelVoltages(voltages) {
   try {
-    if (!Array.isArray(channelVoltages) || channelVoltages.length !== 4) {
-      throw new Error('채널 전압 설정은 4개 요소의 배열이어야 합니다.');
+    if (!Array.isArray(voltages) || voltages.length !== 4) throw new Error('채널 전압 설정은 4개 요소의 배열이어야 합니다.');
+    
+    // 각 전압값이 -40.0 ~ 40.0 범위 내에 있는지 검증
+    for (let i = 0; i < voltages.length; i++) {
+      const voltage = voltages[i];
+      if (typeof voltage !== 'number' || voltage < -40.0 || voltage > 40.0) {
+        throw new Error(`채널 ${i + 1} 전압값이 유효하지 않습니다. -40.0 ~ 40.0 범위 내의 값이어야 합니다.`);
+      }
     }
-    await fs.writeFile(CHANNEL_VOLTAGES_FILE, JSON.stringify(channelVoltages, null, 2));
-    console.log(`✅ [Backend WS Server] Channel voltages saved: ${JSON.stringify(channelVoltages)}`);
+    
+    const jsonString = JSON.stringify(voltages, null, 2);
+    await fs.writeFile(CHANNEL_VOLTAGES_FILE, jsonString);
+    console.log(`✅ [Backend WS Server] Channel voltages saved: ${JSON.stringify(voltages)}`);
     return true;
   } catch (error) {
     console.error(`❌ [Backend WS Server] Failed to save channel voltages: ${error.message}`);
@@ -359,12 +368,10 @@ async function saveChannelVoltages(channelVoltages) {
 async function loadChannelVoltages() {
   try {
     const data = await fs.readFile(CHANNEL_VOLTAGES_FILE, 'utf-8');
-    const channelVoltages = JSON.parse(data);
-    if (!Array.isArray(channelVoltages) || channelVoltages.length !== 4) {
-      throw new Error('채널 전압 설정은 4개 요소의 배열이어야 합니다.');
-    }
-    console.log(`📖 [Backend WS Server] Channel voltages loaded: ${JSON.stringify(channelVoltages)}`);
-    return channelVoltages;
+    const voltages = JSON.parse(data);
+    if (!Array.isArray(voltages) || voltages.length !== 4) throw new Error('채널 전압 설정은 4개 요소의 배열이어야 합니다.');
+    console.log(`📖 [Backend WS Server] Channel voltages loaded: ${JSON.stringify(voltages)}`);
+    return voltages;
   } catch (error) {
     // 기본값: 4개 요소 배열
     console.log(`📖 [Backend WS Server] No saved channel voltages found, using defaults: [5.0, 15.0, -15.0, 24.0]`);
@@ -381,7 +388,7 @@ let getTableOption = {
   productInput: {},
   usbPortSettings: {},
   outVoltSettings: {},
-  channelVoltages: []
+  channelVoltages: {}
 };
 
 // getTableOption 객체를 모든 JSON 파일에서 읽어와서 초기화하는 함수
@@ -496,8 +503,7 @@ async function saveGetTableOption() {
       saveLowTempSettings(getTableOption.lowTempSettings),
       saveProductInput(getTableOption.productInput),
       saveUsbPortSettings(getTableOption.usbPortSettings),
-      saveOutVoltSettings(getTableOption.outVoltSettings),
-      saveChannelVoltages(getTableOption.channelVoltages)
+      saveOutVoltSettings(getTableOption.outVoltSettings)
     ]);
     
     // 모든 저장이 성공했는지 확인
@@ -636,8 +642,8 @@ wss.on('connection', ws => {
     // 클라이언트 연결 시 저장된 채널 전압 설정을 자동으로 전송 (배열)
     const sendInitialChannelVoltages = async () => {
         try {
-            const savedChannelVoltages = await loadChannelVoltages();
-            ws.send(`Initial channel voltages: ${JSON.stringify(savedChannelVoltages)}`);
+            const savedVoltages = await loadChannelVoltages();
+            ws.send(`Initial channel voltages: ${JSON.stringify(savedVoltages)}`);
         } catch (error) {
             ws.send(`Initial channel voltages: ${JSON.stringify([5.0, 15.0, -15.0, 24.0])}`);
         }
@@ -781,6 +787,8 @@ wss.on('connection', ws => {
                 console.log("=== Delay Settings Process: OK ===");
                 console.log("📥 Raw message received:", decodedMessage);
                 console.log("📥 Parsed message parts:", decodeWebSocket);
+                console.log("📥 Message length:", decodedMessage.length);
+                console.log("📥 Full message bytes:", Buffer.from(decodedMessage).toString('hex'));
                 
                 try {
                     // 메시지에서 ON_DELAY, OFF_DELAY, CYCLE 값 추출
@@ -848,6 +856,145 @@ wss.on('connection', ws => {
                         console.error(`❌ [Backend WS Server] Missing required parameters`);
                         console.error(`❌ [Backend WS Server] onDelay: ${onDelay}, offDelay: ${offDelay}, cycleNumber: ${cycleNumber}`);
                         ws.send(`Error: Missing required parameters - ON_DELAY and OFF_DELAY are required`);
+                    }
+                        console.log("📥 Detected comma-separated format, attempting to parse...");
+                        const parts = delayData.split(',');
+                        if (parts.length >= 2) {
+                            const onDelayPart = parts[0].trim();
+                            const offDelayPart = parts[1].trim();
+                            
+                            const onDelayFromComma = onDelayPart.match(/ON_DELAY:(\d+)/);
+                            const offDelayFromComma = offDelayPart.match(/OFF_DELAY:(\d+)/);
+                            
+                            if (onDelayFromComma && offDelayFromComma) {
+                                console.log("📥 Successfully parsed comma-separated format");
+                                const onDelay = parseInt(onDelayFromComma[1]);
+                                const offDelay = parseInt(offDelayFromComma[1]);
+                                const cycleNumber = 1; // 기본값
+                                
+                                console.log("📥 Parsed values from comma format:", { onDelay, offDelay, cycleNumber });
+                                
+                                // 값 검증 (0-999 범위, cycle은 1-3 범위)
+                                if (onDelay >= 0 && onDelay <= 999 && 
+                                    offDelay >= 0 && offDelay <= 999 && 
+                                    cycleNumber >= 1 && cycleNumber <= 3) {
+                                    
+                                    // 딜레이 설정 객체 생성
+                                    const delaySettings = {
+                                        onDelay,
+                                        offDelay,
+                                        cycleNumber
+                                    };
+                                    
+                                    console.log("💾 [Backend WS Server] Attempting to save delay settings:", delaySettings);
+                                    
+                                    // getTableOption 업데이트 및 저장
+                                    const updateSuccess = await updateGetTableOptionSection('delaySettings', delaySettings);
+                                    if (updateSuccess) {
+                                        console.log(`✅ [Backend WS Server] Delay settings saved successfully:`, delaySettings);
+                                        ws.send(`Delay settings saved: ${JSON.stringify(delaySettings)}`);
+                                    } else {
+                                        console.error(`❌ [Backend WS Server] Failed to save delay settings`);
+                                        ws.send(`Error: Failed to save delay settings`);
+                                    }
+                                    return; // 성공적으로 처리했으므로 함수 종료
+                                } else {
+                                    console.error(`❌ [Backend WS Server] Invalid delay values from comma format:`, { onDelay, offDelay, cycleNumber });
+                                    ws.send(`Error: Invalid delay values. ON_DELAY/OFF_DELAY: 0-999 seconds, CYCLE: 1-3`);
+                                    return;
+                                }
+                            } else {
+                                console.log("📥 Failed to parse comma-separated format, trying alternative parsing...");
+                            }
+                        }
+                    }
+                    
+                    // 모든 형식에 대한 강력한 파싱 시도 (CYCLE이 없는 경우)
+                    if (!cycleMatch) {
+                        console.log("📥 Attempting universal parsing for any format...");
+                        
+                        // ON_DELAY와 OFF_DELAY만 추출하고 CYCLE은 기본값 사용
+                        const onDelayMatch = delayData.match(/ON_DELAY:(\d+)/);
+                        const offDelayMatch = delayData.match(/OFF_DELAY:(\d+)/);
+                        
+                        if (onDelayMatch && offDelayMatch) {
+                            console.log("📥 Successfully parsed with universal parser");
+                            const onDelay = parseInt(onDelayMatch[1]);
+                            const offDelay = parseInt(offDelayMatch[1]);
+                            const cycleNumber = 1; // 기본값
+                            
+                            console.log("📥 Parsed values with universal parser:", { onDelay, offDelay, cycleNumber });
+                            
+                            // 값 검증 (0-999 범위, cycle은 1-3 범위)
+                            if (onDelay >= 0 && onDelay <= 999 && 
+                                offDelay >= 0 && offDelay <= 999 && 
+                                cycleNumber >= 1 && cycleNumber <= 3) {
+                                
+                                // 딜레이 설정 객체 생성
+                                const delaySettings = {
+                                    onDelay,
+                                    offDelay,
+                                    cycleNumber
+                                };
+                                
+                                console.log("💾 [Backend WS Server] Attempting to save delay settings:", delaySettings);
+                                
+                                // getTableOption 업데이트 및 저장
+                                const updateSuccess = await updateGetTableOptionSection('delaySettings', delaySettings);
+                                if (updateSuccess) {
+                                    console.log(`✅ [Backend WS Server] Delay settings saved successfully:`, delaySettings);
+                                    ws.send(`Delay settings saved: ${JSON.stringify(delaySettings)}`);
+                                } else {
+                                    console.error(`❌ [Backend WS Server] Failed to save delay settings`);
+                                    ws.send(`Error: Failed to save delay settings`);
+                                }
+                                return; // 성공적으로 처리했으므로 함수 종료
+                            } else {
+                                console.error(`❌ [Backend WS Server] Invalid delay values with universal parser:`, { onDelay, offDelay, cycleNumber });
+                                ws.send(`Error: Invalid delay values. ON_DELAY/OFF_DELAY: 0-999 seconds, CYCLE: 1-3`);
+                                return;
+                            }
+                        }
+                    }
+                    
+                    if (onDelayMatch && offDelayMatch && cycleMatch) {
+                        const onDelay = parseInt(onDelayMatch[1]);
+                        const offDelay = parseInt(offDelayMatch[1]);
+                        const cycleNumber = parseInt(cycleMatch[1]);
+                        
+                        console.log("📥 Parsed values:", { onDelay, offDelay, cycleNumber });
+                        
+                        // 값 검증 (0-999 범위, cycle은 1-3 범위)
+                        if (onDelay >= 0 && onDelay <= 999 && 
+                            offDelay >= 0 && offDelay <= 999 && 
+                            cycleNumber >= 1 && cycleNumber <= 3) {
+                            
+                            // 딜레이 설정 객체 생성
+                            const delaySettings = {
+                                onDelay,
+                                offDelay,
+                                cycleNumber
+                            };
+                            
+                            console.log("💾 [Backend WS Server] Attempting to save delay settings:", delaySettings);
+                            
+                            // getTableOption 업데이트 및 저장
+                            const updateSuccess = await updateGetTableOptionSection('delaySettings', delaySettings);
+                            if (updateSuccess) {
+                                console.log(`✅ [Backend WS Server] Delay settings saved successfully:`, delaySettings);
+                                ws.send(`Delay settings saved: ${JSON.stringify(delaySettings)}`);
+                            } else {
+                                console.error(`❌ [Backend WS Server] Failed to save delay settings`);
+                                ws.send(`Error: Failed to save delay settings`);
+                            }
+                        } else {
+                            console.error(`❌ [Backend WS Server] Invalid delay values:`, { onDelay, offDelay, cycleNumber });
+                            ws.send(`Error: Invalid delay values. ON_DELAY/OFF_DELAY: 0-999 seconds, CYCLE: 1-3`);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid delay settings format - missing required parameters`);
+                        console.error(`❌ [Backend WS Server] Expected format: ON_DELAY:X OFF_DELAY:Y CYCLE:Z`);
+                        ws.send(`Error: Invalid delay settings format - missing required parameters`);
                     }
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Delay settings error: ${error.message}`);
@@ -1106,42 +1253,6 @@ wss.on('connection', ws => {
                         const saveSuccess = await saveChannelVoltages(voltages);
                         if (saveSuccess) {
                             const responseMessage = `[CHANNEL_VOLTAGES_SAVED] ${JSON.stringify(voltages)}`;
-                            console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
-                            ws.send(responseMessage);
-                            console.log(`✅ [Backend WS Server] Channel voltages successfully saved to file`);
-                        } else {
-                            console.error(`❌ [Backend WS Server] Failed to save channel voltages to file`);
-                            ws.send(`Error: Failed to save channel voltages`);
-                        }
-                    } else {
-                        console.error(`❌ [Backend WS Server] Invalid channel voltages format:`, typeof voltages);
-                        ws.send(`Error: Invalid channel voltages format - expected array with 4 elements`);
-                    }
-                } catch (error) {
-                    console.error(`❌ [Backend WS Server] Save channel voltages error: ${error.message}`);
-                    console.error(`❌ [Backend WS Server] Error stack:`, error.stack);
-                    ws.send(`Error: Save channel voltages failed - ${error.message}`);
-                }
-            } else if(decodeWebSocket[0] === '[SAVE_CHANNEL_VOLTAGES]') {
-                console.log("=== Save Channel Voltages Process: OK ===");
-                console.log("📥 Raw message received:", decodedMessage);
-                console.log("📥 Parsed message parts:", decodeWebSocket);
-                
-                try {
-                    // [SAVE_CHANNEL_VOLTAGES] 부분을 제외하고 나머지 voltages 부분만 추출
-                    const voltagesData = decodedMessage.replace('[SAVE_CHANNEL_VOLTAGES] ', '');
-                    console.log("📥 Channel voltages data extracted (without command):", voltagesData);
-                    
-                    const voltages = JSON.parse(voltagesData);
-                    console.log("📥 Parsed channel voltages:", voltages);
-                    
-                    if (Array.isArray(voltages) && voltages.length === 4) {
-                        console.log(`✅ [Backend WS Server] Received channel voltages to save:`, voltages);
-                        
-                        // 채널 전압 설정을 파일에 저장
-                        const saveSuccess = await saveChannelVoltages(voltages);
-                        if (saveSuccess) {
-                            const responseMessage = `Channel voltages saved: ${JSON.stringify(voltages)}`;
                             console.log(`✅ [Backend WS Server] Sending confirmation:`, responseMessage);
                             ws.send(responseMessage);
                             console.log(`✅ [Backend WS Server] Channel voltages successfully saved to file`);
