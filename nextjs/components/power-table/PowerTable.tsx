@@ -6,6 +6,7 @@ import type { PowerDataGroup } from '../../lib/parsePowerData';
 interface PowerTableProps {
   groups: PowerDataGroup[];
   wsConnection?: WebSocket | null;
+  channelVoltages?: number[]; // 채널 전압 설정 추가
 }
 
 interface VoltageData {
@@ -24,15 +25,57 @@ interface VoltageData {
   testIndex: number;
 }
 
-export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
+export default function PowerTable({ groups, wsConnection, channelVoltages = [5, 15, -15, 24] }: PowerTableProps) {
   const [voltageData, setVoltageData] = useState<{ [key: string]: string }>({});
 
   
   console.log('🔌 PowerTable: 컴포넌트 렌더링됨');
-  console.log('🔌 PowerTable: props 확인:', { groups: groups?.length, wsConnection: !!wsConnection });
+  console.log('🔌 PowerTable: props 확인:', { groups: groups?.length, wsConnection: !!wsConnection, channelVoltages });
+  console.log('🔌 PowerTable: channelVoltages 상세:', channelVoltages);
+  
+  // channelVoltages 변경 추적
+  useEffect(() => {
+    console.log('🔌 PowerTable: channelVoltages 변경됨:', channelVoltages);
+  }, [channelVoltages]);
   
   const group = groups[0]; // 첫 번째 그룹만 사용
   if (!group) return <div className="text-red-400">데이터 없음</div>;
+
+  // 출력 전압 표시 함수
+  const getOutputVoltageDisplay = (outputValue: string) => {
+    console.log(`🔌 PowerTable: getOutputVoltageDisplay 호출 - outputValue: ${outputValue}, channelVoltages:`, channelVoltages);
+    
+    // 기존 출력값을 channelVoltages 인덱스로 매핑
+    let channelIndex = 0;
+    if (outputValue === '+5') channelIndex = 0;
+    else if (outputValue === '+15') channelIndex = 1;
+    else if (outputValue === '-15') channelIndex = 2;
+    else if (outputValue === '+24') channelIndex = 3;
+    
+    // channelVoltages에서 해당 인덱스의 값을 가져와서 표시
+    const voltage = channelVoltages[channelIndex];
+    console.log(`🔌 PowerTable: channelIndex: ${channelIndex}, voltage: ${voltage}`);
+    
+    if (voltage !== undefined) {
+      const result = voltage > 0 ? `+${voltage}` : `${voltage}`;
+      console.log(`🔌 PowerTable: 변환 결과: ${outputValue} -> ${result}`);
+      return result;
+    }
+    
+    // fallback: 기존 값 사용
+    console.log(`🔌 PowerTable: fallback 사용: ${outputValue}`);
+    return outputValue;
+  };
+
+  // 출력값으로부터 채널 번호를 결정하는 함수
+  const getChannelNumberFromOutput = (outputValue: string) => {
+    // 기존 출력값과 새로운 출력값 모두 처리
+    if (outputValue === '+5' || outputValue === `+${channelVoltages[0]}`) return 1;
+    else if (outputValue === '+15' || outputValue === `+${channelVoltages[1]}`) return 2;
+    else if (outputValue === '-15' || outputValue === `${channelVoltages[2]}`) return 3;
+    else if (outputValue === '+24' || outputValue === `+${channelVoltages[3]}`) return 4;
+    else return 1; // 기본값
+  };
 
   // WebSocket 메시지 수신 처리
   useEffect(() => {
@@ -311,6 +354,29 @@ export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
         >
           🔄 초기화
         </button>
+        <button
+          onClick={() => {
+            console.log('🔍 PowerTable: 현재 channelVoltages:', channelVoltages);
+            console.log('🔍 PowerTable: 테스트 출력값 변환:');
+            console.log('  +5 ->', getOutputVoltageDisplay('+5'));
+            console.log('  +15 ->', getOutputVoltageDisplay('+15'));
+            console.log('  -15 ->', getOutputVoltageDisplay('-15'));
+            console.log('  +24 ->', getOutputVoltageDisplay('+24'));
+            alert(`현재 channelVoltages: ${JSON.stringify(channelVoltages)}\n콘솔을 확인하세요.`);
+          }}
+          style={{
+            backgroundColor: '#9C27B0',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            fontSize: '12px',
+            cursor: 'pointer',
+            marginLeft: '8px'
+          }}
+        >
+          🔍 테스트
+        </button>
 
       </div>
       
@@ -337,23 +403,19 @@ export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
             {group.rows.map((row, idx) => (
               <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#3a3a3a' : '#1a1a1a' }}>
                 <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>{row.input}</td>
-                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>{row.output}</td>
+                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>{getOutputVoltageDisplay(row.output)}</td>
                 {row.devs.map((v, i) => {
                   // 실시간 전압 데이터가 있으면 표시, 없으면 기본값 사용
                   const deviceNumber = i + 1; // 디바이스 번호 (1-10)
                   
                   // 현재 행의 출력값을 기반으로 채널 번호 결정
-                  let channelNumber = 1;
-                  if (row.output === '+5') channelNumber = 1;
-                  else if (row.output === '+15') channelNumber = 2;
-                  else if (row.output === '-15') channelNumber = 3;
-                  else if (row.output === '+24') channelNumber = 4;
+                  const channelNumber = getChannelNumberFromOutput(row.output);
                   
-                  // 현재 행의 입력값을 기반으로 테스트 번호 결정
+                  // 현재 행의 입력값을 기반으로 테스트 번호 결정 (서버의 outVoltSettings [24, 18, 30, 0] 순서에 맞춤)
                   let testNumber = 1;
-                  if (row.input === '+18') testNumber = 1;
-                  else if (row.input === '+24') testNumber = 2;
-                  else if (row.input === '+30') testNumber = 3;
+                  if (row.input === '+24') testNumber = 1;  // 첫 번째: 24V
+                  else if (row.input === '+18') testNumber = 2;  // 두 번째: 18V
+                  else if (row.input === '+30') testNumber = 3;  // 세 번째: 30V
                   
                   const realTimeVoltage = getVoltageDisplay(deviceNumber, testNumber, channelNumber);
                   

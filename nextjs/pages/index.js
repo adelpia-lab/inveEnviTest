@@ -90,6 +90,7 @@ const ws = useRef(null);
 const [voltages, setVoltages] = useState([0, 0, 0, 0, 0]);
 const [temperature, setTemperature] = useState(null);
 const [isWaitingChamberResponse, setIsWaitingChamberResponse] = useState(false);
+const [channelVoltages, setChannelVoltages] = useState([5, 15, -15, 24]); // 기본값 설정
 
   // WebSocket 연결 상태 확인 함수
   const isWebSocketReady = () => {
@@ -217,6 +218,22 @@ useEffect(() => {
     else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
       console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신:', event.data);
       // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+    }
+    // Initial channel voltages 메시지 처리
+    else if (typeof event.data === 'string' && event.data.startsWith('Initial channel voltages:')) {
+      try {
+        const match = event.data.match(/Initial channel voltages: (\[.*\])/);
+        if (match && match[1]) {
+          const voltages = JSON.parse(match[1]);
+          if (Array.isArray(voltages) && voltages.length === 4) {
+            console.log('📥 Main: 채널 전압 설정 수신 전:', channelVoltages);
+            setChannelVoltages(voltages);
+            console.log('📥 Main: 채널 전압 설정 수신 후:', voltages);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to parse channel voltages:', err);
+      }
     }
     //setReceivedMessages(prev => [...prev, event.data]);
   };
@@ -539,7 +556,11 @@ const sendMessage = () => {
             <DeviceSelect initialValue="#1 Device" onSelectionChange={handleSelectionFromDeviceSelect} wsConnection={ws.current} />
           </div>
           <div className={styles.bodyItem}>
-            <PowerTable groups={props.powerGroups || []} wsConnection={ws.current} />
+            <PowerTable 
+              groups={props.powerGroups || []} 
+              wsConnection={ws.current} 
+              channelVoltages={channelVoltages} // 동적으로 받은 channelVoltages 설정값
+            />
             {/* 디버깅용 정보 표시 */}
             <div style={{ 
               position: 'absolute', 
