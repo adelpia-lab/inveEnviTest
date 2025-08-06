@@ -25,13 +25,13 @@ interface VoltageData {
 }
 
 export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
-  const [page, setPage] = useState(0);
   const [voltageData, setVoltageData] = useState<{ [key: string]: string }>({});
+
   
   console.log('🔌 PowerTable: 컴포넌트 렌더링됨');
   console.log('🔌 PowerTable: props 확인:', { groups: groups?.length, wsConnection: !!wsConnection });
   
-  const group = groups[page];
+  const group = groups[0]; // 첫 번째 그룹만 사용
   if (!group) return <div className="text-red-400">데이터 없음</div>;
 
   // WebSocket 메시지 수신 처리
@@ -206,8 +206,8 @@ export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
       width: '100%', 
       height: '100%',
       display: 'grid',
-      gridTemplateRows: '50px 420px 50px',
-      gridTemplateAreas: '"header" "table" "pagination"',
+      gridTemplateRows: '50px 1fr',
+      gridTemplateAreas: '"header" "table"',
       gap: '10px'
     }}>
       {/* 상단 정보 - 한 줄에 배치 */}
@@ -220,8 +220,6 @@ export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
         borderRadius: '8px',
         padding: '10px'
       }}>
-        <div className="text-lg font-semibold text-blue-200">날짜: <span className="text-white">{group.date}</span></div>
-        <div className="text-lg font-semibold text-blue-200">시간: <span className="text-white">{group.time}</span></div>
         <div className="text-lg font-semibold text-blue-200">온도: <span className="text-white">{group.temperature}°C</span></div>
         {/* 개발용 테스트 버튼 */}
         <button
@@ -295,6 +293,25 @@ export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
         >
           ➕ 테스트데이터
         </button>
+        <button
+          onClick={() => {
+            setVoltageData({});
+            alert('전압 데이터가 초기화되었습니다!');
+          }}
+          style={{
+            backgroundColor: '#F44336',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            fontSize: '12px',
+            cursor: 'pointer',
+            marginLeft: '8px'
+          }}
+        >
+          🔄 초기화
+        </button>
+
       </div>
       
       {/* 테이블 컨테이너 - 그리드 영역 */}
@@ -349,7 +366,7 @@ export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
                   
                   return (
                     <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>
-                      {realTimeVoltage !== '-.-' ? realTimeVoltage : v}
+                      {realTimeVoltage !== '-.-' ? realTimeVoltage : '-.-'}
                     </td>
                   );
                 })}
@@ -358,27 +375,6 @@ export default function PowerTable({ groups, wsConnection }: PowerTableProps) {
             ))}
           </tbody>
         </table>
-      </div>
-      
-      {/* 페이지네이션 - 그리드 영역 */}
-      <div className="flex justify-center items-center gap-2" style={{ 
-        gridArea: 'pagination',
-        backgroundColor: '#2a2b30',
-        borderRadius: '8px',
-        padding: '10px',
-        borderTop: '2px solid #404040'
-      }}>
-        {groups.map((_, i) => (
-          <button
-            key={i}
-            style={{ width: 40, height: 30, fontSize: '14px' }}
-            className={`rounded-full flex items-center justify-center font-bold border border-gray-600 transition-colors ${i === page ? 'bg-blue-500 text-white' : 'bg-[#53545a] text-gray-300 hover:bg-blue-700'}`}
-            onClick={() => setPage(i)}
-            aria-current={i === page ? 'page' : undefined}
-          >
-            {i + 1}
-          </button>
-        ))}
       </div>
     </div>
   );

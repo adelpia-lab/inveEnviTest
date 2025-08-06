@@ -285,10 +285,6 @@ export default function HighTempSettingPanel({
       <div className="flex items-center w-full justify-between mb-2 gap-2">
         {/* 고온 측정토글 - 저장된 상태 표시 */}
         <span className="font-medium px-2 py-1" style={{ fontSize: '1.2rem' }}>고온측정</span>
-        {/* 디버깅 정보 */}
-        <div style={{ fontSize: '0.7rem', color: '#666' }}>
-          Debug: {form.highTemp ? 'ON' : 'OFF'} ({typeof form.highTemp})
-        </div>
         <Switch
           key={`high-temp-switch-${form.highTemp}`}
           checked={Boolean(form.highTemp)}
