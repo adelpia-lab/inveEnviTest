@@ -49,7 +49,7 @@ async function loadUsbPortSettings() {
 async function getPortPath() {
   try {
     const usbSettings = await loadUsbPortSettings();
-    return '/dev/' + usbSettings.relay; // relay 포트 사용
+    return usbSettings.relay; // relay 포트 사용
   } catch (error) {
     // console.error('Failed to load USB port settings, using default:', error.message);
     return '/dev/ttyUSB3'; // 기본값
@@ -386,8 +386,23 @@ export async function SelectDevice(deviceNumber) {
     const str = DeviceOn[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
     await sleep(2000); // 2초 대기
-    await RelayDevice(hexBuffer);
-    await sleep(2000); // 2초 대기
+    
+    try {
+        const result = await RelayDevice(hexBuffer);
+        
+        // RelayDevice의 결과를 확인
+        if (result && result.isValid) {
+            console.log(`[SelectDevice] Device ${deviceNumber} selected successfully`);
+            await sleep(2000); // 2초 대기
+            return { success: true, message: `Device ${deviceNumber} selected successfully` };
+        } else {
+            console.error(`[SelectDevice] Device ${deviceNumber} selection failed:`, result);
+            throw new Error(result?.error || 'Unknown error');
+        }
+    } catch (error) {
+        console.error(`[SelectDevice] Error selecting device ${deviceNumber}:`, error.message);
+        throw error;
+    }
 }
 
 export async function SelectDeviceOn(deviceNumber) {

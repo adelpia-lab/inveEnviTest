@@ -1644,9 +1644,9 @@ wss.on('connection', ws => {
                     ws.send(`Error: Power switch failed - ${error.message}`);
                 }
             } else if(decodeWebSocket[0] === '[RELAY_TEST]') {
-                //console.log("=== Relay Test Process: OK ===");
-                //console.log("📥 Raw message received:", decodedMessage);
-                //console.log("📥 Parsed message parts:", decodeWebSocket);
+                console.log("=== Relay Test Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
                 
                 try {
                     // Parse port and device number from message
@@ -1665,15 +1665,17 @@ wss.on('connection', ws => {
                             return;
                         }
                         
-                        // Simulate relay test with 2-second timeout
+                        // 실제 SelectDevice 함수 호출
                         try {
                             console.log(`🔌 [Backend WS Server] Testing relay on device ${deviceNumber}`);
-                            await sleep(800); // 릴레이 테스트는 빠름
                             
-                            // 릴레이 테스트 성공률 (98%)
-                            const isSuccess = Math.random() > 0.02;
+                            // SelectDevice.js에서 함수 import
+                            const { SelectDevice } = await import('./SelectDevice.js');
                             
-                            if (isSuccess) {
+                            // 실제 릴레이 테스트 실행
+                            const result = await SelectDevice(deviceNumber);
+                            
+                            if (result && result.success) {
                                 const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:success MESSAGE:릴레이 ${portNumber} 정상 동작`;
                                 console.log(`✅ [Backend WS Server] Relay ${portNumber} test successful`);
                                 ws.send(responseMessage);
