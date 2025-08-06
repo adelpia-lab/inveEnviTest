@@ -42,9 +42,9 @@ function hexToDecimal(hexString) {
 export async function usbChamber(commandToSend) {
     // USB 포트 설정에서 챔버 포트 가져오기
     const usbSettings = await loadUsbPortSettings();
-    const portPath = '/dev/' + usbSettings.chamber;
+    const portPath = usbSettings.chamber;
     
-    // console.log(`[ReadChamber] Using chamber port: ${portPath}`);
+    console.log(`[ReadChamber] Using chamber port: ${portPath}`);
 
     return new Promise((resolve, reject) => {
         const port = new SerialPort({

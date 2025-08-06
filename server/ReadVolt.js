@@ -21,44 +21,21 @@ const RETURN_PATTERN = '-0.003\r\n';
 // --- 시리얼 포트 설정 ---
 // USB 포트 설정을 파일에서 읽어오는 함수
 async function loadUsbPortSettings() {
-  try {
-    const data = await fs.readFile('usb_port_settings.json', 'utf-8');
-    const settings = JSON.parse(data);
-    
-    // 영문 키가 모두 있는지 확인
-    if (settings.chamber && settings.power && settings.load && settings.relay) {
-      return settings;
-    } else {
-      // 기본값 반환 (한글 키가 있거나 영문 키가 누락된 경우)
-      const defaultSettings = {
-        chamber: 'ttyUSB1',
-        power: 'ttyUSB3',
-        load: 'ttyUSB2',
-        relay: 'ttyUSB0'
-      };
-      return defaultSettings;
-    }
-  } catch (error) {
-    // 기본값
-    const defaultSettings = {
-      chamber: 'ttyUSB1',
-      power: 'ttyUSB3',
-      load: 'ttyUSB2',
-      relay: 'ttyUSB0'
-    };
-    return defaultSettings;
+  const data = await fs.readFile('usb_port_settings.json', 'utf-8');
+  const settings = JSON.parse(data);
+  
+  // 영문 키가 모두 있는지 확인
+  if (settings.chamber && settings.power && settings.load && settings.relay) {
+    return settings;
+  } else {
+    throw new Error('USB port settings are missing required keys: chamber, power, load, relay');
   }
 }
 
 // 동적으로 PORT_PATH를 가져오는 함수
 async function getPortPath() {
-  try {
-    const usbSettings = await loadUsbPortSettings();
-    return '/dev/' + usbSettings.load;
-  } catch (error) {
-    console.error('Failed to load USB port settings, using default:', error.message);
-    return '/dev/ttyUSB2'; // 기본값
-  }
+  const usbSettings = await loadUsbPortSettings();
+  return usbSettings.load;
 }
 
 const BAUD_RATE = 19200; // 장치에 맞는 보드 레이트를 설정하세요.

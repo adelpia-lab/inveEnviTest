@@ -337,25 +337,30 @@ async function loadProductInput() {
 // USB 포트 설정을 파일에 저장하는 함수
 async function saveUsbPortSettings(settings) {
   try {
-    // console.log(`💾 [Backend WS Server] Attempting to save USB port settings to file: ${USB_PORT_SETTINGS_FILE}`);
-    // console.log(`💾 [Backend WS Server] Settings to save:`, settings);
+    console.log(`💾 [Backend WS Server] Attempting to save USB port settings to file: ${USB_PORT_SETTINGS_FILE}`);
+    console.log(`💾 [Backend WS Server] Settings to save:`, settings);
     
-    // 영문 키만 허용, 한글 키가 있으면 기본값 사용
+    // Validate that all required ports are provided and not empty
+    if (!settings.chamber || !settings.power || !settings.load || !settings.relay) {
+      throw new Error('All USB port settings (chamber, power, load, relay) must be provided and cannot be empty');
+    }
+    
+    // 영문 키만 허용, 유효성 검사
     const validSettings = {
-      chamber: settings.chamber || 'ttyUSB0',
-      power: settings.power || 'ttyUSB1',
-      load: settings.load || 'ttyUSB2',
-      relay: settings.relay || 'ttyUSB3'
+      chamber: settings.chamber,
+      power: settings.power,
+      load: settings.load,
+      relay: settings.relay
     };
     
-    // console.log(`💾 [Backend WS Server] Valid settings to save:`, validSettings);
+    console.log(`💾 [Backend WS Server] Valid settings to save:`, validSettings);
     
     const jsonString = JSON.stringify(validSettings, null, 2);
-    // console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
+    console.log(`💾 [Backend WS Server] JSON string to write:`, jsonString);
     
     await fs.writeFile(USB_PORT_SETTINGS_FILE, jsonString);
-    // console.log(`✅ [Backend WS Server] USB port settings successfully written to file: ${USB_PORT_SETTINGS_FILE}`);
-    // console.log(`✅ [Backend WS Server] Settings saved: ${JSON.stringify(validSettings)}`);
+    console.log(`✅ [Backend WS Server] USB port settings successfully written to file: ${USB_PORT_SETTINGS_FILE}`);
+    console.log(`✅ [Backend WS Server] Settings saved: ${JSON.stringify(validSettings)}`);
     return true;
   } catch (error) {
     console.error(`❌ [Backend WS Server] Failed to save USB port settings: ${error.message}`);
@@ -370,35 +375,19 @@ async function loadUsbPortSettings() {
   try {
     const data = await fs.readFile(USB_PORT_SETTINGS_FILE, 'utf-8');
     const settings = JSON.parse(data);
-    // console.log(`📖 [Backend WS Server] USB port settings loaded from file: ${JSON.stringify(settings)}`);
+    console.log(`📖 [Backend WS Server] USB port settings loaded from file: ${JSON.stringify(settings)}`);
     
     // 영문 키가 모두 있는지 확인
     if (settings.chamber && settings.power && settings.load && settings.relay) {
-      // console.log(`✅ [Backend WS Server] Valid English key settings found`);
+      console.log(`✅ [Backend WS Server] Valid USB port settings found`);
       return settings;
     } else {
-      // console.log(`⚠️ [Backend WS Server] Invalid or Korean key settings found, using default`);
-      // 기본값 반환 (한글 키가 있거나 영문 키가 누락된 경우)
-      const defaultSettings = {
-        chamber: 'ttyUSB0',
-        power: 'ttyUSB1',
-        load: 'ttyUSB2',
-        relay: 'ttyUSB3'
-      };
-      // console.log(`📖 [Backend WS Server] Using default settings:`, defaultSettings);
-      return defaultSettings;
+      console.log(`⚠️ [Backend WS Server] Invalid USB port settings found in file`);
+      throw new Error('Invalid USB port settings format in file');
     }
   } catch (error) {
-    // console.log(`📖 [Backend WS Server] No saved USB port settings found, using default`);
-    // 기본값
-    const defaultSettings = {
-      chamber: 'ttyUSB0',
-      power: 'ttyUSB1',
-      load: 'ttyUSB2',
-      relay: 'ttyUSB3'
-    };
-    // console.log(`📖 [Backend WS Server] Default USB port settings:`, defaultSettings);
-    return defaultSettings;
+    console.log(`📖 [Backend WS Server] Failed to load USB port settings: ${error.message}`);
+    throw error; // Re-throw to be handled by caller
   }
 }
 
@@ -722,16 +711,9 @@ wss.on('connection', ws => {
             console.log(`📤 [Backend WS Server] Sending initial USB port settings to client:`, savedSettings);
             ws.send(`Initial USB port settings: ${JSON.stringify(savedSettings)}`);
         } catch (error) {
-            console.error(`❌ [Backend WS Server] Failed to send initial USB port settings: ${error.message}`);
-            // 기본값 전송
-            const defaultSettings = {
-                chamber: 'ttyUSB0',
-                power: 'ttyUSB1',
-                load: 'ttyUSB2',
-                relay: 'ttyUSB3'
-            };
-            console.log(`📤 [Backend WS Server] Sending default USB port settings:`, defaultSettings);
-            ws.send(`Initial USB port settings: ${JSON.stringify(defaultSettings)}`);
+            console.error(`❌ [Backend WS Server] Failed to load USB port settings: ${error.message}`);
+            console.error(`❌ [Backend WS Server] No USB port settings available - client must configure ports`);
+            ws.send(`Error: No USB port settings found - please configure ports first`);
         }
     };
 

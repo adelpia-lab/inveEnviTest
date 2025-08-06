@@ -26,36 +26,17 @@ async function loadUsbPortSettings() {
     if (settings.chamber && settings.power && settings.load && settings.relay) {
       return settings;
     } else {
-      // 기본값 반환 (한글 키가 있거나 영문 키가 누락된 경우)
-      const defaultSettings = {
-        chamber: 'ttyUSB1',
-        power: 'ttyUSB3',
-        load: 'ttyUSB2',
-        relay: 'ttyUSB0'
-      };
-      return defaultSettings;
+      throw new Error('USB port settings file is missing required keys');
     }
   } catch (error) {
-    // 기본값
-    const defaultSettings = {
-      chamber: 'ttyUSB1',
-      power: 'ttyUSB3',
-      load: 'ttyUSB2',
-      relay: 'ttyUSB0'
-    };
-    return defaultSettings;
+    throw error;
   }
 }
 
 // 동적으로 PORT_PATH를 가져오는 함수
 async function getPortPath() {
-  try {
-    const usbSettings = await loadUsbPortSettings();
-    return '/dev/' + usbSettings.power;
-  } catch (error) {
-    console.error('Failed to load USB port settings, using default:', error.message);
-    return '/dev/ttyUSB2'; // 기본값
-  }
+  const usbSettings = await loadUsbPortSettings();
+  return usbSettings.power;
 }
 
 const BAUD_RATE = 19200; // 장치에 맞는 보드 레이트를 설정하세요.

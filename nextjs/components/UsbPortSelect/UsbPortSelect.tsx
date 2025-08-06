@@ -29,7 +29,7 @@ interface DevicePorts {
   relay: string;
 }
 
-const AVAILABLE_PORTS = ['ttyUSB0', 'ttyUSB1', 'ttyUSB2', 'ttyUSB3'];
+const AVAILABLE_PORTS = ['COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8'];
 
 // 영문 키를 한글 표시명으로 매핑
 const DEVICE_DISPLAY_NAMES: Record<DeviceType, string> = {
@@ -40,27 +40,31 @@ const DEVICE_DISPLAY_NAMES: Record<DeviceType, string> = {
 };
 
 export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPortSelectProps) {
-  // Default ports - same for server and client
-  const defaultPorts: DevicePorts = {
-    chamber: 'ttyUSB0',
-    power: 'ttyUSB1',
-    load: 'ttyUSB2',
-    relay: 'ttyUSB3'
-  };
-
-  const [devicePorts, setDevicePorts] = useState<DevicePorts>(defaultPorts);
+  // Initialize with empty state - will be populated from server
+  const [devicePorts, setDevicePorts] = useState<DevicePorts>({
+    chamber: '',
+    power: '',
+    load: '',
+    relay: ''
+  });
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tempDevicePorts, setTempDevicePorts] = useState<DevicePorts>(defaultPorts);
+  const [tempDevicePorts, setTempDevicePorts] = useState<DevicePorts>({
+    chamber: '',
+    power: '',
+    load: '',
+    relay: ''
+  });
+  const [isInitialized, setIsInitialized] = useState(false);
   const isClient = useIsClient();
 
-  // Load saved values from localStorage only after client-side hydration
+  // Only load from localStorage if server hasn't provided initial settings
   useEffect(() => {
-    if (!isClient) return;
+    if (!isClient || isInitialized) return;
     loadSavedPorts();
-  }, [isClient]);
+  }, [isClient, isInitialized]);
 
   // WebSocket 메시지 리스너 설정
   useEffect(() => {
@@ -111,6 +115,7 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
               // 서버에서 받은 초기 데이터로 상태 업데이트
               setDevicePorts(initialData);
               setTempDevicePorts(initialData);
+              setIsInitialized(true); // Mark as initialized
               
               // localStorage에도 저장
               if (typeof window !== 'undefined') {
@@ -124,16 +129,17 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
               
               // 기본값 사용 (한글 키가 있거나 영문 키가 누락된 경우)
               const defaultData: DevicePorts = {
-                chamber: 'ttyUSB0',
-                power: 'ttyUSB1',
-                load: 'ttyUSB2',
-                relay: 'ttyUSB3'
+                chamber: '',
+                power: '',
+                load: '',
+                relay: ''
               };
               
               // console.log('🔄 Using default settings:', defaultData);
               
               setDevicePorts(defaultData);
               setTempDevicePorts(defaultData);
+              setIsInitialized(true); // Mark as initialized
               
               // localStorage에도 저장
               if (typeof window !== 'undefined') {
@@ -141,13 +147,15 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
                 // console.log('💾 Updated localStorage with default data:', defaultData);
               }
             }
-          } else {
-            // console.log('❌ No initial USB port settings found on server, using default');
-            loadSavedPorts();
-          }
+                      } else {
+              // console.log('❌ No initial USB port settings found on server');
+              console.error('Invalid USB port settings format received from server');
+              setIsInitialized(true);
+            }
         } catch (error) {
           // console.error('❌ Failed to parse initial USB port settings from server:', error);
-          loadSavedPorts();
+          console.error('Failed to parse initial USB port settings from server:', error);
+          setIsInitialized(true);
         }
       }
       // 서버에서 USB 포트 설정 저장 확인 메시지 수신
@@ -201,12 +209,22 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
         if (saved) {
           const parsed = JSON.parse(saved);
           // console.log('📖 Loaded USB port settings from localStorage:', parsed);
-          setDevicePorts(parsed);
-          setTempDevicePorts(parsed);
+          
+          // Validate that saved ports are compatible with available ports
+          const isValidPorts = Object.values(parsed).every(port => 
+            AVAILABLE_PORTS.includes(port as string)
+          );
+          
+          if (isValidPorts) {
+            setDevicePorts(parsed);
+            setTempDevicePorts(parsed);
+          }
         }
+        setIsInitialized(true);
       }
     } catch (error) {
-      // console.error('❌ Failed to load saved USB port settings:', error);
+      console.error('Failed to load saved USB port settings:', error);
+      setIsInitialized(true);
     }
   };
 
@@ -235,7 +253,9 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
     const usedPorts = new Map<string, string>(); // port -> device mapping
     
     Object.entries(tempDevicePorts).forEach(([device, port]) => {
-      if (usedPorts.has(port)) {
+      if (port === '') { // 빈 문자열은 유효하지 않은 포트로 간주
+        errors.push(`${device} 포트를 선택해야 합니다.`);
+      } else if (usedPorts.has(port)) {
         const conflictingDevice = usedPorts.get(port);
         errors.push(`${device}와 ${conflictingDevice}가 같은 포트(${port})를 사용하고 있습니다.`);
       } else {
@@ -396,18 +416,29 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
           <Typography variant="body2" color="white" sx={{ mb: 0.5 }}>
             현재 설정:
           </Typography>
-          <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
-            챔버: {devicePorts.chamber}
-          </Typography>
-          <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
-            파워: {devicePorts.power}
-          </Typography>
-          <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
-            로드: {devicePorts.load}
-          </Typography>
-          <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
-            릴레이: {devicePorts.relay}
-          </Typography>
+          {!isInitialized ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={16} sx={{ color: '#90CAF9' }} />
+              <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
+                서버에서 설정을 불러오는 중...
+              </Typography>
+            </Box>
+          ) : (
+            <>
+              <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
+                챔버: {devicePorts.chamber || '설정되지 않음'}
+              </Typography>
+              <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
+                파워: {devicePorts.power || '설정되지 않음'}
+              </Typography>
+              <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
+                로드: {devicePorts.load || '설정되지 않음'}
+              </Typography>
+              <Typography variant="body2" color="#90CAF9" sx={{ fontSize: '0.8rem' }}>
+                릴레이: {devicePorts.relay || '설정되지 않음'}
+              </Typography>
+            </>
+          )}
         </Paper>
       </Box>
 
@@ -436,6 +467,9 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
         <DialogContent sx={{ pt: 1.5, pb: 1 }}>
           <Typography variant="body2" color="#B0B0B0" sx={{ mb: 2 }}>
             각 기기의 USB 포트를 선택하세요. 중복된 포트는 사용할 수 없습니다.
+            <Box component="span" sx={{ display: 'block', mt: 1, fontSize: '0.85rem', color: '#90CAF9' }}>
+              사용 가능한 포트: COM1-COM8
+            </Box>
           </Typography>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2 }}>
