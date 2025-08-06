@@ -806,16 +806,15 @@ wss.on('connection', ws => {
                     const deviceSelectionData = decodedMessage.replace('[DEVICE_SELECT] ', '');
                     console.log("📥 Device selection data extracted (without command):", deviceSelectionData);
                     
-                    const selectedDevices = JSON.parse(deviceSelectionData);
-                    console.log("📥 Parsed selected devices:", selectedDevices);
+                    const selectedDeviceIndices = JSON.parse(deviceSelectionData);
+                    console.log("📥 Parsed selected device indices:", selectedDeviceIndices);
                     
-                    if (Array.isArray(selectedDevices)) {
+                    if (Array.isArray(selectedDeviceIndices)) {
                         // 10개 디바이스의 boolean 배열 생성 (기본값: false)
                         const deviceStates = new Array(10).fill(false);
                         
-                        // 선택된 디바이스들을 true로 설정
-                        selectedDevices.forEach(deviceName => {
-                            const deviceIndex = parseInt(deviceName.match(/#(\d+)/)?.[1]) - 1;
+                        // 선택된 디바이스 인덱스들을 true로 설정
+                        selectedDeviceIndices.forEach(deviceIndex => {
                             if (deviceIndex >= 0 && deviceIndex < 10) {
                                 deviceStates[deviceIndex] = true;
                             }
@@ -833,12 +832,25 @@ wss.on('connection', ws => {
                             ws.send(`Error: Failed to save device states`);
                         }
                     } else {
-                        console.error(`❌ [Backend WS Server] Invalid device selection format:`, typeof selectedDevices);
+                        console.error(`❌ [Backend WS Server] Invalid device selection format:`, typeof selectedDeviceIndices);
                         ws.send(`Error: Invalid device selection format - expected array`);
                     }
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Device selection error: ${error.message}`);
                     ws.send(`Error: Device selection failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[DEVICE_READ]') {
+                console.log("=== Device Read Process: OK ===");
+                try {
+                    const deviceStates = await loadDeviceStates();
+                    console.log("📤 [Backend WS Server] Sending device states to client:", deviceStates);
+                    ws.send(`Initial device states: ${JSON.stringify(deviceStates)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load device states: ${error.message}`);
+                    // 기본값 전송 - 10개 요소 배열 (첫 번째 기기만 선택된 상태)
+                    const defaultStates = [true, false, false, false, false, false, false, false, false, false];
+                    console.log(`📤 [Backend WS Server] Sending default device states:`, defaultStates);
+                    ws.send(`Initial device states: ${JSON.stringify(defaultStates)}`);
                 }
             } else if(decodeWebSocket[0] === '[VOLT_SELECT]') {
                 const voltCommand = decodeWebSocket[1];

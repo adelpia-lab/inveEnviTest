@@ -29,6 +29,7 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isReading, setIsReading] = useState(false);
   const isClient = useIsClient();
 
   // Load stored values from localStorage only after client-side hydration
@@ -71,8 +72,46 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
     if (!wsConnection) return;
 
     const handleMessage = (event) => {
-      // Handle WebSocket messages here if needed
-      // console.log('WebSocket message received:', event.data);
+      const message = event.data;
+      
+      // Handle device states response from server
+      if (typeof message === 'string' && message.startsWith('Initial device states:')) {
+        try {
+          const match = message.match(/Initial device states: (.*)/);
+          if (match && match[1]) {
+            const serverStates = JSON.parse(match[1]);
+            if (Array.isArray(serverStates) && serverStates.length === 10) {
+              console.log('📥 Received device states from server:', serverStates);
+              setDeviceStates(serverStates);
+              setTempDeviceStates(serverStates);
+              // Update localStorage with server data
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('deviceStates', JSON.stringify(serverStates));
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Failed to parse device states from server:', error);
+        }
+      }
+      
+      // Handle device states saved confirmation
+      if (typeof message === 'string' && message.startsWith('Device states saved:')) {
+        try {
+          const match = message.match(/Device states saved: (.*)/);
+          if (match && match[1]) {
+            const savedStates = JSON.parse(match[1]);
+            console.log('✅ Device states saved on server:', savedStates);
+          }
+        } catch (error) {
+          console.error('Failed to parse saved device states:', error);
+        }
+      }
+      
+      // Handle error messages
+      if (typeof message === 'string' && message.startsWith('Error:')) {
+        console.error('❌ Server error:', message);
+      }
     };
 
     wsConnection.addEventListener('message', handleMessage);
@@ -97,6 +136,20 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
     setTempDeviceStates([...deviceStates]);
   };
 
+  const handleReadButtonClick = () => {
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      setIsReading(true);
+      // Request device states from server
+      wsConnection.send('[DEVICE_READ]');
+      console.log('📤 Requesting device states from server');
+      
+      // Reset reading state after 3 seconds
+      setTimeout(() => {
+        setIsReading(false);
+      }, 3000);
+    }
+  };
+
   const handleAcceptClick = () => {
     // console.log("=== Accept button clicked - saving device states (array) ===");
     // console.log("Current tempDeviceStates (array):", tempDeviceStates);
@@ -113,15 +166,15 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
       // console.log("✅ Device states saved to localStorage (array):", tempDeviceStates);
     }
     
-    // 3. WebSocket을 통해 서버에 전송
+    // 3. WebSocket을 통해 서버에 전송 - Fix: Send device indices instead of device names
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      const selectedDevices = tempDeviceStates
-        .map((isSelected, index) => isSelected ? devices[index].value : null)
-        .filter(device => device !== null);
+      const selectedDeviceIndices = tempDeviceStates
+        .map((isSelected, index) => isSelected ? index : null)
+        .filter(index => index !== null);
       
-      const message = `[DEVICE_SELECT] ${JSON.stringify(selectedDevices)}`;
+      const message = `[DEVICE_SELECT] ${JSON.stringify(selectedDeviceIndices)}`;
       wsConnection.send(message);
-      // console.log("📤 Sent device selection to server:", message);
+      console.log("📤 Sent device selection to server:", message);
     }
     
     // 4. 상위 컴포넌트 콜백 호출
@@ -184,18 +237,31 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
         maxHeight: '540px',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 0.5 }}> {/* 마진 줄임 */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 0.5, gap: 1 }}> {/* 마진 줄임 */}
         {!isSelectionMode ? (
-          <Button 
-            variant="outlined" 
-            color="primary" 
-            onClick={handleSelectButtonClick}
-            size="small"
-            disabled={isLoading}
-            sx={{ py: 0.5 }} // 버튼 높이 줄임
-          >
-            선택
-          </Button>
+          <>
+            <Button 
+              variant="outlined" 
+              color="primary" 
+              onClick={handleSelectButtonClick}
+              size="small"
+              disabled={isLoading}
+              sx={{ py: 0.5 }} // 버튼 높이 줄임
+            >
+              선택
+            </Button>
+            <Button 
+              variant="outlined" 
+              color="secondary" 
+              onClick={handleReadButtonClick}
+              size="small"
+              disabled={isLoading || isReading}
+              sx={{ py: 0.5 }} // 버튼 높이 줄임
+            >
+              {isReading ? '읽는 중...' : 'READ'}
+            </Button>
+
+          </>
         ) : null}
         {isLoading && (
           <Typography 

@@ -1,7 +1,7 @@
 // $sudo dmesg | grep tty 
-const WEBSOCKET_SERVER_URL = 'ws://192.168.1.82:8080'; // 5 story
+//const WEBSOCKET_SERVER_URL = 'ws://192.168.1.82:8080'; // 5 story
 //const WEBSOCKET_SERVER_URL = 'ws://172.30.1.69:8080'; // 6 stroy adelpia lab
-//const WEBSOCKET_SERVER_URL = 'ws://localhost:8080';
+const WEBSOCKET_SERVER_URL = 'ws://localhost:8080';
 //const WEBSOCKET_SERVER_URL = 'ws://192.168.219.107:8080'; //  Shaha
 
 /*
@@ -480,11 +480,9 @@ const sendMessage = () => {
   const handleSelectionFromDeviceSelect = (newValue) => {
     // console.log("DeviceSelect: 하위 컴포넌트로부터 전달받은 값:", newValue);
     
-    // 배열인 경우 첫 번째 값을 사용하거나, 단일 값인 경우 그대로 사용
-    const deviceValue = Array.isArray(newValue) ? newValue[0] : newValue;
-    const messageWithIdentifier = `[DEVICE_SELECT] ${deviceValue}`;
-    
-    sendWebSocketMessage(messageWithIdentifier);
+    // DeviceSelect 컴포넌트는 이제 내부에서 직접 WebSocket을 통해 서버와 통신하므로
+    // 이 콜백은 더 이상 사용되지 않습니다.
+    // DeviceSelect 컴포넌트가 직접 [DEVICE_SELECT] 메시지를 전송합니다.
   };
 
   const handleSelectionFromVoltSelect = (newValue) => {
