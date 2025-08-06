@@ -9,6 +9,15 @@ import { ReadChamber } from './ReadChamber.js';
 import { getProcessStopRequested, setMachineRunningStatus } from './backend-websocket-server.js';
 import fs from 'fs';
 import path from 'path';
+
+// 전역 WebSocket 서버 참조를 위한 변수
+let globalWss = null;
+
+// WebSocket 서버 참조를 설정하는 함수
+export function setWebSocketServer(wss) {
+  globalWss = wss;
+  console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
+}
 // import { listenerCount } from 'ws';
 
 /**
@@ -162,8 +171,8 @@ function getFormattedDateTime() {
 }
 
 /**
- * TotaReportTable을 Excel에서 import할 수 있는 CSV 형식으로 저장
- * Model Name과 Product Number는 첫 번째 라인에, 각 전압 테이블은 별도 라인에 표시
+ * TotaReportTable을 이미지와 유사한 전기적 성능 시험 테이블 형태로 저장
+ * 이미지의 테이블 구조에 맞춰 CSV 형식으로 저장
  */
 function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0], cycleNumber = 1, testType = '') {
   try {
@@ -173,65 +182,92 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
     let csvContent = '';
     const reportData = data.reportTable[0];
     
-    // 첫 번째 라인: Model Name, Product Number, Test Date, Test Time, Test Temperature
-    csvContent += `Model Name,${data.modelName || ''}\n`;
-    csvContent += `Product Number,${data.ProductNumber.join(';') || ''}\n`;
-    csvContent += `Test Date,${reportData.TestDate || ''}\n`;
-    csvContent += `Test Time,${reportData.TestTime || ''}\n`;
-    csvContent += `Test Temperature,${reportData.TestTemperature || ''}\n`;
-    csvContent += `Cycle Number,${cycleNumber}\n`;
-    csvContent += `Test Type,${testType}\n`;
+    // 문서 헤더 정보 (이미지와 유사한 형태)
+    csvContent += `문서번호,K2-AD-110-A241023-001\n`;
+    csvContent += `제품명,${data.modelName || ''}\n`;
+    csvContent += `제품번호,${data.ProductNumber.join(';') || ''}\n`;
+    csvContent += `검사날짜,${reportData.TestDate || ''}\n`;
+    csvContent += `검사시간,${reportData.TestTime || ''}\n`;
+    csvContent += `테스트온도,${reportData.TestTemperature || ''}℃\n`;
+    csvContent += `사이클번호,${cycleNumber}\n`;
+    csvContent += `테스트유형,${testType}\n`;
+    csvContent += '\n';
     
-    // 채널 전압 설정 정보 추가
-    csvContent += `Channel 1 설정 전압,${channelVoltages[0]}V\n`;
-    csvContent += `Channel 2 설정 전압,${channelVoltages[1]}V\n`;
-    csvContent += `Channel 3 설정 전압,${channelVoltages[2]}V\n`;
-    csvContent += `Channel 4 설정 전압,${channelVoltages[3]}V\n`;
-    csvContent += `허용 오차,±5%\n`;
-    csvContent += '\n'; // 빈 줄 추가
+    // 테이블 헤더 (이미지와 동일한 구조)
+    csvContent += `순,검사항목,검사방법,규격,시료번호(S/N),A.Q.L\n`;
+    csvContent += `,,,입력전압,부하조건,출력전압,1,2,3,4,5,6,7,\n`;
+    csvContent += '\n';
     
-    // 각 전압 테이블을 별도 라인에 표시
+    // 전기적 성능 시험 데이터 (이미지의 101번 항목과 유사)
+    let rowNumber = 101;
+    
+    // 각 입력 전압별로 테이블 생성
     for (let k = 0; k < 3; k++) {
-      const voltageName = data.inputVolt[k] || `Voltage ${k+1}`;
-      csvContent += `${voltageName} 테이블\n`;
+      const inputVoltage = data.inputVolt[k] || 24;
+      const voltageName = k === 0 ? '18Vdc [최소]' : k === 1 ? '24Vdc [정격]' : '30Vdc [최대]';
       
-      // 헤더 라인: Device 1, Device 2, ..., Device 10
-      csvContent += 'Channel,';
-      for (let i = 0; i < 10; i++) {
-        csvContent += `Device ${i+1},`;
-      }
-      csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
+      // 검사항목: 전기적 성능 시험 - Line/Load Regulation
+      csvContent += `${rowNumber},전기적 성능 시험,Power Supply,${voltageName},최대부하,5V (4.75V~5.25V),,,,,,,,A\n`;
+      csvContent += `,Line/Load Regulation,O.S.C,${voltageName},최대부하,15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,전자부하기,${voltageName},최대부하,-15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,DVM,${voltageName},최대부하,24V (22.80V~25.20V),,,,,,,,A\n`;
+      csvContent += `,,<SPEC>,${voltageName},최소부하,5V (4.75V~5.25V),,,,,,,,A\n`;
+      csvContent += `,,Line R.: ±1%,${voltageName},최소부하,15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,Load R.: ±5%,${voltageName},최소부하,-15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,,${voltageName},최소부하,24V (22.80V~25.20V),,,,,,,,A\n`;
+      csvContent += `,,,${voltageName},정격부하,5V (4.75V~5.25V),,,,,,,,A\n`;
+      csvContent += `,,,${voltageName},정격부하,15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,,${voltageName},정격부하,-15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,,${voltageName},정격부하,24V (22.80V~25.20V),,,,,,,,A\n`;
       
-      // 4개 채널을 세로로 표시 (각 채널이 한 행)
+      // 실제 측정 데이터 입력
+      csvContent += '\n';
+      csvContent += `측정결과 (${voltageName})\n`;
+      csvContent += `채널,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
+      
+      // 4개 채널의 측정 결과
       for (let j = 0; j < 4; j++) {
-        csvContent += `Channel ${j+1},`;
+        const channelName = `Channel ${j+1}`;
+        const expectedVoltage = channelVoltages[j];
+        csvContent += `${channelName} (${expectedVoltage}V),`;
+        
         for (let i = 0; i < 10; i++) {
           const voltageValue = reportData.voltagTable[k][i][j] || '';
-          csvContent += `${voltageValue},`;
+          if (voltageValue && voltageValue !== "-.-") {
+            // "5.2V|G" 형식에서 전압값만 추출
+            const voltagePart = voltageValue.split('|')[0];
+            csvContent += `${voltagePart},`;
+          } else {
+            csvContent += `-,`;
+          }
         }
-        csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
+        csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거
       }
       
-      // 비교 결과 요약 테이블 추가
-      csvContent += '\n비교 결과 요약 (G=Good, N=Not Good)\n';
-      csvContent += 'Channel,';
-      for (let i = 0; i < 10; i++) {
-        csvContent += `Device ${i+1},`;
-      }
-      csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
+      // 비교 결과 (G/N)
+      csvContent += '\n';
+      csvContent += `비교결과 (G=Good, N=Not Good)\n`;
+      csvContent += `채널,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
       
       for (let j = 0; j < 4; j++) {
-        csvContent += `Channel ${j+1},`;
+        const channelName = `Channel ${j+1}`;
+        csvContent += `${channelName},`;
+        
         for (let i = 0; i < 10; i++) {
           const voltageValue = reportData.voltagTable[k][i][j] || '';
-          // "5.2V|G" 형식에서 "G" 부분만 추출
-          const comparisonResult = voltageValue.includes('|') ? voltageValue.split('|')[1] : '';
-          csvContent += `${comparisonResult},`;
+          if (voltageValue && voltageValue !== "-.-") {
+            // "5.2V|G" 형식에서 비교 결과만 추출
+            const comparisonResult = voltageValue.includes('|') ? voltageValue.split('|')[1] : '';
+            csvContent += `${comparisonResult},`;
+          } else {
+            csvContent += `-,`;
+          }
         }
-        csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거하고 줄바꿈
+        csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거
       }
       
-      csvContent += '\n'; // 전압 테이블 간 빈 줄 추가
+      csvContent += '\n';
+      rowNumber++;
     }
     
     // 전체 통계 계산
@@ -255,19 +291,24 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
       }
     }
     
-    // 통계 정보 추가
-    csvContent += '\n=== 테스트 통계 ===\n';
+    // 검사결과 요약 (이미지 하단과 유사)
+    csvContent += '\n';
+    csvContent += `=== 검사결과 요약 ===\n`;
     csvContent += `총 테스트 수,${totalTests}\n`;
     csvContent += `통과 테스트 수,${passedTests}\n`;
     csvContent += `실패 테스트 수,${failedTests}\n`;
     csvContent += `통과율,${totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : 0}%\n`;
+    csvContent += `검사결과,${passedTests > failedTests ? '양품' : '불량'}\n`;
+    csvContent += `작업자,시스템\n`;
+    csvContent += `문서버전,PS-14(Rev.1)\n`;
+    csvContent += `회사명,(주)아델피아랩\n`;
     
     // 파일에 저장
     fs.writeFileSync(filePath, csvContent, 'utf8');
     
-    console.log(`[SaveData] CSV 파일 저장 완료: ${filename}`);
+    console.log(`[SaveData] 전기적 성능 시험 테이블 형태로 저장 완료: ${filename}`);
     console.log(`[SaveData] 파일 경로: ${filePath}`);
-    console.log(`[SaveData] Excel에서 import 가능한 형식으로 저장됨`);
+    console.log(`[SaveData] 이미지와 유사한 테이블 구조로 저장됨`);
     console.log(`[SaveData] 테스트 통계: 총 ${totalTests}개, 통과 ${passedTests}개, 실패 ${failedTests}개`);
     
     return { success: true, filename, filePath };
@@ -458,7 +499,7 @@ export async function runSinglePageProcess() {
           }
           
           if (getTableOption.deviceStates[i] === false) {
-            for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
+            for ( let j = 0; j < 4 ; j++) {  // 입력 전압 24, 18, 30V default
               currentTable.reportTable[0].voltagTable[k][i][j] = "-.-";
             }
           } else {
@@ -488,6 +529,8 @@ export async function runSinglePageProcess() {
               await sleep(onDelay);
             }
             
+            // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
+            const channelResults = [];
             for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
               // 중지 요청 확인
               if (getProcessStopRequested()) {
@@ -526,8 +569,72 @@ export async function runSinglePageProcess() {
               const voltageWithComparison = voltData === 'error' ? 'error|N' : `${voltData}V|${comparisonResult}`;
               currentTable.reportTable[0].voltagTable[k][i][j] = voltageWithComparison;
               
+              // 채널 결과 수집
+              channelResults.push({
+                device: i+1,
+                channel: j+1,
+                voltage: voltData,
+                expected: expectedVoltage,
+                result: comparisonResult,
+                voltageWithComparison: voltageWithComparison
+              });
+              
               // 로그 출력
               console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 읽은값=${voltData}V, 설정값=${expectedVoltage}V, 결과=${comparisonResult}`);
+            }
+            
+            // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
+            const voltageUpdateData = {
+              device: i+1,
+              voltageTest: k+1,
+              channels: channelResults,
+              inputVoltage: inputVolt,
+              rowIndex: i, // 디바이스 인덱스
+              testIndex: k // 전압 테스트 인덱스
+            };
+            
+            const voltageUpdateMessage = `[VOLTAGE_UPDATE] ${JSON.stringify(voltageUpdateData)}`;
+            
+            console.log(`[SinglePageProcess] 전압 업데이트 데이터 생성:`, voltageUpdateData);
+            console.log(`[SinglePageProcess] 전압 업데이트 메시지:`, voltageUpdateMessage);
+            
+            // WebSocket을 통해 클라이언트에 전송 (파워스위치 상태에 상관없이 항상 전송)
+            try {
+              if (globalWss) {
+                console.log(`[SinglePageProcess] 전역 WebSocket 서버를 통해 전송 - 파워스위치 상태에 상관없이 전송`);
+                let sentCount = 0;
+                globalWss.clients.forEach(client => {
+                  if (client.readyState === 1) { // WebSocket.OPEN
+                    client.send(voltageUpdateMessage);
+                    sentCount++;
+                    console.log(`[SinglePageProcess] 전송 성공 - 클라이언트 ${client._socket.remoteAddress}:${client._socket.remotePort}`);
+                  }
+                });
+                console.log(`[SinglePageProcess] 전송 완료 - 전송된 클라이언트 수: ${sentCount}`);
+                console.log(`[SinglePageProcess] 전송된 메시지:`, voltageUpdateMessage);
+                console.log(`[SinglePageProcess] 전송된 데이터:`, {
+                  device: i+1,
+                  voltageTest: k+1,
+                  channels: channelResults.map(c => `${c.device}-${c.channel}:${c.voltage}V`),
+                  inputVoltage: inputVolt
+                });
+              } else {
+                console.error(`[SinglePageProcess] 전역 WebSocket 서버가 설정되지 않음`);
+                // 대안: import를 통한 전송 시도
+                try {
+                  const { broadcastToClients } = await import('./backend-websocket-server.js');
+                  if (broadcastToClients) {
+                    broadcastToClients(voltageUpdateMessage);
+                    console.log(`[SinglePageProcess] 대안 방법으로 전송 성공`);
+                  } else {
+                    console.error(`[SinglePageProcess] 모든 전송 방법 실패`);
+                  }
+                } catch (importError) {
+                  console.error(`[SinglePageProcess] import 전송도 실패:`, importError);
+                }
+              }
+            } catch (error) {
+              console.error(`[SinglePageProcess] 클라이언트 전송 실패:`, error);
             }
             
             // 디바이스 해제 재시도 로직
@@ -667,29 +774,26 @@ export async function runNextTankEnviTestProcess() {
                 return singlePageResult;
               }
               
-              // 결과 누적
+              // 각 실행 결과를 개별 파일로 저장
               if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 결과 저장 시작`);
+                const saveResult = saveTotaReportTableToFile(
+                  singlePageResult.data, 
+                  getTableOption.channelVoltages, 
+                  cycle, 
+                  `HighTemp_Test${i+1}`
+                );
+                if (saveResult.success) {
+                  console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 결과 저장 완료: ${saveResult.filename}`);
+                } else {
+                  console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 결과 저장 실패: ${saveResult.error}`);
+                }
+                
+                // 결과 누적 (기존 로직 유지)
                 highTempResults.push(singlePageResult.data);
               }
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 완료 (${highTempResults.length}개 결과 누적)`);
-            
-            // 고온 테스트 결과를 하나의 파일로 저장 (readCount만큼 누적)
-            if (highTempResults.length > 0) {
-              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 시작 (${highTempResults.length}개 세트)`);
-              const combinedHighTempData = combineTestResults(highTempResults);
-              const saveResult = saveTotaReportTableToFile(
-                combinedHighTempData, 
-                getTableOption.channelVoltages, 
-                cycle, 
-                'HighTemp'
-              );
-              if (saveResult.success) {
-                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 완료: ${saveResult.filename}`);
-              } else {
-                console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 실패: ${saveResult.error}`);
-              }
-            }
             
             // 실행완료 하면 빠져 나감
             break;
@@ -761,29 +865,26 @@ export async function runNextTankEnviTestProcess() {
                 return singlePageResult;
               }
               
-              // 결과 누적
+              // 각 실행 결과를 개별 파일로 저장
               if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 결과 저장 시작`);
+                const saveResult = saveTotaReportTableToFile(
+                  singlePageResult.data, 
+                  getTableOption.channelVoltages, 
+                  cycle, 
+                  `LowTemp_Test${i+1}`
+                );
+                if (saveResult.success) {
+                  console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 결과 저장 완료: ${saveResult.filename}`);
+                } else {
+                  console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 결과 저장 실패: ${saveResult.error}`);
+                }
+                
+                // 결과 누적 (기존 로직 유지)
                 lowTempResults.push(singlePageResult.data);
               }
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 완료 (${lowTempResults.length}개 결과 누적)`);
-            
-            // 저온 테스트 결과를 하나의 파일로 저장 (lowReadCount만큼 누적)
-            if (lowTempResults.length > 0) {
-              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 시작 (${lowTempResults.length}개 세트)`);
-              const combinedLowTempData = combineTestResults(lowTempResults);
-              const saveResult = saveTotaReportTableToFile(
-                combinedLowTempData, 
-                getTableOption.channelVoltages, 
-                cycle, 
-                'LowTemp'
-              );
-              if (saveResult.success) {
-                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 완료: ${saveResult.filename}`);
-              } else {
-                console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 실패: ${saveResult.error}`);
-              }
-            }
             
             // 실행완료 하면 빠져 나감
             break;

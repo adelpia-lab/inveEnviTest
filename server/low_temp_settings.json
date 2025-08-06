@@ -1,6 +1,6 @@
 {
-  "lowTemp": true,
-  "targetTemp": 0,
+  "lowTemp": false,
+  "targetTemp": 30,
   "waitTime": 1,
   "readCount": 2
 }

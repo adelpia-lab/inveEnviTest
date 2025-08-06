@@ -8,7 +8,7 @@ import { SendVoltCommand } from './SetVolt.js';
 import { ReadAllVoltages, ReadVolt } from './ReadVolt.js';
 import { RelayAllOff, SelectDevice, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { GetData } from './GetData.js';
-import { runSinglePageProcess, runNextTankEnviTestProcess } from './RunTestProcess.js';
+import { runSinglePageProcess, runNextTankEnviTestProcess, setWebSocketServer } from './RunTestProcess.js';
 
 const LOCAL_WS_PORT = 8080; // WebSocket 서버가 사용할 포트
 const DELAY_SETTINGS_FILE = 'delay_settings.json'; // 딜레이 설정 저장 파일
@@ -81,6 +81,9 @@ function setProcessStopRequested(status) {
 export { getMachineRunningStatus, setMachineRunningStatus, getProcessStopRequested, setProcessStopRequested };
 
 const wss = new WebSocketServer({ port: LOCAL_WS_PORT });
+
+// RunTestProcess에 WebSocket 서버 참조 설정
+setWebSocketServer(wss);
 
 // 딜레이 설정을 파일에 저장하는 함수
 async function saveDelaySettings(onDelay, offDelay, cycleNumber = 1) {
@@ -611,6 +614,27 @@ function convertStringToArray(str) {
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// 모든 클라이언트에게 메시지를 브로드캐스트하는 함수
+function broadcastToClients(message) {
+  console.log(`[Broadcast] 브로드캐스트 시작 - 연결된 클라이언트 수: ${wss.clients.size}`);
+  let sentCount = 0;
+  
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+      sentCount++;
+      console.log(`[Broadcast] 클라이언트 ${client._socket.remoteAddress}:${client._socket.remotePort}에 메시지 전송`);
+    } else {
+      console.log(`[Broadcast] 클라이언트 ${client._socket.remoteAddress}:${client._socket.remotePort} 연결 상태: ${client.readyState}`);
+    }
+  });
+  
+  console.log(`[Broadcast] 브로드캐스트 완료 - 전송된 클라이언트 수: ${sentCount}`);
+}
+
+// 함수와 객체를 export하여 다른 모듈에서 사용할 수 있도록 함
+export { broadcastToClients, wss };
 
 wss.on('connection', ws => {
     console.log(`[Backend WS Server] 클라이언트 연결됨 (${ws._socket.remoteAddress}:${ws._socket.remotePort})`);
@@ -1583,6 +1607,11 @@ wss.on('connection', ws => {
                         const responseMessage = `[POWER_SWITCH] ON - Machine running: true`;
                         ws.send(responseMessage);
                         console.log(`✅ [Backend WS Server] Power switch ON confirmation sent`);
+                        
+                        // 전압 데이터 초기화 메시지를 모든 클라이언트에게 브로드캐스트
+                        const resetMessage = `[POWER_SWITCH] ON - Voltage data reset`;
+                        broadcastToClients(resetMessage);
+                        console.log(`🔌 [Backend WS Server] 전압 데이터 초기화 메시지 브로드캐스트`);
                         
                         // runNextTankEnviTestProcess 실행
                         try {

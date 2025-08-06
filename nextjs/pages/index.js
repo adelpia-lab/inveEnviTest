@@ -1,7 +1,7 @@
 // $sudo dmesg | grep tty 
-//const WEBSOCKET_SERVER_URL = 'ws://192.168.1.82:8080'; // 5 story
+const WEBSOCKET_SERVER_URL = 'ws://192.168.1.82:8080'; // 5 story
 //const WEBSOCKET_SERVER_URL = 'ws://172.30.1.69:8080'; // 6 stroy adelpia lab
-const WEBSOCKET_SERVER_URL = 'ws://localhost:8080';
+//const WEBSOCKET_SERVER_URL = 'ws://localhost:8080';
 //const WEBSOCKET_SERVER_URL = 'ws://192.168.219.107:8080'; //  Shaha
 
 /*
@@ -206,6 +206,18 @@ useEffect(() => {
           console.error('Failed to parse temperature data:', err);
       }
     }
+    // [VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
+    else if (typeof event.data === 'string' && event.data.startsWith('[VOLTAGE_UPDATE]')) {
+      console.log('📥 Main: 전압 업데이트 메시지 수신:', event.data);
+      console.log('📥 Main: 메시지 길이:', event.data.length);
+      console.log('📥 Main: 메시지 타입:', typeof event.data);
+      // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+    }
+    // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
+    else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
+      console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신:', event.data);
+      // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+    }
     //setReceivedMessages(prev => [...prev, event.data]);
   };
 
@@ -297,6 +309,16 @@ useEffect(() => {
                 console.error('Failed to parse temperature data:', err);
               }
             }
+            // [VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
+            else if (typeof event.data === 'string' && event.data.startsWith('[VOLTAGE_UPDATE]')) {
+              console.log('📥 Main: 전압 업데이트 메시지 수신 (재연결):', event.data);
+              // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+            }
+            // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
+            else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
+              console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신 (재연결):', event.data);
+              // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+            }
           };
           
           ws.current.onclose = (event) => {
@@ -384,6 +406,16 @@ useEffect(() => {
             } catch (err) {
               console.error('Failed to parse temperature data (auto-reconnection):', err);
             }
+          }
+          // [VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
+          else if (typeof event.data === 'string' && event.data.startsWith('[VOLTAGE_UPDATE]')) {
+            console.log('📥 Main: 전압 업데이트 메시지 수신 (자동재연결):', event.data);
+            // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+          }
+          // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
+          else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
+            console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신 (자동재연결):', event.data);
+            // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
           }
         };
         
@@ -507,7 +539,20 @@ const sendMessage = () => {
             <DeviceSelect initialValue="#1 Device" onSelectionChange={handleSelectionFromDeviceSelect} wsConnection={ws.current} />
           </div>
           <div className={styles.bodyItem}>
-            <PowerTable groups={props.powerGroups || []} />
+            <PowerTable groups={props.powerGroups || []} wsConnection={ws.current} />
+            {/* 디버깅용 정보 표시 */}
+            <div style={{ 
+              position: 'absolute', 
+              top: '10px', 
+              right: '10px', 
+              backgroundColor: 'rgba(0,0,0,0.8)', 
+              color: 'white', 
+              padding: '5px', 
+              fontSize: '10px',
+              borderRadius: '4px'
+            }}>
+              WebSocket: {ws.current?.readyState === WebSocket.OPEN ? '🟢 연결됨' : '🔴 연결안됨'}
+            </div>
           </div>
         </main>
 

@@ -76,6 +76,13 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
       const message = `[POWER_SWITCH] ${newState ? 'ON' : 'OFF'}`;
       wsConnection.send(message);
       console.log(`🔌 Power switch ${newState ? 'ON' : 'OFF'} - Message sent:`, message);
+      
+      // 파워스위치가 ON될 때 전압 데이터 초기화 메시지 브로드캐스트
+      if (newState) {
+        const resetMessage = `[POWER_SWITCH] ON - Voltage data reset`;
+        wsConnection.send(resetMessage);
+        console.log('🔌 Power switch ON - 전압 데이터 초기화 메시지 전송');
+      }
     } else {
       console.warn('WebSocket connection not available for power switch');
     }

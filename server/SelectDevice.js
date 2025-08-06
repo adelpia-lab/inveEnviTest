@@ -155,7 +155,7 @@ async function closeCurrentPort() {
                 if (err) {
                     console.error(`[시리얼 포트] 포트 닫기 에러: ${err.message}`);
                 } else {
-                    console.log(`[시리얼 포트] 포트가 닫혔습니다.`);
+                    // console.log(`[시리얼 포트] 포트가 닫혔습니다.`);
                 }
                 currentPort = null;
                 portInUse = false;
@@ -315,7 +315,7 @@ export async function RelayDevice(commandToSend) {
                     setTimeout(async () => {
                         try {
                             await forceReleasePort();
-                            await sleep(3000);
+                            await sleep(5000);
                             // 재시도는 상위 함수에서 처리
                         } catch (retryError) {
                             console.error('[시리얼 포트] 재시도 중 에러:', retryError.message);
