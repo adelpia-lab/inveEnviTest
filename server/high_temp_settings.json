@@ -1,5 +1,5 @@
 {
-  "highTemp": false,
+  "highTemp": true,
   "targetTemp": 20,
   "waitTime": 1,
   "readCount": 2

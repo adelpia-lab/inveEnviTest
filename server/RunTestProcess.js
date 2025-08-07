@@ -473,7 +473,7 @@ export async function runSinglePageProcess() {
       // 전압 설정 재시도 로직
       let voltSetSuccess = false;
       let retryCount = 0;
-      const maxRetries = 3;
+      const maxRetries = 5;
       
       while (!voltSetSuccess && retryCount < maxRetries) {
         try {
@@ -768,10 +768,52 @@ export async function runNextTankEnviTestProcess() {
               }
               
               console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 ${i+1}/${readCount} 실행`);
-              const singlePageResult = await runSinglePageProcess();
-              if (singlePageResult && singlePageResult.status === 'stopped') {
-                console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
-                return singlePageResult;
+              
+              // SinglePageProcess 재시도 로직 (최대 5회)
+              let singlePageSuccess = false;
+              let retryCount = 0;
+              const maxRetries = 5;
+              let singlePageResult = null;
+              
+              while (!singlePageSuccess && retryCount < maxRetries) {
+                try {
+                  singlePageResult = await runSinglePageProcess();
+                  
+                  if (singlePageResult && singlePageResult.status === 'stopped') {
+                    console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
+                    return singlePageResult;
+                  }
+                  
+                  if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+                    singlePageSuccess = true;
+                    console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 성공 (${retryCount + 1}번째 시도)`);
+                  } else {
+                    throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
+                  }
+                } catch (error) {
+                  retryCount++;
+                  console.warn(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 실패 (${retryCount}/${maxRetries}): ${error.message}`);
+                  
+                  if (retryCount < maxRetries) {
+                    console.log(`[NextTankEnviTestProcess] 3초 후 재시도...`);
+                    await sleep(3000);
+                  } else {
+                    console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 최종 실패 - 프로세스 중단`);
+                    
+                    // PowerSwitch 상태를 off로 설정
+                    setMachineRunningStatus(false);
+                    console.log(`[NextTankEnviTestProcess] 🔌 고온 테스트 실패로 인한 PowerSwitch 상태 OFF 설정`);
+                    
+                    return { 
+                      status: 'error', 
+                      message: `고온 테스트 ${i+1}/${readCount} 실패 - 5회 재시도 후 최종 실패`, 
+                      stoppedAtCycle: cycle, 
+                      stoppedAtPhase: 'high_temp_test', 
+                      stoppedAtTest: i+1,
+                      errorType: 'high_temp_test_failed'
+                    };
+                  }
+                }
               }
               
               // 각 실행 결과를 개별 파일로 저장
@@ -859,10 +901,52 @@ export async function runNextTankEnviTestProcess() {
               }
               
               console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 ${i+1}/${lowReadCount} 실행`);
-              const singlePageResult = await runSinglePageProcess();
-              if (singlePageResult && singlePageResult.status === 'stopped') {
-                console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
-                return singlePageResult;
+              
+              // SinglePageProcess 재시도 로직 (최대 5회)
+              let singlePageSuccess = false;
+              let retryCount = 0;
+              const maxRetries = 5;
+              let singlePageResult = null;
+              
+              while (!singlePageSuccess && retryCount < maxRetries) {
+                try {
+                  singlePageResult = await runSinglePageProcess();
+                  
+                  if (singlePageResult && singlePageResult.status === 'stopped') {
+                    console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
+                    return singlePageResult;
+                  }
+                  
+                  if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+                    singlePageSuccess = true;
+                    console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 성공 (${retryCount + 1}번째 시도)`);
+                  } else {
+                    throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
+                  }
+                } catch (error) {
+                  retryCount++;
+                  console.warn(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 실패 (${retryCount}/${maxRetries}): ${error.message}`);
+                  
+                  if (retryCount < maxRetries) {
+                    console.log(`[NextTankEnviTestProcess] 3초 후 재시도...`);
+                    await sleep(3000);
+                  } else {
+                    console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 최종 실패 - 프로세스 중단`);
+                    
+                    // PowerSwitch 상태를 off로 설정
+                    setMachineRunningStatus(false);
+                    console.log(`[NextTankEnviTestProcess] 🔌 저온 테스트 실패로 인한 PowerSwitch 상태 OFF 설정`);
+                    
+                    return { 
+                      status: 'error', 
+                      message: `저온 테스트 ${i+1}/${lowReadCount} 실패 - 5회 재시도 후 최종 실패`, 
+                      stoppedAtCycle: cycle, 
+                      stoppedAtPhase: 'low_temp_test', 
+                      stoppedAtTest: i+1,
+                      errorType: 'low_temp_test_failed'
+                    };
+                  }
+                }
               }
               
               // 각 실행 결과를 개별 파일로 저장
