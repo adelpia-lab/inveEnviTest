@@ -5,7 +5,7 @@ import { Button, Switch, Typography } from '@mui/material';
 // Zod 스키마 정의
 const lowTempSchema = z.object({
   lowTemp: z.boolean(), // 새 토글 항목
-  targetTemp: z.number().min(-50).max(30),
+  targetTemp: z.number().min(-99).max(99),
   waitTime: z.number().min(1).max(999),
   readCount: z.number().min(1).max(10),
 });
@@ -307,8 +307,8 @@ export default function LowTempSettingPanel({
           type="number"
           className="text-right border border-gray-400 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
           value={form.targetTemp}
-          min={-50}
-          max={30}
+          min={-99}
+          max={99}
           onChange={e => handleChange('targetTemp', Number(e.target.value))}
           disabled={!isLowTempEnabled}
           style={{ fontSize: '1.5rem', width: '80px', minWidth: '80px', maxWidth: '80px' }}
