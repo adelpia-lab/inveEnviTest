@@ -1697,6 +1697,130 @@ wss.on('connection', ws => {
                     console.error(`❌ [Backend WS Server] Relay test error: ${error.message}`);
                     ws.send(`Error: Relay test failed - ${error.message}`);
                 }
+            } else if(decodeWebSocket[0] === '[RELAY_ON]') {
+                console.log("=== Relay ON Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // Parse port and device number from message
+                    const relayMatch = decodedMessage.match(/\[RELAY_ON\] PORT:(\d+)(?: DEVICE:(\d+))?/);
+                    if (relayMatch) {
+                        const portNumber = parseInt(relayMatch[1]);
+                        const deviceNumber = relayMatch[2] ? parseInt(relayMatch[2]) : 1; // Default to device 1 if not specified
+                        
+                        console.log(`🔌 [Backend WS Server] Relay ON on port ${portNumber} with device ${deviceNumber}`);
+                        
+                        // Validate device range
+                        if (deviceNumber < 1 || deviceNumber > 10) {
+                            const responseMessage = `[RELAY_ON] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~10)`;
+                            console.log(`❌ [Backend WS Server] Relay ${portNumber} ON failed - device out of range: ${deviceNumber}`);
+                            ws.send(responseMessage);
+                            return;
+                        }
+                        
+                        // 실제 SelectDeviceOn 함수 호출
+                        try {
+                            console.log(`🔌 [Backend WS Server] Turning ON relay on device ${deviceNumber}`);
+                            
+                            // SelectDevice.js에서 함수 import
+                            const { SelectDeviceOn } = await import('./SelectDevice.js');
+                            
+                            // 실제 릴레이 ON 실행 (타임아웃 추가)
+                            const result = await Promise.race([
+                                SelectDeviceOn(deviceNumber),
+                                new Promise((_, reject) => 
+                                    setTimeout(() => reject(new Error('Operation timeout')), 5000)
+                                )
+                            ]);
+                            
+                            console.log(`[Backend WS Server] SelectDeviceOn result:`, result);
+                            
+                            if (result && result.success) {
+                                const responseMessage = `[RELAY_ON] PORT:${portNumber} STATUS:success MESSAGE:릴레이 ${portNumber} ON 성공`;
+                                console.log(`✅ [Backend WS Server] Relay ${portNumber} ON successful`);
+                                ws.send(responseMessage);
+                            } else {
+                                const errorMessage = result?.message || result?.error || '알 수 없는 오류';
+                                const responseMessage = `[RELAY_ON] PORT:${portNumber} STATUS:error MESSAGE:${errorMessage}`;
+                                console.log(`❌ [Backend WS Server] Relay ${portNumber} ON failed: ${errorMessage}`);
+                                ws.send(responseMessage);
+                            }
+                        } catch (relayError) {
+                            console.error(`❌ [Backend WS Server] Relay ON failed: ${relayError.message}`);
+                            const responseMessage = `[RELAY_ON] PORT:${portNumber} STATUS:error MESSAGE:릴레이 ON 실패 - ${relayError.message}`;
+                            ws.send(responseMessage);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid relay ON message format`);
+                        ws.send(`Error: Invalid relay ON message format`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Relay ON error: ${error.message}`);
+                    ws.send(`Error: Relay ON failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[RELAY_OFF]') {
+                console.log("=== Relay OFF Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // Parse port and device number from message
+                    const relayMatch = decodedMessage.match(/\[RELAY_OFF\] PORT:(\d+)(?: DEVICE:(\d+))?/);
+                    if (relayMatch) {
+                        const portNumber = parseInt(relayMatch[1]);
+                        const deviceNumber = relayMatch[2] ? parseInt(relayMatch[2]) : 1; // Default to device 1 if not specified
+                        
+                        console.log(`🔌 [Backend WS Server] Relay OFF on port ${portNumber} with device ${deviceNumber}`);
+                        
+                        // Validate device range
+                        if (deviceNumber < 1 || deviceNumber > 10) {
+                            const responseMessage = `[RELAY_OFF] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~10)`;
+                            console.log(`❌ [Backend WS Server] Relay ${portNumber} OFF failed - device out of range: ${deviceNumber}`);
+                            ws.send(responseMessage);
+                            return;
+                        }
+                        
+                        // 실제 SelectDeviceOff 함수 호출
+                        try {
+                            console.log(`🔌 [Backend WS Server] Turning OFF relay on device ${deviceNumber}`);
+                            
+                            // SelectDevice.js에서 함수 import
+                            const { SelectDeviceOff } = await import('./SelectDevice.js');
+                            
+                            // 실제 릴레이 OFF 실행 (타임아웃 추가)
+                            const result = await Promise.race([
+                                SelectDeviceOff(deviceNumber),
+                                new Promise((_, reject) => 
+                                    setTimeout(() => reject(new Error('Operation timeout')), 5000)
+                                )
+                            ]);
+                            
+                            console.log(`[Backend WS Server] SelectDeviceOff result:`, result);
+                            
+                            if (result && result.success) {
+                                const responseMessage = `[RELAY_OFF] PORT:${portNumber} STATUS:success MESSAGE:릴레이 ${portNumber} OFF 성공`;
+                                console.log(`✅ [Backend WS Server] Relay ${portNumber} OFF successful`);
+                                ws.send(responseMessage);
+                            } else {
+                                const errorMessage = result?.message || result?.error || '알 수 없는 오류';
+                                const responseMessage = `[RELAY_OFF] PORT:${portNumber} STATUS:error MESSAGE:${errorMessage}`;
+                                console.log(`❌ [Backend WS Server] Relay ${portNumber} OFF failed: ${errorMessage}`);
+                                ws.send(responseMessage);
+                            }
+                        } catch (relayError) {
+                            console.error(`❌ [Backend WS Server] Relay OFF failed: ${relayError.message}`);
+                            const responseMessage = `[RELAY_OFF] PORT:${portNumber} STATUS:error MESSAGE:릴레이 OFF 실패 - ${relayError.message}`;
+                            ws.send(responseMessage);
+                        }
+                    } else {
+                        console.error(`❌ [Backend WS Server] Invalid relay OFF message format`);
+                        ws.send(`Error: Invalid relay OFF message format`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Relay OFF error: ${error.message}`);
+                    ws.send(`Error: Relay OFF failed - ${error.message}`);
+                }
             } else {
                 console.log("📥 Unknown message type:", decodeWebSocket[0]);
             }

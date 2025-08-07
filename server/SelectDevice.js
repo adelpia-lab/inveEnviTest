@@ -57,7 +57,7 @@ async function getPortPath() {
 }
 
 const BAUD_RATE = 9600;
-const RESPONSE_TIMEOUT_MS = 1000;
+const RESPONSE_TIMEOUT_MS = 3000; // 3초로 증가
 
 // Serial port manager to ensure only one connection at a time
 let currentPort = null;
@@ -223,6 +223,16 @@ export async function RelayDevice(commandToSend) {
     portInUse = true;
 
     return new Promise(async (resolve, reject) => {
+        let isResolved = false; // 중복 resolve 방지
+
+        const safeResolve = (result) => {
+            if (!isResolved) {
+                isResolved = true;
+                portInUse = false;
+                resolve(result);
+            }
+        };
+
         try {
             // Close any existing port first
             await closeCurrentPort();
@@ -235,151 +245,51 @@ export async function RelayDevice(commandToSend) {
                 baudRate: BAUD_RATE
             });
 
-            // MODBUS RTU용 데이터 수신 처리
-            let dataBuffer = Buffer.alloc(0);
-            let timeoutId;
-            let receivedResponse = false;
-
-            // --- 데이터 수신 핸들러 ---
-            currentPort.on('data', data => {
-                // 수신된 데이터를 버퍼에 추가
-                dataBuffer = Buffer.concat([dataBuffer, data]);
-                
-                            // 상세한 수신 데이터 로깅
-            // console.log(`[시리얼 포트] 새로 수신된 데이터: ${data.toString('hex').toUpperCase()}`);
-            // console.log(`[시리얼 포트] 누적 버퍼 크기: ${dataBuffer.length} 바이트`);
-            // console.log(`[시리얼 포트] 전체 버퍼 (HEX): ${dataBuffer.toString('hex').toUpperCase()}`);
-                
-                // 바이트별 상세 정보 출력
-                if (dataBuffer.length > 0) {
-                    let byteDetails = '[시리얼 포트] 바이트별 분석: ';
-                    for (let i = 0; i < Math.min(dataBuffer.length, 10); i++) {
-                        byteDetails += `[${i}]=0x${dataBuffer[i].toString(16).padStart(2, '0').toUpperCase()} `;
-                    }
-                    if (dataBuffer.length > 10) {
-                        byteDetails += `... (총 ${dataBuffer.length}바이트)`;
-                    }
-                    // console.log(byteDetails);
-                }
-                
-                // MODBUS RTU 응답 길이 검증 및 파싱
-                if (!receivedResponse && dataBuffer.length >= 4) {
-                    const slaveAddress = dataBuffer[0];
-                    const functionCode = dataBuffer[1];
-                    
-                    // console.log(`[MODBUS RTU] 슬레이브 주소: 0x${slaveAddress.toString(16).padStart(2, '0').toUpperCase()}`);
-                    // console.log(`[MODBUS RTU] 함수 코드: 0x${functionCode.toString(16).padStart(2, '0').toUpperCase()}`);
-                    
-                    // 함수 코드별 예상 응답 길이 확인
-                    let expectedLength = 0;
-                    
-                    if (functionCode === 0x06) {
-                        // Write Single Register 성공 응답: 8바이트
-                        expectedLength = 8;
-                        // console.log(`[MODBUS RTU] Write Single Register 성공 응답 예상: ${expectedLength}바이트`);
-                    } else if (functionCode === 0x86) {
-                        // Write Single Register 에러 응답: 5바이트
-                        expectedLength = 5;
-                        // console.log(`[MODBUS RTU] Write Single Register 에러 응답 예상: ${expectedLength}바이트`);
-                    } else {
-                        // console.log(`[MODBUS RTU] 알 수 없는 함수 코드: 0x${functionCode.toString(16).padStart(2, '0').toUpperCase()}`);
-                    }
-                    
-                    // 예상 길이에 도달했는지 확인
-                    if (expectedLength > 0 && dataBuffer.length >= expectedLength) {
-                        receivedResponse = true;
-                        // console.log(`[시리얼 포트] ===== MODBUS RTU 응답 완료 =====`);
-                        // console.log(`[시리얼 포트] 예상 길이: ${expectedLength}바이트, 실제 수신: ${dataBuffer.length}바이트`);
-                        // console.log(`[시리얼 포트] 완전한 응답 (HEX): ${dataBuffer.toString('hex').toUpperCase()}`);
-                        
-                        // 완전한 응답만 파싱
-                        const completeResponse = dataBuffer.slice(0, expectedLength);
-                        
-                        // CRC 검증
-                        const calculatedCRC = calculateCRC16(completeResponse.slice(0, -2));
-                        const receivedCRC = completeResponse.readUInt16LE(completeResponse.length - 2);
-                        
-                        if (calculatedCRC === receivedCRC) {
-                            // console.log(`[MODBUS RTU] CRC 검증 성공: 0x${calculatedCRC.toString(16).padStart(4, '0').toUpperCase()}`);
-                            
-                            // 응답 파싱
-                            const parsedResponse = parseModbusRTUResponse(completeResponse);
-                            clearTimeout(timeoutId);
-                            resolve(parsedResponse);
-                            closeCurrentPort();
-                        } else {
-                            // console.log(`[MODBUS RTU] CRC 검증 실패: 계산값=0x${calculatedCRC.toString(16).padStart(4, '0').toUpperCase()}, 수신값=0x${receivedCRC.toString(16).padStart(4, '0').toUpperCase()}`);
-                            clearTimeout(timeoutId);
-                            resolve('crc_error');
-                            closeCurrentPort();
-                        }
-                    }
-                }
-            });
-
             // --- 에러 핸들러 ---
             currentPort.on('error', err => {
                 console.error(`[시리얼 포트] 에러: ${err.message}`);
-                clearTimeout(timeoutId); // 에러 발생 시 타임아웃 해제
                 
                 // 포트 강제 해제
                 forceReleasePort();
                 
-                // 특정 에러에 대한 재시도 로직
-                if (err.message.includes('Cannot lock port') || err.message.includes('Resource temporarily unavailable')) {
-                    console.warn('[시리얼 포트] 포트 잠금 에러 발생, 2초 후 재시도');
-                    setTimeout(async () => {
-                        try {
-                            await forceReleasePort();
-                            await sleep(2000);
-                            // 재시도는 상위 함수에서 처리
-                        } catch (retryError) {
-                            console.error('[시리얼 포트] 재시도 중 에러:', retryError.message);
-                        }
-                    }, 1000);
-                }
-                
-                reject(`에러: ${err.message}`);
+                safeResolve({ isValid: false, error: `Serial port error: ${err.message}`, type: 'port_error' });
             });
 
             // --- 포트 열림 핸들러 ---
             currentPort.on('open', () => {
-                // console.log(`[시리얼 포트] ${portPath} 포트가 ${BAUD_RATE}bps로 열렸습니다.`);
+                console.log(`[시리얼 포트] ${portPath} 포트가 ${BAUD_RATE}bps로 열렸습니다.`);
 
-                // 타임아웃 설정
-                timeoutId = setTimeout(() => {
-                    if (!receivedResponse) {
-                        // console.warn('[시리얼 포트] 응답 타임아웃 발생.');
-                        resolve('timeout'); // 응답이 오지 않으면 'timeout' 반환
-                        closeCurrentPort(); // 타임아웃 시 포트 닫기
-                    }
-                }, RESPONSE_TIMEOUT_MS);
-
-                                        // --- 데이터 전송 ---
-            // 송신 전 버퍼 클리어
-            clearPortBuffer(currentPort).then(() => {
-                currentPort.write(commandToSend, err => {
-                    if (err) {
-                        // console.error(`[시리얼 포트] 데이터 전송 에러: ${err.message}`);
-                        clearTimeout(timeoutId);
-                        reject(`데이터 전송 에러: ${err.message}`);
-                        closeCurrentPort();
-                    } else {
-                        //console.log(`[시리얼 포트] 데이터 전송 완료: '${commandToSend}'`);
-                    }
+                // --- 데이터 전송 ---
+                // 송신 전 버퍼 클리어
+                clearPortBuffer(currentPort).then(() => {
+                    currentPort.write(commandToSend, err => {
+                        if (err) {
+                            console.error(`[시리얼 포트] 데이터 전송 에러: ${err.message}`);
+                            safeResolve({ isValid: false, error: `Data transmission error: ${err.message}`, type: 'transmission_error' });
+                            closeCurrentPort();
+                        } else {
+                            console.log(`[시리얼 포트] 데이터 전송 완료: '${commandToSend.toString('hex').toUpperCase()}'`);
+                            
+                            // 명령 전송 후 즉시 성공 응답 반환
+                            safeResolve({ isValid: true, type: 'command_sent', message: 'Command sent successfully' });
+                            
+                            // 포트 닫기 (비동기로 처리)
+                            setTimeout(() => {
+                                closeCurrentPort();
+                            }, 50);
+                        }
+                    });
                 });
-            });
             });
 
             // --- 포트 닫힘 핸들러 ---
             currentPort.on('close', () => {
-                //console.log(`[시리얼 포트] ${portPath} 포트가 닫혔습니다.`);
+                console.log(`[시리얼 포트] ${portPath} 포트가 닫혔습니다.`);
                 portInUse = false;
             });
 
         } catch (error) {
-            portInUse = false;
-            reject(error);
+            safeResolve({ isValid: false, error: `Setup error: ${error.message}`, type: 'setup_error' });
         }
     });
 }
@@ -427,15 +337,49 @@ export async function SelectDevice(deviceNumber) {
 export async function SelectDeviceOn(deviceNumber) {
     const str = DeviceOn[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
-    await RelayDevice(hexBuffer);
-    await sleep(1000); // 2초 대기
+    
+    try {
+        console.log(`[SelectDeviceOn] Attempting to turn ON device ${deviceNumber} with command: ${str}`);
+        const result = await RelayDevice(hexBuffer);
+        
+        console.log(`[SelectDeviceOn] RelayDevice result:`, result);
+        
+        // RelayDevice의 결과를 확인
+        if (result && result.isValid) {
+            console.log(`[SelectDeviceOn] Device ${deviceNumber} turned ON successfully`);
+            return { success: true, message: `Device ${deviceNumber} turned ON successfully` };
+        } else {
+            console.error(`[SelectDeviceOn] Device ${deviceNumber} ON failed:`, result);
+            return { success: false, message: `Device ${deviceNumber} ON failed`, error: result?.error || 'Unknown error' };
+        }
+    } catch (error) {
+        console.error(`[SelectDeviceOn] Error turning ON device ${deviceNumber}:`, error.message);
+        return { success: false, message: `Device ${deviceNumber} ON error: ${error.message}`, error: error.message };
+    }
 }
 
 export async function SelectDeviceOff(deviceNumber) {
     const str = DeviceOff[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
-    await RelayDevice(hexBuffer);
-    await sleep(1000); // 2초 대기
+    
+    try {
+        console.log(`[SelectDeviceOff] Attempting to turn OFF device ${deviceNumber} with command: ${str}`);
+        const result = await RelayDevice(hexBuffer);
+        
+        console.log(`[SelectDeviceOff] RelayDevice result:`, result);
+        
+        // RelayDevice의 결과를 확인
+        if (result && result.isValid) {
+            console.log(`[SelectDeviceOff] Device ${deviceNumber} turned OFF successfully`);
+            return { success: true, message: `Device ${deviceNumber} turned OFF successfully` };
+        } else {
+            console.error(`[SelectDeviceOff] Device ${deviceNumber} OFF failed:`, result);
+            return { success: false, message: `Device ${deviceNumber} OFF failed`, error: result?.error || 'Unknown error' };
+        }
+    } catch (error) {
+        console.error(`[SelectDeviceOff] Error turning OFF device ${deviceNumber}:`, error.message);
+        return { success: false, message: `Device ${deviceNumber} OFF error: ${error.message}`, error: error.message };
+    }
 }
 
 

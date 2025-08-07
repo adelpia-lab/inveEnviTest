@@ -153,9 +153,64 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
     const handleMessage = (event: MessageEvent) => {
       const data = event.data;
       
+      console.log(`🔍 [TestSystem] Received WebSocket message: ${data}`);
+      
+      // Relay ON/OFF 응답 처리 (우선 처리)
+      if (data.includes('[RELAY_ON]') || data.includes('[RELAY_OFF]')) {
+        const action = data.includes('[RELAY_ON]') ? 'ON' : 'OFF';
+        console.log(`🔍 [TestSystem] Processing relay ${action} message: ${data}`);
+        
+        const match = data.match(/\[RELAY_(ON|OFF)\] PORT:(\d+) STATUS:(success|error) MESSAGE:(.*)/);
+        if (!match) {
+          // 더 유연한 정규식으로 재시도
+          const flexibleMatch = data.match(/\[RELAY_(ON|OFF)\].*PORT:(\d+).*STATUS:(success|error).*MESSAGE:(.*)/);
+          if (flexibleMatch) {
+            const port = parseInt(flexibleMatch[2]);
+            const status = flexibleMatch[3] as 'success' | 'error';
+            const message = flexibleMatch[4];
+            
+            console.log(`🔍 [TestSystem] Relay ${action} response (flexible): Port ${port}, Status ${status}, Message: ${message}`);
+            console.log(`🔍 [TestSystem] Flexible match groups:`, flexibleMatch);
+            
+            setPortTests(prev => {
+              console.log(`🔍 [TestSystem] Updating port tests for port ${port} (flexible)`);
+              return prev.map(test => 
+                test.port === port 
+                  ? { ...test, status, message }
+                  : test
+              );
+            });
+            return;
+          }
+        }
+        if (match) {
+          const port = parseInt(match[2]); // PORT 번호
+          const status = match[3] as 'success' | 'error'; // STATUS
+          const message = match[4]; // MESSAGE
+          
+          console.log(`🔍 [TestSystem] Relay ${action} response: Port ${port}, Status ${status}, Message: ${message}`);
+          console.log(`🔍 [TestSystem] Match groups:`, match);
+          
+          setPortTests(prev => {
+            console.log(`🔍 [TestSystem] Updating port tests for port ${port}`);
+            return prev.map(test => 
+              test.port === port 
+                ? { ...test, status, message }
+                : test
+            );
+          });
+        } else {
+          console.log(`🔍 [TestSystem] Relay ${action} message not matched: ${data}`);
+          console.log(`🔍 [TestSystem] Trying to match pattern: [RELAY_${action}] PORT:(\\d+) STATUS:(success|error) MESSAGE:(.+)`);
+        }
+        return; // Relay 메시지 처리 후 종료
+      }
+      
       // 포트 테스트 응답 처리
       if (data.includes('[CHAMBER_TEST]') || data.includes('[POWER_TEST]') || 
           data.includes('[LOAD_TEST]') || data.includes('[RELAY_TEST]')) {
+        
+        console.log(`🔍 [TestSystem] Processing test message: ${data}`);
         
         // 각 테스트 타입별로 개별 처리
         if (data.includes('[CHAMBER_TEST]')) {
@@ -165,7 +220,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
             const status = match[2] as 'success' | 'error';
             const message = match[3];
             
-            console.log(`🔍 [Frontend] Chamber test response: Port ${port}, Status ${status}, Message: ${message}`);
+            console.log(`🔍 [TestSystem] Chamber test response: Port ${port}, Status ${status}, Message: ${message}`);
             
             setPortTests(prev => prev.map(test => 
               test.port === port 
@@ -182,7 +237,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
             const status = match[2] as 'success' | 'error';
             const message = match[3];
             
-            console.log(`🔍 [Frontend] Power test response: Port ${port}, Status ${status}, Message: ${message}`);
+            console.log(`🔍 [TestSystem] Power test response: Port ${port}, Status ${status}, Message: ${message}`);
             
             setPortTests(prev => prev.map(test => 
               test.port === port 
@@ -199,7 +254,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
             const status = match[2] as 'success' | 'error';
             const message = match[3];
             
-            console.log(`🔍 [Frontend] Load test response: Port ${port}, Status ${status}, Message: ${message}`);
+            console.log(`🔍 [TestSystem] Load test response: Port ${port}, Status ${status}, Message: ${message}`);
             
             setPortTests(prev => prev.map(test => 
               test.port === port 
@@ -207,7 +262,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
                 : test
             ));
           } else {
-            console.log(`🔍 [Frontend] Load test message not matched: ${data}`);
+            console.log(`🔍 [TestSystem] Load test message not matched: ${data}`);
           }
         }
         
@@ -218,7 +273,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
             const status = match[2] as 'success' | 'error';
             const message = match[3];
             
-            console.log(`🔍 [Frontend] Relay test response: Port ${port}, Status ${status}, Message: ${message}`);
+            console.log(`🔍 [TestSystem] Relay test response: Port ${port}, Status ${status}, Message: ${message}`);
             
             setPortTests(prev => prev.map(test => 
               test.port === port 
@@ -329,6 +384,33 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
           message = `[PORT_TEST] PORT:${portNumber}`;
       }
       wsConnection.send(message);
+    }
+  };
+
+  // 릴레이 ON/OFF 테스트 실행
+  const runRelayTest = async (portNumber: number, action: 'ON' | 'OFF') => {
+    if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
+      alert('WebSocket 연결이 없습니다.');
+      return;
+    }
+
+    console.log(`🔍 [TestSystem] Sending relay ${action} command for port ${portNumber}`);
+
+    // 해당 포트만 테스트 중 상태로 설정
+    setPortTests(prev => prev.map(test => 
+      test.port === portNumber 
+        ? { ...test, status: 'testing', message: `${action} 실행 중...` }
+        : test
+    ));
+
+    const portTest = portTests.find(test => test.port === portNumber);
+    if (portTest && portTest.type === 'relay') {
+      const deviceNumber = portTest.deviceNumber || 1;
+      const message = `[RELAY_${action}] PORT:${portNumber} DEVICE:${deviceNumber}`;
+      console.log(`🔍 [TestSystem] Sending message: ${message}`);
+      wsConnection.send(message);
+    } else {
+      console.error(`🔍 [TestSystem] Port test not found or not relay type for port ${portNumber}`);
     }
   };
 
@@ -613,22 +695,57 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
                         )}
                       </Box>
                     )}
-                      <Button
-                        variant="contained"
-                        size="small"
-                        onClick={() => runSinglePortTest(test.port)}
-                        disabled={test.status === 'testing'}
-                        sx={{ 
-                          backgroundColor: '#1976d2',
-                          color: '#ffffff',
-                          '&:hover': { backgroundColor: '#1565c0' },
-                          '&:disabled': { backgroundColor: '#666' },
-                          mt: 1,
-                          width: '100%'
-                        }}
-                      >
-                        RUN
-                      </Button>
+                      {test.type === 'relay' ? (
+                        <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                          <Button
+                            variant="contained"
+                            size="small"
+                            onClick={() => runRelayTest(test.port, 'ON')}
+                            disabled={test.status === 'testing'}
+                            sx={{ 
+                              backgroundColor: '#2e7d32',
+                              color: '#ffffff',
+                              '&:hover': { backgroundColor: '#1b5e20' },
+                              '&:disabled': { backgroundColor: '#666' },
+                              flex: 1
+                            }}
+                          >
+                            ON
+                          </Button>
+                          <Button
+                            variant="contained"
+                            size="small"
+                            onClick={() => runRelayTest(test.port, 'OFF')}
+                            disabled={test.status === 'testing'}
+                            sx={{ 
+                              backgroundColor: '#d32f2f',
+                              color: '#ffffff',
+                              '&:hover': { backgroundColor: '#c62828' },
+                              '&:disabled': { backgroundColor: '#666' },
+                              flex: 1
+                            }}
+                          >
+                            OFF
+                          </Button>
+                        </Box>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          size="small"
+                          onClick={() => runSinglePortTest(test.port)}
+                          disabled={test.status === 'testing'}
+                          sx={{ 
+                            backgroundColor: '#1976d2',
+                            color: '#ffffff',
+                            '&:hover': { backgroundColor: '#1565c0' },
+                            '&:disabled': { backgroundColor: '#666' },
+                            mt: 1,
+                            width: '100%'
+                          }}
+                        >
+                          RUN
+                        </Button>
+                      )}
                     </CardContent>
                   </Card>
               ))}
