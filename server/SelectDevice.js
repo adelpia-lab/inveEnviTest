@@ -63,6 +63,22 @@ const RESPONSE_TIMEOUT_MS = 1000;
 let currentPort = null;
 let portInUse = false;
 
+// 버퍼 클리어 함수 추가
+async function clearPortBuffer(port) {
+    return new Promise((resolve) => {
+        if (port && port.isOpen) {
+            // 수신 버퍼 클리어
+            port.flush();
+            // 약간의 지연 후 클리어 완료
+            setTimeout(() => {
+                resolve();
+            }, 50);
+        } else {
+            resolve();
+        }
+    });
+}
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -311,16 +327,16 @@ export async function RelayDevice(commandToSend) {
                 
                 // 특정 에러에 대한 재시도 로직
                 if (err.message.includes('Cannot lock port') || err.message.includes('Resource temporarily unavailable')) {
-                    console.warn('[시리얼 포트] 포트 잠금 에러 발생, 3초 후 재시도');
+                    console.warn('[시리얼 포트] 포트 잠금 에러 발생, 2초 후 재시도');
                     setTimeout(async () => {
                         try {
                             await forceReleasePort();
-                            await sleep(5000);
+                            await sleep(2000);
                             // 재시도는 상위 함수에서 처리
                         } catch (retryError) {
                             console.error('[시리얼 포트] 재시도 중 에러:', retryError.message);
                         }
-                    }, 100);
+                    }, 1000);
                 }
                 
                 reject(`에러: ${err.message}`);
@@ -339,7 +355,9 @@ export async function RelayDevice(commandToSend) {
                     }
                 }, RESPONSE_TIMEOUT_MS);
 
-                // --- 데이터 전송 ---
+                                        // --- 데이터 전송 ---
+            // 송신 전 버퍼 클리어
+            clearPortBuffer(currentPort).then(() => {
                 currentPort.write(commandToSend, err => {
                     if (err) {
                         // console.error(`[시리얼 포트] 데이터 전송 에러: ${err.message}`);
@@ -350,6 +368,7 @@ export async function RelayDevice(commandToSend) {
                         //console.log(`[시리얼 포트] 데이터 전송 완료: '${commandToSend}'`);
                     }
                 });
+            });
             });
 
             // --- 포트 닫힘 핸들러 ---
@@ -385,7 +404,7 @@ export async function RelayAllOff() {
 export async function SelectDevice(deviceNumber) {
     const str = DeviceOn[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
-    await sleep(2000); // 2초 대기
+    await sleep(1000); // 2초 대기
     
     try {
         const result = await RelayDevice(hexBuffer);
@@ -393,7 +412,7 @@ export async function SelectDevice(deviceNumber) {
         // RelayDevice의 결과를 확인
         if (result && result.isValid) {
             console.log(`[SelectDevice] Device ${deviceNumber} selected successfully`);
-            await sleep(2000); // 2초 대기
+            await sleep(1000); // 2초 대기
             return { success: true, message: `Device ${deviceNumber} selected successfully` };
         } else {
             console.error(`[SelectDevice] Device ${deviceNumber} selection failed:`, result);
@@ -409,14 +428,14 @@ export async function SelectDeviceOn(deviceNumber) {
     const str = DeviceOn[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
     await RelayDevice(hexBuffer);
-    await sleep(2000); // 2초 대기
+    await sleep(1000); // 2초 대기
 }
 
 export async function SelectDeviceOff(deviceNumber) {
     const str = DeviceOff[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
     await RelayDevice(hexBuffer);
-    await sleep(2000); // 2초 대기
+    await sleep(1000); // 2초 대기
 }
 
 

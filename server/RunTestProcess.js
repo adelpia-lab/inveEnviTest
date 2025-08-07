@@ -515,8 +515,8 @@ export async function runSinglePageProcess() {
                 retryCount++;
                 console.warn(`[SinglePageProcess] 디바이스 ${i+1} 선택 실패 (${retryCount}/${maxRetries}): ${error}`);
                 if (retryCount < maxRetries) {
-                  console.log(`[SinglePageProcess] 2초 후 재시도...`);
-                  await sleep(2000);
+                  console.log(`[SinglePageProcess] 7초 후 재시도...`);
+                  await sleep(7000);
                 } else {
                   console.error(`[SinglePageProcess] 디바이스 ${i+1} 선택 최종 실패`);
                   // 실패 시에도 계속 진행
@@ -553,7 +553,7 @@ export async function runSinglePageProcess() {
                   console.warn(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
                   if (retryCount < maxRetries) {
                     console.log(`[SinglePageProcess] 1초 후 재시도...`);
-                    await sleep(1000);
+                    await sleep(5000);
                   } else {
                     console.error(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 최종 실패`);
                     voltData = 'error';

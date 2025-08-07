@@ -10,6 +10,22 @@ const USB_PORT_SETTINGS_FILE = 'usb_port_settings.json'; // USB 포트 설정 �
 const BAUD_RATE = 115200; // 장치에 맞는 보드 레이트를 설정하세요.
 const RESPONSE_TIMEOUT_MS = 2000; // 응답을 기다릴 최대 시간 (밀리초)
 
+// 버퍼 클리어 함수 추가
+async function clearPortBuffer(port) {
+    return new Promise((resolve) => {
+        if (port && port.isOpen) {
+            // 수신 버퍼 클리어
+            port.flush();
+            // 약간의 지연 후 클리어 완료
+            setTimeout(() => {
+                resolve();
+            }, 50);
+        } else {
+            resolve();
+        }
+    });
+}
+
 // USB 포트 설정을 파일에서 읽어오는 함수
 async function loadUsbPortSettings() {
     try {
@@ -122,15 +138,18 @@ export async function usbChamber(commandToSend) {
             }, RESPONSE_TIMEOUT_MS);
 
             // --- 데이터 전송 ---
-            port.write(commandToSend, err => {
-                if (err) {
-                    console.error(`[시리얼 포트] 데이터 전송 에러: ${err.message}`);
-                    clearTimeout(timeoutId);
-                    reject(`데이터 전송 에러: ${err.message}`);
-                    port.close();
-                } else {
-                    // console.log(`[시리얼 포트] 데이터 전송 완료: '${commandToSend}'`);
-                }
+            // 송신 전 버퍼 클리어
+            clearPortBuffer(port).then(() => {
+                port.write(commandToSend, err => {
+                    if (err) {
+                        console.error(`[시리얼 포트] 데이터 전송 에러: ${err.message}`);
+                        clearTimeout(timeoutId);
+                        reject(`데이터 전송 에러: ${err.message}`);
+                        port.close();
+                    } else {
+                        // console.log(`[시리얼 포트] 데이터 전송 완료: '${commandToSend}'`);
+                    }
+                });
             });
         });
 

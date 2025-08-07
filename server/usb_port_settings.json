@@ -1,6 +1,6 @@
 {
-  "chamber": "COM3",
-  "power": "COM6",
-  "load": "COM4",
-  "relay": "COM7"
+  "chamber": "COM4",
+  "power": "COM5",
+  "load": "COM3",
+  "relay": "COM6"
 }

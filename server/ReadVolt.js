@@ -19,6 +19,22 @@ const READ_VOLT = 'MEAS:VOLT?';
 const RETURN_PATTERN = '-0.003\r\n';
 
 // --- 시리얼 포트 설정 ---
+// 버퍼 클리어 함수 추가
+async function clearPortBuffer(port) {
+    return new Promise((resolve) => {
+        if (port && port.isOpen) {
+            // 수신 버퍼 클리어
+            port.flush();
+            // 약간의 지연 후 클리어 완료
+            setTimeout(() => {
+                resolve();
+            }, 50);
+        } else {
+            resolve();
+        }
+    });
+}
+
 // USB 포트 설정을 파일에서 읽어오는 함수
 async function loadUsbPortSettings() {
   const data = await fs.readFile('usb_port_settings.json', 'utf-8');
@@ -87,28 +103,34 @@ export async function ReadVolt(channel) {
         port.on('open', () => {
             // 1. 채널 선택 명령 송신 (응답 없음)
             const selectCmd = CH_SELECT[channel - 1] + '\r\n';
-            port.write(selectCmd, err => {
-                if (err) {
-                    clearTimeout(timeoutId);
-                    reject(`채널 선택 명령 송신 에러: ${err.message}`);
-                    port.close();
-                    return;
-                }
-                // 2. 전압 읽기 명령 송신
-                setTimeout(() => {
-                    isVoltageRequested = true;
-                    timeoutId = setTimeout(() => {
-                        resolve('timeout');
+            // 송신 전 버퍼 클리어
+            clearPortBuffer(port).then(() => {
+                port.write(selectCmd, err => {
+                    if (err) {
+                        clearTimeout(timeoutId);
+                        reject(`채널 선택 명령 송신 에러: ${err.message}`);
                         port.close();
-                    }, RESPONSE_TIMEOUT_MS);
-                    port.write(READ_VOLT + '\r\n', err2 => {
-                        if (err2) {
-                            clearTimeout(timeoutId);
-                            reject(`전압 읽기 명령 송신 에러: ${err2.message}`);
+                        return;
+                    }
+                    // 2. 전압 읽기 명령 송신
+                    setTimeout(() => {
+                        isVoltageRequested = true;
+                        timeoutId = setTimeout(() => {
+                            resolve('timeout');
                             port.close();
-                        }
-                    });
-                }, 100); // 장치가 명령 처리할 시간 약간 대기
+                        }, RESPONSE_TIMEOUT_MS);
+                        // 전압 읽기 명령 송신 전에도 버퍼 클리어
+                        clearPortBuffer(port).then(() => {
+                            port.write(READ_VOLT + '\r\n', err2 => {
+                                if (err2) {
+                                    clearTimeout(timeoutId);
+                                    reject(`전압 읽기 명령 송신 에러: ${err2.message}`);
+                                    port.close();
+                                }
+                            });
+                        });
+                    }, 1000); // 장치가 명령 처리할 시간 약간 대기
+                });
             });
         });
 
@@ -151,30 +173,36 @@ export async function ReadAllVoltages() {
             isVoltageRequested = false;
             // 1. 채널 선택 명령 송신
             const selectCmd = CH_SELECT[channel] + '\r\n';
-            port.write(selectCmd, err => {
-                if (err) {
-                    results.push(`채널${channel+1} 선택 에러: ${err.message}`);
-                    channel++;
-                    readNextChannel();
-                    return;
-                }
-                // 2. 전압 읽기 명령 송신
-                setTimeout(() => {
-                    isVoltageRequested = true;
-                    timeoutId = setTimeout(() => {
-                        results.push('timeout');
+            // 송신 전 버퍼 클리어
+            clearPortBuffer(port).then(() => {
+                port.write(selectCmd, err => {
+                    if (err) {
+                        results.push(`채널${channel+1} 선택 에러: ${err.message}`);
                         channel++;
                         readNextChannel();
-                    }, RESPONSE_TIMEOUT_MS);
-                    port.write(READ_VOLT + '\r\n', err2 => {
-                        if (err2) {
-                            clearTimeout(timeoutId);
-                            results.push(`채널${channel+1} 전압 읽기 에러: ${err2.message}`);
+                        return;
+                    }
+                    // 2. 전압 읽기 명령 송신
+                    setTimeout(() => {
+                        isVoltageRequested = true;
+                        timeoutId = setTimeout(() => {
+                            results.push('timeout');
                             channel++;
                             readNextChannel();
-                        }
-                    });
-                }, 100);
+                        }, RESPONSE_TIMEOUT_MS);
+                        // 전압 읽기 명령 송신 전에도 버퍼 클리어
+                        clearPortBuffer(port).then(() => {
+                            port.write(READ_VOLT + '\r\n', err2 => {
+                                if (err2) {
+                                    clearTimeout(timeoutId);
+                                    results.push(`채널${channel+1} 전압 읽기 에러: ${err2.message}`);
+                                    channel++;
+                                    readNextChannel();
+                                }
+                            });
+                        });
+                    }, 1000);
+                });
             });
         }
 
