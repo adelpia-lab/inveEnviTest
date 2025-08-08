@@ -20,7 +20,8 @@ import CloseIcon from '@mui/icons-material/Close';
 export default function UsbPortSettingsSelectDialog() {
   const [open, setOpen] = useState(false);
 
-  const ttyUsbOptions = Array.from({ length: 4 }, (_, i) => `ttyUSB${i}`);
+  // COM1부터 COM20까지의 옵션 생성
+  const comPortOptions = Array.from({ length: 20 }, (_, i) => `COM${i + 1}`);
 
   const portLabels = ['POWER', 'LOAD', 'RELAY', 'VOLT'];
 
@@ -99,7 +100,7 @@ export default function UsbPortSettingsSelectDialog() {
                     <MenuItem value="">
                       <em>선택 안 함</em>
                     </MenuItem>
-                    {ttyUsbOptions.map((option) => (
+                    {comPortOptions.map((option) => (
                       <MenuItem key={option} value={option}>
                         {option}
                       </MenuItem>

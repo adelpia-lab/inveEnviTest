@@ -29,7 +29,7 @@ interface DevicePorts {
   relay: string;
 }
 
-const AVAILABLE_PORTS = ['COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8'];
+const AVAILABLE_PORTS = ['COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'COM10', 'COM11', 'COM12', 'COM13', 'COM14', 'COM15', 'COM16', 'COM17', 'COM18', 'COM19', 'COM20'];
 
 // 영문 키를 한글 표시명으로 매핑
 const DEVICE_DISPLAY_NAMES: Record<DeviceType, string> = {
@@ -468,7 +468,7 @@ export default function UsbPortSelect({ wsConnection, onSelectionChange }: UsbPo
           <Typography variant="body2" color="#B0B0B0" sx={{ mb: 2 }}>
             각 기기의 USB 포트를 선택하세요. 중복된 포트는 사용할 수 없습니다.
             <Box component="span" sx={{ display: 'block', mt: 1, fontSize: '0.85rem', color: '#90CAF9' }}>
-              사용 가능한 포트: COM1-COM8
+              사용 가능한 포트: COM1-COM20
             </Box>
           </Typography>
 

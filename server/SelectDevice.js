@@ -51,10 +51,16 @@ async function getPortPath() {
     const usbSettings = await loadUsbPortSettings();
     const relayPort = usbSettings.relay;
     
-    // Windows COM 포트인지 확인
+    // Windows COM 포트인지 확인 (COM1-COM20 범위)
     if (relayPort && relayPort.startsWith('COM')) {
-      console.log(`[SelectDevice] Using Windows COM port: ${relayPort}`);
-      return relayPort;
+      const comNumber = parseInt(relayPort.substring(3));
+      if (comNumber >= 1 && comNumber <= 20) {
+        console.log(`[SelectDevice] Using Windows COM port: ${relayPort}`);
+        return relayPort;
+      } else {
+        console.warn(`[SelectDevice] Invalid COM port number: ${relayPort}, using default COM6`);
+        return 'COM6';
+      }
     }
     
     // Linux 스타일 포트인 경우

@@ -345,6 +345,25 @@ async function saveUsbPortSettings(settings) {
       throw new Error('All USB port settings (chamber, power, load, relay) must be provided and cannot be empty');
     }
     
+    // Validate COM port format and range (COM1-COM20)
+    const validateComPort = (port) => {
+      if (port.startsWith('COM')) {
+        const comNumber = parseInt(port.substring(3));
+        return comNumber >= 1 && comNumber <= 20;
+      }
+      return true; // Allow non-COM ports (Linux style)
+    };
+    
+    const invalidPorts = [];
+    if (!validateComPort(settings.chamber)) invalidPorts.push(`chamber: ${settings.chamber}`);
+    if (!validateComPort(settings.power)) invalidPorts.push(`power: ${settings.power}`);
+    if (!validateComPort(settings.load)) invalidPorts.push(`load: ${settings.load}`);
+    if (!validateComPort(settings.relay)) invalidPorts.push(`relay: ${settings.relay}`);
+    
+    if (invalidPorts.length > 0) {
+      throw new Error(`Invalid COM port(s): ${invalidPorts.join(', ')}. COM ports must be COM1-COM20.`);
+    }
+    
     // 영문 키만 허용, 유효성 검사
     const validSettings = {
       chamber: settings.chamber,
