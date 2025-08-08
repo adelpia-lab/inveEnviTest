@@ -79,6 +79,8 @@ const RESPONSE_TIMEOUT_MS = 3000; // 3초로 증가
 let currentPort = null;
 let portInUse = false;
 let portLockTimeout = null;
+// Serialize all RelayDevice calls to prevent concurrent port open/write
+let relayQueue = Promise.resolve();
 
 // 버퍼 클리어 함수 추가
 async function clearPortBuffer(port) {
@@ -291,8 +293,8 @@ async function waitForPortAvailability(maxWaitTime = 15000) {
     console.log('[시리얼 포트] 포트 사용 가능 확인됨');
 }
 
-export async function RelayDevice(commandToSend) {
-    // Wait if port is in use with timeout
+async function RelayDeviceCore(commandToSend) {
+    // Wait if port is in use with timeout (kept for safety, but queue already serializes)
     await waitForPortAvailability();
 
     // 포트 상태 초기화
@@ -300,7 +302,7 @@ export async function RelayDevice(commandToSend) {
 
     setPortLock(); // 포트 잠금 설정
 
-    return new Promise(async (resolve, reject) => {
+    return new Promise(async (resolve) => {
         let isResolved = false; // 중복 resolve 방지
 
         const safeResolve = (result) => {
@@ -319,55 +321,82 @@ export async function RelayDevice(commandToSend) {
             const portPath = await getPortPath();
             console.log(`[RelayDevice] Attempting to connect to port: ${portPath}`);
 
-            currentPort = new SerialPort({
+            const port = new SerialPort({
                 path: portPath,
                 baudRate: BAUD_RATE
             });
+            currentPort = port; // 추적용 전역 포인터 업데이트
 
             // --- 에러 핸들러 ---
-            currentPort.on('error', err => {
+            port.on('error', err => {
                 console.error(`[시리얼 포트] 에러: ${err.message}`);
-                
-                // 포트 강제 해제
-                forceReleasePort();
-                
+
+                // 현재 인스턴스에 대해서만 정리
+                try {
+                    if (port.isOpen) {
+                        port.close();
+                    }
+                } catch {}
+                if (currentPort === port) {
+                    currentPort = null;
+                }
+
                 const errorMessage = `Serial port error: ${err.message}`;
                 console.error(`[RelayDevice] ${errorMessage}`);
                 safeResolve({ isValid: false, error: errorMessage, type: 'port_error' });
             });
 
             // --- 포트 열림 핸들러 ---
-            currentPort.on('open', () => {
+            port.on('open', () => {
                 console.log(`[시리얼 포트] ${portPath} 포트가 ${BAUD_RATE}bps로 열렸습니다.`);
 
                 // --- 데이터 전송 ---
                 // 송신 전 버퍼 클리어
-                clearPortBuffer(currentPort).then(() => {
-                    currentPort.write(commandToSend, err => {
+                clearPortBuffer(port).then(() => {
+                    // 가드: 포트가 유효하고 열려있는지 확인
+                    if (!port || !port.isOpen) {
+                        const errorMessage = 'Port is not open for writing';
+                        console.error(`[RelayDevice] ${errorMessage}`);
+                        safeResolve({ isValid: false, error: errorMessage, type: 'port_not_open' });
+                        return;
+                    }
+
+                    port.write(commandToSend, err => {
                         if (err) {
                             console.error(`[시리얼 포트] 데이터 전송 에러: ${err.message}`);
                             const errorMessage = `Data transmission error: ${err.message}`;
                             console.error(`[RelayDevice] ${errorMessage}`);
                             safeResolve({ isValid: false, error: errorMessage, type: 'transmission_error' });
-                            closeCurrentPort();
+                            try {
+                                if (port.isOpen) {
+                                    port.close();
+                                }
+                            } catch {}
                         } else {
                             console.log(`[시리얼 포트] 데이터 전송 완료: '${commandToSend.toString('hex').toUpperCase()}'`);
-                            
+
                             // 명령 전송 후 즉시 성공 응답 반환
                             safeResolve({ isValid: true, type: 'command_sent', message: 'Command sent successfully' });
-                            
+
                             // 포트 닫기 (비동기로 처리)
                             setTimeout(() => {
-                                closeCurrentPort();
-                            }, 100); // 50ms에서 100ms로 증가
+                                try {
+                                    if (port.isOpen) {
+                                        port.close();
+                                    }
+                                } catch {}
+                            }, 100);
                         }
                     });
                 });
             });
 
             // --- 포트 닫힘 핸들러 ---
-            currentPort.on('close', () => {
+            port.on('close', () => {
                 console.log(`[시리얼 포트] ${portPath} 포트가 닫혔습니다.`);
+                if (currentPort === port) {
+                    currentPort = null;
+                }
                 clearPortLock(); // 포트 잠금 해제
             });
 
@@ -377,6 +406,15 @@ export async function RelayDevice(commandToSend) {
             safeResolve({ isValid: false, error: errorMessage, type: 'setup_error' });
         }
     });
+}
+
+export function RelayDevice(commandToSend) {
+    // 순차 실행 보장: 이전 작업이 끝난 뒤에만 새 작업 실행
+    const job = () => RelayDeviceCore(commandToSend);
+    const p = relayQueue.then(job, job);
+    // 오류가 나도 다음 작업을 막지 않도록 체인을 복구
+    relayQueue = p.catch(() => {});
+    return p;
 }
 
 export async function RelayAllOff() {
