@@ -457,7 +457,11 @@ export async function runSinglePageProcess() {
     }
     currentTable.reportTable[0].TestTemperature = chamberTemp;
 
+    // 프로세스 시작 전 포트 상태 초기화
+    console.log('[SinglePageProcess] 프로세스 시작 전 포트 상태 초기화');
     await RelayAllOff();
+    await sleep(3000); // 포트 초기화를 위한 추가 대기
+    console.log('[SinglePageProcess] 포트 상태 초기화 완료');
     
     for(let k=0; k<3; k++) {
       // 중지 요청 확인
@@ -509,14 +513,25 @@ export async function runSinglePageProcess() {
             
             while (!deviceSelectSuccess && retryCount < maxRetries) {
               try {
-                await SelectDeviceOn(i+1);  // 1 부터 시작 함
-                deviceSelectSuccess = true;
+                console.log(`[SinglePageProcess] 디바이스 ${i+1} 선택 시도 (${retryCount + 1}/${maxRetries})`);
+                
+                // 디바이스 선택 전 포트 상태 확인을 위한 대기
+                await sleep(2000);
+                
+                const selectResult = await SelectDeviceOn(i+1);  // 1 부터 시작 함
+                
+                if (selectResult && selectResult.success) {
+                  deviceSelectSuccess = true;
+                  console.log(`[SinglePageProcess] 디바이스 ${i+1} 선택 성공`);
+                } else {
+                  throw new Error(selectResult?.message || selectResult?.error || '알 수 없는 오류');
+                }
               } catch (error) {
                 retryCount++;
                 console.warn(`[SinglePageProcess] 디바이스 ${i+1} 선택 실패 (${retryCount}/${maxRetries}): ${error}`);
                 if (retryCount < maxRetries) {
-                  console.log(`[SinglePageProcess] 7초 후 재시도...`);
-                  await sleep(7000);
+                  console.log(`[SinglePageProcess] 10초 후 재시도...`);
+                  await sleep(10000); // 10초 대기로 증가
                 } else {
                   console.error(`[SinglePageProcess] 디바이스 ${i+1} 선택 최종 실패`);
                   // 실패 시에도 계속 진행
@@ -560,6 +575,12 @@ export async function runSinglePageProcess() {
                     break;
                   }
                 }
+              }
+              
+              // 채널 3 (j=2)의 경우 읽은 전압에 -1.0을 곱함
+              if (j === 2 && voltData !== 'error' && typeof voltData === 'number') {
+                voltData = voltData * -1.0;
+                console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 채널 3 전압값에 -1.0 곱함: ${voltData}V`);
               }
               
               const expectedVoltage = getTableOption.channelVoltages[j] || 0;
@@ -641,13 +662,25 @@ export async function runSinglePageProcess() {
             retryCount = 0;
             while (retryCount < maxRetries) {
               try {
-                await SelectDeviceOff(i+1); // 1 부터 시작 함
-                break;
+                console.log(`[SinglePageProcess] 디바이스 ${i+1} 해제 시도 (${retryCount + 1}/${maxRetries})`);
+                
+                // 디바이스 해제 전 포트 상태 확인을 위한 대기
+                await sleep(2000);
+                
+                const offResult = await SelectDeviceOff(i+1); // 1 부터 시작 함
+                
+                if (offResult && offResult.success) {
+                  console.log(`[SinglePageProcess] 디바이스 ${i+1} 해제 성공`);
+                  break;
+                } else {
+                  throw new Error(offResult?.message || offResult?.error || '알 수 없는 오류');
+                }
               } catch (error) {
                 retryCount++;
                 console.warn(`[SinglePageProcess] 디바이스 ${i+1} 해제 실패 (${retryCount}/${maxRetries}): ${error}`);
                 if (retryCount < maxRetries) {
-                  await sleep(1000);
+                  console.log(`[SinglePageProcess] 5초 후 재시도...`);
+                  await sleep(5000);
                 } else {
                   console.error(`[SinglePageProcess] 디바이스 ${i+1} 해제 최종 실패`);
                   break;

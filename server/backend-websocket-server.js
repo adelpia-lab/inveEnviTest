@@ -10,7 +10,7 @@ import { RelayAllOff, SelectDevice, SelectDeviceOn, SelectDeviceOff } from './Se
 import { GetData } from './GetData.js';
 import { runSinglePageProcess, runNextTankEnviTestProcess, setWebSocketServer } from './RunTestProcess.js';
 
-const LOCAL_WS_PORT = 8080; // WebSocket 서버가 사용할 포트
+const LOCAL_WS_PORT = 8081; // WebSocket 서버가 사용할 포트
 const DELAY_SETTINGS_FILE = 'delay_settings.json'; // 딜레이 설정 저장 파일
 const DEVICE_STATES_FILE = 'device_states.json'; // 기기 상태 저장 파일
 const HIGH_TEMP_SETTINGS_FILE = 'high_temp_settings.json'; // 고온 설정 저장 파일

@@ -1,7 +1,7 @@
 // $sudo dmesg | grep tty 
 //const WEBSOCKET_SERVER_URL = 'ws://192.168.1.82:8080'; // 5 story
 //const WEBSOCKET_SERVER_URL = 'ws://172.30.1.69:8080'; // 6 stroy adelpia lab
-const WEBSOCKET_SERVER_URL = 'ws://localhost:8080';
+const WEBSOCKET_SERVER_URL = 'ws://localhost:8081';
 //const WEBSOCKET_SERVER_URL = 'ws://192.168.219.107:8080'; //  Shaha
 
 /*

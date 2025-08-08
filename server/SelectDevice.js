@@ -49,10 +49,26 @@ async function loadUsbPortSettings() {
 async function getPortPath() {
   try {
     const usbSettings = await loadUsbPortSettings();
-    return usbSettings.relay; // relay 포트 사용
+    const relayPort = usbSettings.relay;
+    
+    // Windows COM 포트인지 확인
+    if (relayPort && relayPort.startsWith('COM')) {
+      console.log(`[SelectDevice] Using Windows COM port: ${relayPort}`);
+      return relayPort;
+    }
+    
+    // Linux 스타일 포트인 경우
+    if (relayPort && relayPort.startsWith('/dev/')) {
+      console.log(`[SelectDevice] Using Linux port: ${relayPort}`);
+      return relayPort;
+    }
+    
+    // 기본값 (Windows COM 포트)
+    console.log(`[SelectDevice] Using default COM port: COM6`);
+    return 'COM6';
   } catch (error) {
-    // console.error('Failed to load USB port settings, using default:', error.message);
-    return '/dev/ttyUSB3'; // 기본값
+    console.error('[SelectDevice] Failed to load USB port settings, using default:', error.message);
+    return 'COM6'; // Windows 기본값
   }
 }
 
@@ -62,6 +78,7 @@ const RESPONSE_TIMEOUT_MS = 3000; // 3초로 증가
 // Serial port manager to ensure only one connection at a time
 let currentPort = null;
 let portInUse = false;
+let portLockTimeout = null;
 
 // 버퍼 클리어 함수 추가
 async function clearPortBuffer(port) {
@@ -81,6 +98,25 @@ async function clearPortBuffer(port) {
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// 포트 잠금 해제 함수 추가
+function clearPortLock() {
+    if (portLockTimeout) {
+        clearTimeout(portLockTimeout);
+        portLockTimeout = null;
+    }
+    portInUse = false;
+}
+
+// 포트 잠금 설정 함수 추가
+function setPortLock(duration = 5000) {
+    portInUse = true;
+    clearPortLock();
+    portLockTimeout = setTimeout(() => {
+        console.warn('[시리얼 포트] 포트 잠금 시간 초과, 자동 해제');
+        portInUse = false;
+    }, duration);
 }
 
 function hexToDecimal(hexString) {
@@ -174,12 +210,12 @@ async function closeCurrentPort() {
                     // console.log(`[시리얼 포트] 포트가 닫혔습니다.`);
                 }
                 currentPort = null;
-                portInUse = false;
+                clearPortLock(); // 포트 잠금 해제
                 resolve();
             });
         });
     }
-    portInUse = false;
+    clearPortLock(); // 포트 잠금 해제
 }
 
 /**
@@ -197,30 +233,72 @@ async function forceReleasePort() {
         }
         currentPort = null;
     }
-    portInUse = false;
+    clearPortLock(); // 포트 잠금 해제
+}
+
+/**
+ * 포트 상태 확인 및 초기화 함수
+ */
+async function checkAndResetPort() {
+    console.log('[시리얼 포트] 포트 상태 확인 중...');
+    
+    // 현재 포트가 열려있으면 닫기
+    if (currentPort && currentPort.isOpen) {
+        console.log('[시리얼 포트] 열린 포트 발견, 닫는 중...');
+        try {
+            currentPort.close();
+            await sleep(1000); // 포트 닫힘 대기
+        } catch (error) {
+            console.error('[시리얼 포트] 포트 닫기 중 에러:', error.message);
+        }
+    }
+    
+    // 포트 잠금 해제
+    clearPortLock();
+    
+    // 추가 대기 시간
+    await sleep(2000);
+    
+    console.log('[시리얼 포트] 포트 상태 초기화 완료');
 }
 
 /**
  * 포트 사용 가능할 때까지 대기 (최대 10초)
  */
-async function waitForPortAvailability(maxWaitTime = 10000) {
+async function waitForPortAvailability(maxWaitTime = 15000) {
     const startTime = Date.now();
+    let waitCount = 0;
+    
     while (portInUse && (Date.now() - startTime) < maxWaitTime) {
-        console.log('[시리얼 포트] 포트 사용 중, 대기 중...');
-        await sleep(500);
+        waitCount++;
+        console.log(`[시리얼 포트] 포트 사용 중, 대기 중... (${waitCount})`);
+        await sleep(1000); // 1초씩 대기
+        
+        // 5초마다 포트 상태 강제 확인
+        if (waitCount % 5 === 0) {
+            console.log('[시리얼 포트] 포트 상태 강제 확인 중...');
+            await forceReleasePort();
+        }
     }
     
     if (portInUse) {
         console.warn('[시리얼 포트] 포트 대기 시간 초과, 강제 해제');
         await forceReleasePort();
+        // 강제 해제 후 추가 대기
+        await sleep(2000);
     }
+    
+    console.log('[시리얼 포트] 포트 사용 가능 확인됨');
 }
 
 export async function RelayDevice(commandToSend) {
     // Wait if port is in use with timeout
     await waitForPortAvailability();
 
-    portInUse = true;
+    // 포트 상태 초기화
+    await checkAndResetPort();
+
+    setPortLock(); // 포트 잠금 설정
 
     return new Promise(async (resolve, reject) => {
         let isResolved = false; // 중복 resolve 방지
@@ -228,7 +306,7 @@ export async function RelayDevice(commandToSend) {
         const safeResolve = (result) => {
             if (!isResolved) {
                 isResolved = true;
-                portInUse = false;
+                clearPortLock(); // 포트 잠금 해제
                 resolve(result);
             }
         };
@@ -239,6 +317,7 @@ export async function RelayDevice(commandToSend) {
 
             // 동적으로 포트 경로 가져오기
             const portPath = await getPortPath();
+            console.log(`[RelayDevice] Attempting to connect to port: ${portPath}`);
 
             currentPort = new SerialPort({
                 path: portPath,
@@ -252,7 +331,9 @@ export async function RelayDevice(commandToSend) {
                 // 포트 강제 해제
                 forceReleasePort();
                 
-                safeResolve({ isValid: false, error: `Serial port error: ${err.message}`, type: 'port_error' });
+                const errorMessage = `Serial port error: ${err.message}`;
+                console.error(`[RelayDevice] ${errorMessage}`);
+                safeResolve({ isValid: false, error: errorMessage, type: 'port_error' });
             });
 
             // --- 포트 열림 핸들러 ---
@@ -265,7 +346,9 @@ export async function RelayDevice(commandToSend) {
                     currentPort.write(commandToSend, err => {
                         if (err) {
                             console.error(`[시리얼 포트] 데이터 전송 에러: ${err.message}`);
-                            safeResolve({ isValid: false, error: `Data transmission error: ${err.message}`, type: 'transmission_error' });
+                            const errorMessage = `Data transmission error: ${err.message}`;
+                            console.error(`[RelayDevice] ${errorMessage}`);
+                            safeResolve({ isValid: false, error: errorMessage, type: 'transmission_error' });
                             closeCurrentPort();
                         } else {
                             console.log(`[시리얼 포트] 데이터 전송 완료: '${commandToSend.toString('hex').toUpperCase()}'`);
@@ -276,7 +359,7 @@ export async function RelayDevice(commandToSend) {
                             // 포트 닫기 (비동기로 처리)
                             setTimeout(() => {
                                 closeCurrentPort();
-                            }, 50);
+                            }, 100); // 50ms에서 100ms로 증가
                         }
                     });
                 });
@@ -285,11 +368,13 @@ export async function RelayDevice(commandToSend) {
             // --- 포트 닫힘 핸들러 ---
             currentPort.on('close', () => {
                 console.log(`[시리얼 포트] ${portPath} 포트가 닫혔습니다.`);
-                portInUse = false;
+                clearPortLock(); // 포트 잠금 해제
             });
 
         } catch (error) {
-            safeResolve({ isValid: false, error: `Setup error: ${error.message}`, type: 'setup_error' });
+            const errorMessage = `Setup error: ${error.message}`;
+            console.error(`[RelayDevice] ${errorMessage}`);
+            safeResolve({ isValid: false, error: errorMessage, type: 'setup_error' });
         }
     });
 }
@@ -349,12 +434,21 @@ export async function SelectDeviceOn(deviceNumber) {
             console.log(`[SelectDeviceOn] Device ${deviceNumber} turned ON successfully`);
             return { success: true, message: `Device ${deviceNumber} turned ON successfully` };
         } else {
+            const errorMessage = result?.error || 'Unknown error';
             console.error(`[SelectDeviceOn] Device ${deviceNumber} ON failed:`, result);
-            return { success: false, message: `Device ${deviceNumber} ON failed`, error: result?.error || 'Unknown error' };
+            return { 
+                success: false, 
+                message: `Device ${deviceNumber} ON failed: ${errorMessage}`, 
+                error: errorMessage 
+            };
         }
     } catch (error) {
         console.error(`[SelectDeviceOn] Error turning ON device ${deviceNumber}:`, error.message);
-        return { success: false, message: `Device ${deviceNumber} ON error: ${error.message}`, error: error.message };
+        return { 
+            success: false, 
+            message: `Device ${deviceNumber} ON error: ${error.message}`, 
+            error: error.message 
+        };
     }
 }
 
@@ -373,17 +467,20 @@ export async function SelectDeviceOff(deviceNumber) {
             console.log(`[SelectDeviceOff] Device ${deviceNumber} turned OFF successfully`);
             return { success: true, message: `Device ${deviceNumber} turned OFF successfully` };
         } else {
+            const errorMessage = result?.error || 'Unknown error';
             console.error(`[SelectDeviceOff] Device ${deviceNumber} OFF failed:`, result);
-            return { success: false, message: `Device ${deviceNumber} OFF failed`, error: result?.error || 'Unknown error' };
+            return { 
+                success: false, 
+                message: `Device ${deviceNumber} OFF failed: ${errorMessage}`, 
+                error: errorMessage 
+            };
         }
     } catch (error) {
         console.error(`[SelectDeviceOff] Error turning OFF device ${deviceNumber}:`, error.message);
-        return { success: false, message: `Device ${deviceNumber} OFF error: ${error.message}`, error: error.message };
+        return { 
+            success: false, 
+            message: `Device ${deviceNumber} OFF error: ${error.message}`, 
+            error: error.message 
+        };
     }
 }
-
-
-
-
-
-
