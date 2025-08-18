@@ -140,6 +140,7 @@ ehthumbs.db
 Thumbs.db
 
 # CSV files in Data directory
+Data
 Data/*.csv
 
 # Server test settings
