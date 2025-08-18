@@ -1,14 +1,16 @@
-import { TemperatureUp } from './TemperatureUp.js';
-import { TemperatureDown } from './TemperatureDown.js';
 import { GetData } from './GetData.js';
 import { RelayAllOff, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { SendVoltCommand } from './SetVolt.js';
 import { ReadVolt } from './ReadVolt.js';
 import { loadGetTableOption } from './loadGetTableOption.js';
 import { ReadChamber } from './ReadChamber.js'; 
-import { getProcessStopRequested, setMachineRunningStatus } from './backend-websocket-server.js';
+import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature } from './backend-websocket-server.js';
 import fs from 'fs';
 import path from 'path';
+import { InterByteTimeoutParser } from 'serialport';
+
+//const SIMULATION_PROC = false;
+const SIMULATION_PROC = true;
 
 // 전역 WebSocket 서버 참조를 위한 변수
 let globalWss = null;
@@ -17,6 +19,21 @@ let globalWss = null;
 export function setWebSocketServer(wss) {
   globalWss = wss;
   console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
+}
+
+// 프로세스 로그를 클라이언트에게 전송하는 함수
+function sendProcessLog(message) {
+  if (globalWss) {
+    const logMessage = `[PROCESS_LOG] ${message}`;
+    let sentCount = 0;
+    globalWss.clients.forEach(client => {
+      if (client.readyState === 1) { // WebSocket.OPEN
+        client.send(logMessage);
+        sentCount++;
+      }
+    });
+    console.log(`[ProcessLog] 전송 완료 - 클라이언트 수: ${sentCount}, 메시지: ${message}`);
+  }
 }
 // import { listenerCount } from 'ws';
 
@@ -51,39 +68,6 @@ function getDateTimeSeparated() {
     date: dateString,
     time: timeString
   };
-}
-
-/**
- * 순차 테스트 프로세스 실행
- */
-export async function runTestProcess() {
-  try {
-    console.log('[RunTestProcess] 1. 온도 70도 상승 시작');
-    const upResult = await TemperatureUp();
-    if (upResult?.error) {
-      console.error('[RunTestProcess] 온도 상승 에러:', upResult.error);
-      return;
-    }
-    console.log('[RunTestProcess] 2. 4시간 대기 시작');
-    await waitFourHours();
-    console.log('[RunTestProcess] 3. GetData 실행');
-    const dataAfterUp = await GetData();
-    console.log('[RunTestProcess] 4. -32도 하강 시작');
-    const downResult = await TemperatureDown();
-    if (downResult?.error) {
-      console.error('[RunTestProcess] 온도 하강 에러:', downResult.error);
-      return;
-    }
-    console.log('[RunTestProcess] 5. 4시간 대기 시작');
-    await waitFourHours();
-    console.log('[RunTestProcess] 6. GetData 실행');
-    const dataAfterDown = await GetData();
-    console.log('[RunTestProcess] 테스트 완료. 결과:', { dataAfterUp, dataAfterDown });
-    return { dataAfterUp, dataAfterDown };
-  } catch (error) {
-    console.error('[RunTestProcess] 예외 발생:', error);
-    return;
-  }
 }
 
 const RawVoltTable = [];
@@ -419,6 +403,8 @@ function combineTestResults(testResults) {
 // 페이지 단위 테스트 프로세스 실행
 export async function runSinglePageProcess() {
   try {
+    const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
+    sendProcessLog(`🔧 단일 페이지 프로세스 시작 (${modeText}) - 설정 로드 중...`);
     console.log('[SinglePageProcess] 0. getTableOption 로드');
     const getTableOption = await loadGetTableOption();
     console.log('[SinglePageProcess] getTableOption:', getTableOption);
@@ -449,7 +435,14 @@ export async function runSinglePageProcess() {
     currentTable.reportTable[0].TestDate = dateTime.date;
     currentTable.reportTable[0].TestTime = dateTime.time;
     
-    const chamberTemp = await ReadChamber();
+    let chamberTemp = 0.0;
+
+    if( SIMULATION_PROC === false ){
+      chamberTemp = await getCurrentChamberTemperature();
+    } else { 
+      chamberTemp = 23.45
+    }
+
     if (chamberTemp === false) {
       console.error('[SinglePageProcess] 🛑 챔버 온도 읽기 실패');
       return { 
@@ -462,10 +455,13 @@ export async function runSinglePageProcess() {
 
     // 프로세스 시작 전 포트 상태 초기화
     console.log('[SinglePageProcess] 프로세스 시작 전 포트 상태 초기화');
-    await RelayAllOff();
-    await sleep(3000); // 포트 초기화를 위한 추가 대기
-    console.log('[SinglePageProcess] 포트 상태 초기화 완료');
-    
+  
+    if( SIMULATION_PROC === false ){
+      await RelayAllOff();
+      await sleep(3000); // 포트 초기화를 위한 추가 대기
+      console.log('[SinglePageProcess] 포트 상태 초기화 완료');
+    }
+
     for(let k=0; k<3; k++) {
       // 중지 요청 확인
       if (getProcessStopRequested()) {
@@ -484,7 +480,9 @@ export async function runSinglePageProcess() {
       
       while (!voltSetSuccess && retryCount < maxRetries) {
         try {
-          await SendVoltCommand(inputVolt);
+          if(SIMULATION_PROC != true ){
+            await SendVoltCommand(inputVolt);
+          }
           voltSetSuccess = true;
         } catch (error) {
           retryCount++;
@@ -520,9 +518,13 @@ export async function runSinglePageProcess() {
                 
                 // 디바이스 선택 전 포트 상태 확인을 위한 대기
                 await sleep(2000);
-                
-                const selectResult = await SelectDeviceOn(i+1);  // 1 부터 시작 함
-                
+           
+                let selectResult = true;
+
+                if( SIMULATION_PROC === false ){
+                  selectResult = await SelectDeviceOn(i+1);  // 1 부터 시작 함
+                }
+
                 if (selectResult && selectResult.success) {
                   deviceSelectSuccess = true;
                   console.log(`[SinglePageProcess] 디바이스 ${i+1} 선택 성공`);
@@ -549,11 +551,14 @@ export async function runSinglePageProcess() {
             
             // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
             const channelResults = [];
+            sendProcessLog(`📊 디바이스 ${i+1} 전압 측정 시작 (${inputVolt}V 입력)`);
             for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
               // 중지 요청 확인
               if (getProcessStopRequested()) {
                 console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 채널 ${j+1}/4에서 중단`);
-                await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
+                if( SIMULATION_PROC === false ){ 
+                  await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
+                }
                 return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1 };
               }
               
@@ -564,7 +569,15 @@ export async function runSinglePageProcess() {
               
               while (!voltReadSuccess && retryCount < maxRetries) {
                 try {
-                  voltData = await ReadVolt(j+1);
+                  if( SIMULATION_PROC === false ){
+                    voltData = await ReadVolt(j+1);
+                  } else {
+                    // 시뮬레이션 모드에서는 설정된 채널 전압값을 사용하고 약간의 변동 추가
+                    const baseVoltage = getTableOption.channelVoltages[j];
+                    const variation = (Math.random() - 0.5) * 0.2; // ±0.1V 변동
+                    voltData = baseVoltage + variation;
+                    await sleep(100); // 시뮬레이션을 위한 짧은 대기
+                  }
                   voltReadSuccess = true;
                 } catch (error) {
                   retryCount++;
@@ -606,6 +619,8 @@ export async function runSinglePageProcess() {
               // 로그 출력
               console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 읽은값=${voltData}V, 설정값=${expectedVoltage}V, 결과=${comparisonResult}`);
             }
+            
+            sendProcessLog(`✅ 디바이스 ${i+1} 전압 측정 완료`);
             
             // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
             const voltageUpdateData = {
@@ -670,7 +685,10 @@ export async function runSinglePageProcess() {
                 // 디바이스 해제 전 포트 상태 확인을 위한 대기
                 await sleep(2000);
                 
-                const offResult = await SelectDeviceOff(i+1); // 1 부터 시작 함
+                let offResult = true;
+                if( SIMULATION_PROC === false ){
+                  offResult =  await SelectDeviceOff(i+1); // 1 부터 시작 함
+                }
                 
                 if (offResult && offResult.success) {
                   console.log(`[SinglePageProcess] 디바이스 ${i+1} 해제 성공`);
@@ -698,6 +716,7 @@ export async function runSinglePageProcess() {
     console.log('[SinglePageProcess] 프로세스 완료');
     console.log('[SinglePageProcess] 테이블 출력:', currentTable);
     console.log('[SinglePageProcess] 테이블 출력:', currentTable.reportTable[0].voltagTable);
+    sendProcessLog('✅ 단일 페이지 프로세스 완료');
     
     return { 
       status: 'completed', 
@@ -713,40 +732,36 @@ export async function runSinglePageProcess() {
 
 export async function runNextTankEnviTestProcess() {
   try {
+    const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
+    sendProcessLog(`🔄 환경 테스트 프로세스 시작 (${modeText}) - 설정 로드 중...`);
+    
     // 설정을 강제로 다시 로드
-    console.log('[NextTankEnviTestProcess] 🔄 강제로 설정 다시 로드 중...');
     const { loadGetTableOption } = await import('./backend-websocket-server.js');
     await loadGetTableOption();
-    console.log('[NextTankEnviTestProcess] ✅ 설정 다시 로드 완료');
     
-    // sole.log('[NextTankEnviTestProcess] 0. getTableOption 로드');
     const getTableOption = await loadGetTableOption();
-    console.log('[NextTankEnviTestProcess] getTableOption:', getTableOption);
-    
-    // 저온 설정 상세 로깅
-    console.log('[NextTankEnviTestProcess] 📊 Low temp settings details:');
-    console.log('[NextTankEnviTestProcess] - lowTemp:', getTableOption.lowTempSettings.lowTemp);
-    console.log('[NextTankEnviTestProcess] - targetTemp:', getTableOption.lowTempSettings.targetTemp);
-    console.log('[NextTankEnviTestProcess] - waitTime:', getTableOption.lowTempSettings.waitTime);
-    console.log('[NextTankEnviTestProcess] - readCount:', getTableOption.lowTempSettings.readCount);
     
     // cycleNumber 횟수만큼 반복
     const cycleNumber = getTableOption.delaySettings.cycleNumber || 1; // 기본값 1
     console.log(`[NextTankEnviTestProcess] 총 ${cycleNumber}회 사이클 실행 예정`);
+    sendProcessLog(`📊 총 ${cycleNumber}회 사이클 실행 예정`);
     
     for (let cycle = 1; cycle <= cycleNumber; cycle++) {
       // 중지 요청 확인
       if (getProcessStopRequested()) {
         console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 사이클 ${cycle}에서 프로세스 중단`);
+        sendProcessLog(`🛑 중지 요청 감지 - 사이클 ${cycle}에서 프로세스 중단`);
         
         // 중지 시에도 PowerSwitch 상태를 off로 설정
         setMachineRunningStatus(false);
         console.log(`[NextTankEnviTestProcess] 🔌 중지로 인한 PowerSwitch 상태 OFF 설정`);
+        sendProcessLog(`🔌 PowerSwitch 상태 OFF 설정`);
         
         return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtCycle: cycle };
       }
       
       console.log(`[NextTankEnviTestProcess] === 사이클 ${cycle}/${cycleNumber} 시작 ===`);
+      sendProcessLog(`🔄 사이클 ${cycle}/${cycleNumber} 시작`);
       
       // 사이클별 결과 저장용 변수
       let highTempResults = [];
@@ -757,13 +772,14 @@ export async function runNextTankEnviTestProcess() {
       const waitTime = getTableOption.highTempSettings.waitTime; // 분 단위로 저장된 값
       const highTempTest = getTableOption.highTempSettings.highTemp;
       const readCount = getTableOption.highTempSettings.readCount;
-      console.log(`[NextTankEnviTestProcess] highTemp: ${highTemp}`);
-      console.log(`[NextTankEnviTestProcess] waitTime: ${waitTime}분`);
-      console.log(`[NextTankEnviTestProcess] readCount: ${readCount}`); 
-      console.log(`[NextTankEnviTestProcess] highTempTest: ${highTempTest}`);
+      // console.log(`[NextTankEnviTestProcess] highTemp: ${highTemp}`);
+      // console.log(`[NextTankEnviTestProcess] waitTime: ${waitTime}분`);
+      // console.log(`[NextTankEnviTestProcess] readCount: ${readCount}`); 
+      // console.log(`[NextTankEnviTestProcess] highTempTest: ${highTempTest}`);
 
       if(highTempTest === true) {
         console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 1. 고온 테스트 시작`);
+        sendProcessLog(`🔥 사이클 ${cycle}: 고온 테스트 시작 (목표: ${highTemp}°C)`);
         // 챔버 온도를 읽어서 비교하여 도달하면 테스트 시작
         // 아니면 온도가 도달 할때 까지 대기
         while(true) {
@@ -773,15 +789,21 @@ export async function runNextTankEnviTestProcess() {
             return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtCycle: cycle, stoppedAtPhase: 'high_temp_waiting' };
           }
           
-          const chamberTemp = await ReadChamber();
+          let chamberTemp = 23.45;
+          if( SIMULATION_PROC === false ){
+            console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: DEBUF 고온 테스트 대기 중 온도 읽기`);
+            chamberTemp = await getCurrentChamberTemperature();
+          }
           
           // ReadChamber 실패 시 처리
           if (chamberTemp === false) {
             console.error(`[NextTankEnviTestProcess] 🛑 챔버 온도 읽기 실패 - 사이클 ${cycle}에서 프로세스 중단`);
+            sendProcessLog(`❌ 챔버 온도 읽기 실패 - 장비 연결 상태를 확인하세요`);
             
             // PowerSwitch 상태를 off로 설정
             setMachineRunningStatus(false);
             console.log(`[NextTankEnviTestProcess] 🔌 챔버 오류로 인한 PowerSwitch 상태 OFF 설정`);
+            sendProcessLog(`🔌 챔버 오류로 인한 PowerSwitch 상태 OFF 설정`);
             
             return { 
               status: 'error', 
@@ -793,6 +815,7 @@ export async function runNextTankEnviTestProcess() {
           
           if(chamberTemp >= highTemp) {
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 시작`);
+            sendProcessLog(`✅ 사이클 ${cycle}: 고온 도달 (${chamberTemp}°C) - ${waitTime}분 대기 후 테스트 시작`);
             // waitTime 분 만큼 대기
             await sleepMinutes(waitTime);
             // runSinglePageProcess 를 readCount 만큼 실행
@@ -804,6 +827,7 @@ export async function runNextTankEnviTestProcess() {
               }
               
               console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 ${i+1}/${readCount} 실행`);
+              sendProcessLog(`🔬 사이클 ${cycle}: 고온 테스트 ${i+1}/${readCount} 실행 중...`);
               
               // SinglePageProcess 재시도 로직 (최대 5회)
               let singlePageSuccess = false;
@@ -823,6 +847,7 @@ export async function runNextTankEnviTestProcess() {
                   if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
                     singlePageSuccess = true;
                     console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 성공 (${retryCount + 1}번째 시도)`);
+                    sendProcessLog(`✅ 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 성공`);
                   } else {
                     throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
                   }
@@ -872,6 +897,7 @@ export async function runNextTankEnviTestProcess() {
               }
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 완료 (${highTempResults.length}개 결과 누적)`);
+            sendProcessLog(`🎯 사이클 ${cycle}: 고온 테스트 완료 (${highTempResults.length}개 결과)`);
             
             // 실행완료 하면 빠져 나감
             break;
@@ -893,6 +919,7 @@ export async function runNextTankEnviTestProcess() {
       
       if(lowTempTest === true) {
         console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 2. 저온 테스트 시작`); 
+        sendProcessLog(`❄️ 사이클 ${cycle}: 저온 테스트 시작 (목표: ${lowTemp}°C)`);
         // 챔버 온도를 읽어서 비교하여 도달하면 테스트 시작
         // 아니면 온도가 도달 할때 까지 대기
         while(true) {
@@ -904,16 +931,21 @@ export async function runNextTankEnviTestProcess() {
           
           console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 대기 중 목표 온도: ${lowTemp}℃`);
 
-          const chamberTemp = await ReadChamber();
+          let chamberTemp = 23.45;
+          if( SIMULATION_PROC != true ){
+            chamberTemp = await getCurrentChamberTemperature();
+          }
           console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 대기 중 온도: ${chamberTemp}℃`);
           
           // ReadChamber 실패 시 처리
           if (chamberTemp === false) {
             console.error(`[NextTankEnviTestProcess] 🛑 챔버 온도 읽기 실패 - 사이클 ${cycle}에서 프로세스 중단`);
+            sendProcessLog(`❌ 챔버 온도 읽기 실패 - 장비 연결 상태를 확인하세요`);
             
             // PowerSwitch 상태를 off로 설정
             setMachineRunningStatus(false);
             console.log(`[NextTankEnviTestProcess] 🔌 챔버 오류로 인한 PowerSwitch 상태 OFF 설정`);
+            sendProcessLog(`🔌 챔버 오류로 인한 PowerSwitch 상태 OFF 설정`);
             
             return { 
               status: 'error', 
@@ -925,6 +957,7 @@ export async function runNextTankEnviTestProcess() {
           
           if(chamberTemp <= lowTemp) {
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 시작`);
+            sendProcessLog(`✅ 사이클 ${cycle}: 저온 도달 (${chamberTemp}°C) - ${lowWaitTime}분 대기 후 테스트 시작`);
             console.log(`[NextTankEnviTestProcess] 저온테스트 전 ${lowWaitTime}분 대기`);
             // lowWaitTime 분 만큼 대기
             await sleepMinutes(lowWaitTime);
@@ -937,6 +970,7 @@ export async function runNextTankEnviTestProcess() {
               }
               
               console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 ${i+1}/${lowReadCount} 실행`);
+              sendProcessLog(`🔬 사이클 ${cycle}: 저온 테스트 ${i+1}/${lowReadCount} 실행 중...`);
               
               // SinglePageProcess 재시도 로직 (최대 5회)
               let singlePageSuccess = false;
@@ -956,6 +990,7 @@ export async function runNextTankEnviTestProcess() {
                   if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
                     singlePageSuccess = true;
                     console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 성공 (${retryCount + 1}번째 시도)`);
+                    sendProcessLog(`✅ 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 성공`);
                   } else {
                     throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
                   }
@@ -1005,6 +1040,7 @@ export async function runNextTankEnviTestProcess() {
               }
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 완료 (${lowTempResults.length}개 결과 누적)`);
+            sendProcessLog(`🎯 사이클 ${cycle}: 저온 테스트 완료 (${lowTempResults.length}개 결과)`);
             
             // 실행완료 하면 빠져 나감
             break;
@@ -1017,15 +1053,18 @@ export async function runNextTankEnviTestProcess() {
 
       
       console.log(`[NextTankEnviTestProcess] === 사이클 ${cycle}/${cycleNumber} 완료 ===`);
+      sendProcessLog(`✅ 사이클 ${cycle}/${cycleNumber} 완료`);
       
       // 마지막 사이클이 아니면 다음 사이클을 위한 대기 시간 추가
       if (cycle < cycleNumber) {
         console.log(`[NextTankEnviTestProcess] 다음 사이클을 위한 대기 중...`);
+        sendProcessLog(`⏳ 다음 사이클을 위한 대기 중...`);
         await sleep(5000); // 5초 대기 (필요에 따라 조정 가능)
       }
     }
     
     console.log(`[NextTankEnviTestProcess] 모든 사이클(${cycleNumber}회) 완료`);
+    sendProcessLog(`🎉 모든 사이클(${cycleNumber}회) 완료 - 환경 테스트 프로세스 종료`);
     
     // 프로세스 완료 시 PowerSwitch 상태를 off로 설정
     setMachineRunningStatus(false);

@@ -20,11 +20,17 @@ const USB_PORT_SETTINGS_FILE = 'usb_port_settings.json'; // USB 포트 설정 �
 const OUT_VOLT_SETTINGS_FILE = 'out_volt_settings.json'; // 입력 전압 설정 저장 파일
 const CHANNEL_VOLTAGES_FILE = 'channel_voltages.json'; // 채널 전압 설정 저장 파일
 
+const SIMULATION_PROCESS = true;
+
 // 전역 변수: 머신 실행 상태
 let machineRunning = false;
 
 // 전역 변수: 프로세스 중지 플래그
 let processStopRequested = false;
+
+// 전역 변수: 챔버 온도 모니터링
+let chamberTemperatureInterval = null;
+let currentChamberTemperature = null;
 
 // 머신 실행 상태를 가져오는 함수
 function getMachineRunningStatus() {
@@ -77,8 +83,61 @@ function setProcessStopRequested(status) {
     processStopRequested = status;
 }
 
+// 챔버 온도를 읽어서 모든 클라이언트에게 전송하는 함수
+async function readAndBroadcastChamberTemperature() {
+    try {
+        const temperature = SIMULATION_PROCESS ? 25 : await ReadChamber();
+        
+        if (typeof temperature === 'number' && !isNaN(temperature)) {
+            currentChamberTemperature = temperature;
+            
+            // 모든 연결된 클라이언트에게 온도 전송
+            wss.clients.forEach(client => {
+                if (client.readyState === 1) { // WebSocket.OPEN
+                    const temperatureMessage = `[CHAMBER_TEMPERATURE] ${temperature}`;
+                    client.send(temperatureMessage);
+                }
+            });
+            
+            console.log(`🌡️ [Backend WS Server] Chamber temperature broadcast: ${temperature}°C`);
+        } else {
+            console.warn(`🌡️ [Backend WS Server] Invalid temperature reading: ${temperature}`);
+        }
+    } catch (error) {
+        console.error(`🌡️ [Backend WS Server] Failed to read chamber temperature: ${error.message}`);
+    }
+}
+
+// 챔버 온도 모니터링 시작
+function startChamberTemperatureMonitoring() {
+    if (chamberTemperatureInterval) {
+        clearInterval(chamberTemperatureInterval);
+    }
+    
+    // 즉시 첫 번째 읽기 실행
+    readAndBroadcastChamberTemperature();
+    
+    // 5초마다 온도 읽기 및 전송
+    chamberTemperatureInterval = setInterval(readAndBroadcastChamberTemperature, 120000);
+    console.log(`🌡️ [Backend WS Server] Chamber temperature monitoring started (5-second interval)`);
+}
+
+// 챔버 온도 모니터링 중지
+function stopChamberTemperatureMonitoring() {
+    if (chamberTemperatureInterval) {
+        clearInterval(chamberTemperatureInterval);
+        chamberTemperatureInterval = null;
+        console.log(`🌡️ [Backend WS Server] Chamber temperature monitoring stopped`);
+    }
+}
+
+// 현재 챔버 온도 가져오기
+function getCurrentChamberTemperature() {
+    return currentChamberTemperature;
+}
+
 // 머신 실행 상태와 프로세스 중지 플래그를 외부에서 접근할 수 있도록 export
-export { getMachineRunningStatus, setMachineRunningStatus, getProcessStopRequested, setProcessStopRequested };
+export { getMachineRunningStatus, setMachineRunningStatus, getProcessStopRequested, setProcessStopRequested, startChamberTemperatureMonitoring, stopChamberTemperatureMonitoring, getCurrentChamberTemperature };
 
 const wss = new WebSocketServer({ port: LOCAL_WS_PORT });
 
@@ -646,6 +705,16 @@ export { broadcastToClients, wss };
 
 wss.on('connection', ws => {
     console.log(`[Backend WS Server] 클라이언트 연결됨 (${ws._socket.remoteAddress}:${ws._socket.remotePort})`);
+
+    // 챔버 온도 모니터링 시작
+    startChamberTemperatureMonitoring();
+    
+    // 현재 챔버 온도를 클라이언트에게 즉시 전송
+    if (currentChamberTemperature !== null) {
+        const temperatureMessage = `[CHAMBER_TEMPERATURE] ${currentChamberTemperature}`;
+        ws.send(temperatureMessage);
+        console.log(`🌡️ [Backend WS Server] Sending current chamber temperature to new client: ${currentChamberTemperature}°C`);
+    }
 
     // 클라이언트 연결 시 저장된 기기 상태를 자동으로 전송
     const sendInitialDeviceState = async () => {

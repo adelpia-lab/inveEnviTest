@@ -27,6 +27,8 @@ interface VoltageData {
 
 export default function PowerTable({ groups, wsConnection, channelVoltages = [5, 15, -15, 24] }: PowerTableProps) {
   const [voltageData, setVoltageData] = useState<{ [key: string]: string }>({});
+  const [chamberTemperature, setChamberTemperature] = useState<number | null>(null);
+  const [processLogs, setProcessLogs] = useState<string[]>([]);
 
   
   console.log('🔌 PowerTable: 컴포넌트 렌더링됨');
@@ -137,21 +139,43 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       if (typeof message === 'string' && message.includes('[POWER_SWITCH]') && message.includes('ON')) {
         console.log('🔌 PowerTable: 파워스위치 ON - 전압 데이터 초기화');
         setVoltageData({});
+        setProcessLogs([]); // 프로세스 로그도 초기화
       }
       
-      // 개발용 테스트 메시지 처리 (실제 하드웨어 없이 테스트용)
-      if (typeof message === 'string' && message.startsWith('[TEST_VOLTAGE_UPDATE]')) {
+      // 챔버 온도 업데이트 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[CHAMBER_TEMPERATURE]')) {
         try {
-          const match = message.match(/\[TEST_VOLTAGE_UPDATE\] (.+)/);
+          const match = message.match(/\[CHAMBER_TEMPERATURE\] (.+)/);
           if (match && match[1]) {
-            const testData = JSON.parse(match[1]);
-            console.log('🧪 PowerTable: 테스트 전압 데이터 수신:', testData);
-            handleTestVoltageUpdate(testData);
+            const temperature = parseFloat(match[1]);
+            if (!isNaN(temperature)) {
+              setChamberTemperature(temperature);
+              console.log(`🌡️ PowerTable: 챔버 온도 업데이트: ${temperature}°C`);
+            }
           }
         } catch (error) {
-          console.error('PowerTable: 테스트 전압 업데이트 파싱 오류:', error);
+          console.error('PowerTable: 챔버 온도 파싱 오류:', error);
         }
       }
+      
+      // 프로세스 로그 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[PROCESS_LOG]')) {
+        try {
+          const match = message.match(/\[PROCESS_LOG\] (.+)/);
+          if (match && match[1]) {
+            const logMessage = match[1];
+            setProcessLogs(prev => {
+              const newLogs = [...prev, logMessage];
+              // 최대 10개의 로그만 유지
+              return newLogs.slice(-10);
+            });
+            console.log(`📝 PowerTable: 프로세스 로그 수신: ${logMessage}`);
+          }
+        } catch (error) {
+          console.error('PowerTable: 프로세스 로그 파싱 오류:', error);
+        }
+      }
+
     };
 
     wsConnection.addEventListener('message', handleMessage);
@@ -168,81 +192,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     return '-.-';
   };
 
-  // 개발용 테스트 함수
-  const sendTestVoltageData = () => {
-    alert('🧪 테스트 버튼이 클릭되었습니다! 전압 데이터를 업데이트합니다.');
-    console.log('🧪 PowerTable: 테스트 버튼 클릭됨');
-    
-    // 여러 디바이스에 대한 테스트 데이터 생성
-    const testDataArray = [
-      {
-        device: 1,
-        voltageTest: 1,
-        channels: [
-          { device: 1, channel: 1, voltage: 5.12, expected: 5.0, result: 'G', voltageWithComparison: '5.12V|G' },
-          { device: 1, channel: 2, voltage: 15.08, expected: 15.0, result: 'G', voltageWithComparison: '15.08V|G' },
-          { device: 1, channel: 3, voltage: -14.95, expected: -15.0, result: 'G', voltageWithComparison: '-14.95V|G' },
-          { device: 1, channel: 4, voltage: 24.02, expected: 24.0, result: 'G', voltageWithComparison: '24.02V|G' }
-        ],
-        inputVoltage: 18,
-        rowIndex: 0,
-        testIndex: 0
-      },
-      {
-        device: 2,
-        voltageTest: 1,
-        channels: [
-          { device: 2, channel: 1, voltage: 5.15, expected: 5.0, result: 'G', voltageWithComparison: '5.15V|G' },
-          { device: 2, channel: 2, voltage: 15.12, expected: 15.0, result: 'G', voltageWithComparison: '15.12V|G' },
-          { device: 2, channel: 3, voltage: -15.03, expected: -15.0, result: 'G', voltageWithComparison: '-15.03V|G' },
-          { device: 2, channel: 4, voltage: 23.98, expected: 24.0, result: 'G', voltageWithComparison: '23.98V|G' }
-        ],
-        inputVoltage: 18,
-        rowIndex: 1,
-        testIndex: 0
-      }
-    ];
-    
-    // WebSocket을 통해 테스트 메시지 전송 (선택사항)
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      testDataArray.forEach((testData, index) => {
-        const testMessage = `[TEST_VOLTAGE_UPDATE] ${JSON.stringify(testData)}`;
-        wsConnection.send(testMessage);
-        console.log(`🧪 WebSocket을 통해 테스트 메시지 전송 ${index + 1}:`, testMessage);
-      });
-    }
-    
-    // 직접 테스트 데이터를 처리
-    console.log('🧪 PowerTable: 직접 테스트 데이터 처리');
-    testDataArray.forEach((testData, index) => {
-      console.log(`🧪 테스트 데이터 ${index + 1} 처리:`, testData);
-      handleTestVoltageUpdate(testData);
-    });
-  };
-  
-  // 테스트 전압 업데이트 처리 함수
-  const handleTestVoltageUpdate = (testData: any) => {
-    console.log('🧪 PowerTable: 테스트 전압 데이터 직접 처리:', testData);
-    
-    // 각 채널의 전압 데이터를 저장
-    testData.channels.forEach((channel: any) => {
-      const key = `device${channel.device}_test${testData.voltageTest}_channel${channel.channel}`;
-      const displayValue = channel.voltage === 'error' ? '-.-' : 
-        typeof channel.voltage === 'number' ? `${channel.voltage.toFixed(2)}V` : '-.-';
-      
-      setVoltageData(prev => {
-        const newData = {
-          ...prev,
-          [key]: displayValue
-        };
-        console.log(`🧪 PowerTable: 전압 데이터 업데이트 - Key: ${key}, Value: ${displayValue}`);
-        console.log(`🧪 PowerTable: 전체 전압 데이터:`, newData);
-        return newData;
-      });
-      
-      console.log(`🧪 PowerTable: 테스트 전압 데이터 저장 - Device ${channel.device}, Channel ${channel.channel}, Value: ${displayValue}`);
-    });
-  };
+
 
   return (
     <div className="w-full h-full bg-[#181A20] rounded-lg shadow-md p-2" style={{ 
@@ -257,127 +207,36 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       <div className="flex items-center justify-between px-2" style={{ 
         display: 'flex', 
         flexWrap: 'nowrap', 
-        gap: '40px', 
+        gap: '20px', 
         gridArea: 'header',
         backgroundColor: '#23242a',
         borderRadius: '8px',
         padding: '10px'
       }}>
-        <div className="text-lg font-semibold text-blue-200">온도: <span className="text-white">{group.temperature}°C</span></div>
-        {/* 개발용 테스트 버튼 */}
-        <button
-          onClick={sendTestVoltageData}
-          style={{
-            backgroundColor: '#4CAF50',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '4px 8px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            marginRight: '8px'
-          }}
-        >
-          🧪 테스트
-        </button>
-        <button
-          onClick={() => {
-            alert('🔍 상태확인 버튼이 클릭되었습니다! 콘솔을 확인하세요.');
-            console.log('🔍 PowerTable: 상태확인 버튼 클릭됨');
-            console.log('🔍 PowerTable: 현재 전압 데이터 상태:', voltageData);
-            console.log('🔍 PowerTable: WebSocket 연결 상태:', wsConnection?.readyState);
-            console.log('🔍 PowerTable: WebSocket 연결 객체:', wsConnection);
-            console.log('🔍 PowerTable: 전압 데이터 키 개수:', Object.keys(voltageData).length);
-            console.log('🔍 PowerTable: 전압 데이터 키들:', Object.keys(voltageData));
-          }}
-          style={{
-            backgroundColor: '#2196F3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '4px 8px',
-            fontSize: '12px',
-            cursor: 'pointer'
-          }}
-        >
-          🔍 상태확인
-        </button>
-        {/* 상태 표시 영역 */}
-        <div style={{
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          color: 'white',
-          padding: '4px 8px',
-          fontSize: '10px',
-          borderRadius: '4px',
-          marginLeft: '8px'
-        }}>
-          데이터: {Object.keys(voltageData).length}개
+        <div className="text-lg font-semibold text-blue-200">온도: <span className="text-white">
+          {chamberTemperature !== null ? `${chamberTemperature.toFixed(2)}°C` : `${group.temperature}°C`}
+        </span></div>
+        
+        {/* 프로세스 로그 표시 영역 */}
+        <div className="flex-1 overflow-hidden">
+          <div className="text-xs text-gray-300" style={{ 
+            maxHeight: '40px',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden'
+          }}>
+            {processLogs.length > 0 ? (
+              processLogs.slice(-2).map((log, index) => (
+                <div key={index} className="mb-1">
+                  {log}
+                </div>
+              ))
+            ) : (
+              <div className="text-gray-500">대기 중...</div>
+            )}
+          </div>
         </div>
-        <button
-          onClick={() => {
-            const testKey = `device1_test1_channel1`;
-            const testValue = `테스트_${Date.now()}`;
-            setVoltageData(prev => ({
-              ...prev,
-              [testKey]: testValue
-            }));
-            alert(`테스트 데이터 추가됨: ${testKey} = ${testValue}`);
-          }}
-          style={{
-            backgroundColor: '#FF9800',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '4px 8px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            marginLeft: '8px'
-          }}
-        >
-          ➕ 테스트데이터
-        </button>
-        <button
-          onClick={() => {
-            setVoltageData({});
-            alert('전압 데이터가 초기화되었습니다!');
-          }}
-          style={{
-            backgroundColor: '#F44336',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '4px 8px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            marginLeft: '8px'
-          }}
-        >
-          🔄 초기화
-        </button>
-        <button
-          onClick={() => {
-            console.log('🔍 PowerTable: 현재 channelVoltages:', channelVoltages);
-            console.log('🔍 PowerTable: 테스트 출력값 변환:');
-            console.log('  +5 ->', getOutputVoltageDisplay('+5'));
-            console.log('  +15 ->', getOutputVoltageDisplay('+15'));
-            console.log('  -15 ->', getOutputVoltageDisplay('-15'));
-            console.log('  +24 ->', getOutputVoltageDisplay('+24'));
-            alert(`현재 channelVoltages: ${JSON.stringify(channelVoltages)}\n콘솔을 확인하세요.`);
-          }}
-          style={{
-            backgroundColor: '#9C27B0',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '4px 8px',
-            fontSize: '12px',
-            cursor: 'pointer',
-            marginLeft: '8px'
-          }}
-        >
-          🔍 테스트
-        </button>
-
       </div>
       
       {/* 테이블 컨테이너 - 그리드 영역 */}
