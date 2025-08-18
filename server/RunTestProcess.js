@@ -332,6 +332,9 @@ function compareVoltage(readVoltage, expectedVoltage) {
   
   // ±5% 허용 오차 계산
   const tolerance = expectedVoltage * 0.05;
+  
+  if(tolerance < 0 ) tolerance = tolerance * -1.0;  // 2025.0818 by skjung
+
   const minVoltage = expectedVoltage - tolerance;
   const maxVoltage = expectedVoltage + tolerance;
   

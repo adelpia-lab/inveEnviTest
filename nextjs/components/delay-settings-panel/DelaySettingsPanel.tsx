@@ -363,7 +363,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
                     width: '100px'
                   }}
                 />
-                <Typography sx={{ fontSize: '1.2rem' }}>sec</Typography>
+                <Typography sx={{ fontSize: '1.2rem' }}>회</Typography>
               </Box>
             </Box>
 
