@@ -48,26 +48,45 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     //console.log('🔌 PowerTable: channelVoltages 변경됨:', channelVoltages);
   }, [channelVoltages]);
   
-  // 컴포넌트 마운트 시 초기 상태 강제 설정
+  // 컴포넌트 마운트 시 초기 상태 강제 설정 (wsConnection이 null에서 유효한 값으로 변경될 때만)
   useEffect(() => {
-    //console.log('🔌 PowerTable: 컴포넌트 마운트 - 초기 상태 강제 설정');
+    console.log('🔌 PowerTable: wsConnection 변경 감지');
+    console.log('🔌 PowerTable: wsConnection 상태:', wsConnection ? `readyState: ${wsConnection.readyState}` : 'null');
     
-    // 모든 상태를 초기값으로 강제 설정
-    setVoltageData({});
-    setProcessLogs([]);
-    setCurrentCycle(null);
-    setCycleMessage('');
-    setTotalCycles(0);
-    setTestPhase('none');
-    setCurrentTestNumber(0);
-    setTotalTestCount(0);
-    setTestStatus('none');
-    
-    //console.log('✅ PowerTable: 초기 상태 강제 설정 완료');
+    // wsConnection이 null에서 유효한 값으로 변경될 때만 초기화
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      console.log('🔌 PowerTable: WebSocket이 열린 상태로 변경됨 - 초기 상태 설정');
+      
+      // 모든 상태를 초기값으로 강제 설정
+      setVoltageData({});
+      setProcessLogs([]);
+      setCurrentCycle(null);
+      setCycleMessage('');
+      setTotalCycles(0);
+      setTestPhase('none');
+      setCurrentTestNumber(0);
+      setTotalTestCount(0);
+      setTestStatus('none');
+      
+      console.log('✅ PowerTable: 초기 상태 강제 설정 완료');
+    } else if (!wsConnection) {
+      console.log('🔌 PowerTable: wsConnection이 null로 변경됨');
+    } else {
+      console.log('🔌 PowerTable: wsConnection이 있지만 아직 열리지 않음');
+    }
   }, [wsConnection]);
   
   // 상태 변경 감지를 위한 useEffect
   useEffect(() => {
+    console.log('🔄 PowerTable: 상태 변경 감지됨:', {
+      currentCycle,
+      totalCycles,
+      testPhase,
+      currentTestNumber,
+      totalTestCount,
+      testStatus,
+      cycleMessage
+    });
   }, [currentCycle, totalCycles, testPhase, currentTestNumber, totalTestCount, testStatus, cycleMessage]);
   
   const group = groups[0]; // 첫 번째 그룹만 사용
@@ -121,74 +140,103 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
 
   // 전압 데이터를 강제로 초기화하는 함수
   const resetVoltageData = () => {
+    console.log('🔄 PowerTable: resetVoltageData 함수 호출 - 전압 데이터만 초기화');
     
-    // 모든 상태 완전 초기화
+    // 전압 데이터와 프로세스 로그만 초기화
     setVoltageData({});
     setProcessLogs([]);
-    setCurrentCycle(null);
-    setCycleMessage('');
-    setTotalCycles(0);
-    setTestPhase('none');
-    setCurrentTestNumber(0);
-    setTotalTestCount(0);
-    setTestStatus('none');    
+    // 테스트 진행 상황 상태는 유지 (currentCycle, totalCycles, testPhase, currentTestNumber, totalTestCount, testStatus)
+    
+    console.log('✅ PowerTable: resetVoltageData 함수 완료 - 테스트 진행 상황 유지');
   };
 
   // WebSocket 메시지 수신 처리
   useEffect(() => {
+    console.log('🔌 PowerTable: WebSocket useEffect 실행됨');
+    console.log('🔌 PowerTable: wsConnection 존재 여부:', !!wsConnection);
+    
     if (!wsConnection) {
+      console.log('🔌 PowerTable: wsConnection이 null/undefined임');
       return;
     }
 
+    console.log('🔌 PowerTable: WebSocket readyState:', wsConnection.readyState);
+    console.log('🔌 PowerTable: WebSocket OPEN 상태:', wsConnection.readyState === WebSocket.OPEN);
+    
     if (wsConnection.readyState !== WebSocket.OPEN) {
       console.log('🔌 PowerTable: WebSocket이 아직 열리지 않았습니다. readyState:', wsConnection.readyState);
       return;
     }
+    
+    console.log('🔌 PowerTable: WebSocket 연결됨, 이벤트 리스너 등록 시작');
 
 
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
-      console.log('🔌 PowerTable: 메시지 수신:', message);
+      console.log('🔌 PowerTable: 메시지 수신됨 - 전체 메시지:', message);
+      console.log('🔌 PowerTable: 메시지 타입:', typeof message);
+      console.log('🔌 PowerTable: 메시지 길이:', message?.length);
+      console.log('🔌 PowerTable: 메시지 시작 부분:', message?.substring(0, 50));
+      console.log('🔌 PowerTable: 메시지에 POWER_TABLE_RESET 포함 여부:', message?.includes('[POWER_TABLE_RESET]'));
+      
+      // 메시지가 문자열인지 확인
+      if (typeof message !== 'string') {
+        console.error('🔌 PowerTable: 메시지가 문자열이 아님:', message);
+        return;
+      }
+      
+      // 메시지가 비어있는지 확인
+      if (!message || message.trim() === '') {
+        console.error('🔌 PowerTable: 메시지가 비어있음');
+        return;
+      }
       
       // PowerTable 전압 데이터 초기화 메시지 처리
       if (typeof message === 'string' && message.startsWith('[POWER_TABLE_RESET]')) {
         try {
+          console.log('🔌 PowerTable: [POWER_TABLE_RESET] 메시지 감지됨');
           
           const match = message.match(/\[POWER_TABLE_RESET\] (.+)/);
           if (match && match[1]) {
-          
+            console.log('🔌 PowerTable: 메시지 매치 성공, JSON 파싱 시도');
+            
             const resetData = JSON.parse(match[1]);
+            console.log('🔌 PowerTable: JSON 파싱 성공, resetData:', resetData);
+            console.log('🔌 PowerTable: action 값:', resetData.action);
+            console.log('🔌 PowerTable: action 타입:', typeof resetData.action);
             
             // 액션 타입에 따른 처리
             switch (resetData.action) {
               case 'reset':
-                // 일반 초기화 - 모든 상태 초기화
-                resetVoltageData();
+                // 일반 초기화 - 전압 데이터만 초기화하고 test_progress 상태는 유지
+                console.log('🔄 PowerTable: reset 액션 처리 - 전압 데이터만 초기화');
+                setVoltageData({});
+                setProcessLogs([]);
                 setCycleMessage(resetData.message || '');
+                // test_progress 상태는 유지 (testPhase, currentTestNumber, totalTestCount, testStatus)
+                console.log('✅ PowerTable: reset 액션 처리 완료 - test_progress 상태 유지');
                 break;
                 
               case 'cycle_reset':
                 // 사이클 시작 - 전압 데이터 초기화하고 사이클 정보 설정
+                console.log('🔄 PowerTable: cycle_reset 액션 처리');
                 resetVoltageData();
                 setCurrentCycle(resetData.cycle || null);
                 setTotalCycles(resetData.totalCycles || 0);
                 setCycleMessage(resetData.message || '');
-                setTestPhase('none');
-                setCurrentTestNumber(0);
-                setTotalTestCount(0);
-                setTestStatus('none');
+                // test_progress 상태는 유지 (testPhase, currentTestNumber, totalTestCount, testStatus)
+                console.log('✅ PowerTable: cycle_reset 액션 처리 완료 - test_progress 상태 유지');
                 break;
                 
               case 'single_page_reset':
                 // 단일 페이지 프로세스 - 전압 데이터 초기화
+                console.log('🔄 PowerTable: single_page_reset 액션 처리');
                 resetVoltageData();
                 setCurrentCycle(null);
                 setTotalCycles(0);
                 setCycleMessage(resetData.message || '');
-                setTestPhase('none');
-                setCurrentTestNumber(0);
-                setTotalTestCount(0);
-                setTestStatus('none');
+                // test_progress 상태는 유지 (testPhase, currentTestNumber, totalTestCount, testStatus)
+                console.log('✅ PowerTable: single_page_reset 액션 처리 완료 - test_progress 상태 유지');
                 break;
                 
               case 'test_start':
@@ -204,6 +252,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 
               case 'test_progress':
                 // 테스트 진행 상황 - 전압 데이터는 유지하고 진행 상황만 업데이트
+                console.log('🔄 PowerTable: test_progress 액션 처리 시작');
+                console.log('🔄 PowerTable: 받은 데이터:', resetData);
+                
                 setCurrentCycle(resetData.cycle || null);
                 setTotalCycles(resetData.totalCycles || 0);
                 setTestPhase(resetData.testPhase || 'none');
@@ -211,11 +262,30 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 setTotalTestCount(resetData.totalTestCount || 0);
                 setTestStatus(resetData.testStatus || 'none');
                 setCycleMessage(resetData.message || '');
+                
+                console.log('✅ PowerTable: test_progress 상태 업데이트 완료');
+                console.log('✅ PowerTable: 업데이트된 값들:', {
+                  cycle: resetData.cycle || null,
+                  totalCycles: resetData.totalCycles || 0,
+                  testPhase: resetData.testPhase || 'none',
+                  currentTestNumber: resetData.currentTestNumber || 0,
+                  totalTestCount: resetData.totalTestCount || 0,
+                  testStatus: resetData.testStatus || 'none',
+                  message: resetData.message || ''
+                });
                 break;
                 
               default:
                 // 알 수 없는 액션 - 기본 초기화
                 console.log('🔄 PowerTable: 알 수 없는 액션 - 기본 초기화 실행');
+                console.log('🔄 PowerTable: 예상하지 못한 action 값:', resetData.action);
+                console.log('🔄 PowerTable: action 값의 정확한 비교:', {
+                  'action === "test_progress"': resetData.action === "test_progress",
+                  'action === \'test_progress\'': resetData.action === 'test_progress',
+                  'action.length': resetData.action?.length,
+                  'action.charCodeAt(0)': resetData.action?.charCodeAt(0),
+                  'action.charCodeAt(1)': resetData.action?.charCodeAt(1)
+                });
                 resetVoltageData();
                 setCycleMessage(resetData.message || '');
                 console.log('✅ PowerTable: 기본 초기화 완료');
@@ -303,26 +373,31 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       }
     };
 
+    console.log('🔌 PowerTable: message 이벤트 리스너 등록');
     wsConnection.addEventListener('message', handleMessage);
     
     // 연결 상태 변경 이벤트 리스너 추가
     const handleOpen = () => {
-      console.log('🔌 PowerTable: WebSocket 연결됨');
+      console.log('🔌 PowerTable: WebSocket open 이벤트 발생');
     };
     
     const handleClose = () => {
-      console.log('🔌 PowerTable: WebSocket 연결 끊어짐');
+      console.log('🔌 PowerTable: WebSocket close 이벤트 발생');
     };
     
     const handleError = (error) => {
-      console.error('🔌 PowerTable: WebSocket 오류:', error);
+      console.error('🔌 PowerTable: WebSocket error 이벤트 발생:', error);
     };
     
+    console.log('🔌 PowerTable: open/close/error 이벤트 리스너 등록');
     wsConnection.addEventListener('open', handleOpen);
     wsConnection.addEventListener('close', handleClose);
     wsConnection.addEventListener('error', handleError);
     
+    console.log('🔌 PowerTable: 모든 이벤트 리스너 등록 완료');
+    
     return () => {
+      console.log('🔌 PowerTable: useEffect cleanup 실행 - 이벤트 리스너 제거');
       wsConnection.removeEventListener('message', handleMessage);
       wsConnection.removeEventListener('open', handleOpen);
       wsConnection.removeEventListener('close', handleClose);
@@ -330,57 +405,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     };
   }, [wsConnection]);
 
-  // 초기화 메시지 타입에 따른 텍스트 반환 함수
-  const getActionTypeText = (message: string) => {
-    if (message.includes('단일 페이지')) return '단일페이지 초기화';
-    if (message.includes('사이클')) return '사이클 초기화';
-    return '일반 초기화';
-  };
-  
-  // 테스트용 메시지 전송 함수
-  const sendTestMessage = () => {
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      const testMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
-        action: 'test_start',
-        cycle: 1,
-        totalCycles: 3,
-        testPhase: 'high_temp',
-        currentTestNumber: 2,
-        totalTestCount: 5,
-        testStatus: 'ON',
-        timestamp: new Date().toISOString(),
-        message: '테스트용 메시지 - 고온 테스트 2/5 실행 중'
-      })}`;
-      
-      wsConnection.send(testMessage);
-    } else {
-      console.warn('🧪 PowerTable: WebSocket 연결이 없습니다.');
-    }
-  };
 
-  // 전압 업데이트 테스트 함수
-  const sendVoltageTestMessage = () => {
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      const testVoltageMessage = `[VOLTAGE_UPDATE] ${JSON.stringify({
-        device: 1,
-        voltageTest: 1,
-        channels: [
-          { device: 1, channel: 1, voltage: 5.12, expected: 5.0, result: 'PASS', voltageWithComparison: '5.12V' },
-          { device: 1, channel: 2, voltage: 15.08, expected: 15.0, result: 'PASS', voltageWithComparison: '15.08V' },
-          { device: 1, channel: 3, voltage: -14.95, expected: -15.0, result: 'PASS', voltageWithComparison: '-14.95V' },
-          { device: 1, channel: 4, voltage: 24.02, expected: 24.0, result: 'PASS', voltageWithComparison: '24.02V' }
-        ],
-        inputVoltage: 24,
-        rowIndex: 0,
-        testIndex: 0
-      })}`;
-      
-      wsConnection.send(testVoltageMessage);
-      console.log('🧪 PowerTable: 테스트 전압 메시지 전송:', testVoltageMessage);
-    } else {
-      console.warn('🧪 PowerTable: WebSocket 연결이 없습니다.');
-    }
-  };
+  
+
 
   return (
     <div className="w-full h-full bg-[#181A20] rounded-lg shadow-md p-2" style={{ 
@@ -398,7 +425,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         borderRadius: '8px',
         padding: '15px'
       }}>
-        {/* 첫 번째 줄: 온도, 사이클, 테스트 진행 상황 */}
+        {/* 첫 번째 줄: 온도와 test_progress 정보 */}
         <div className="flex items-center justify-between gap-4">
           {/* 온도 표시 */}
           <div className="text-lg font-semibold text-blue-200">
@@ -407,96 +434,26 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
             </span>
           </div>
           
-          {/* 사이클 정보 표시 */}
-          {currentCycle && totalCycles > 0 ? (
-            <div className="text-lg font-semibold text-green-200">
-              🔄 사이클: <span className="text-white">{currentCycle}</span> / <span className="text-white">{totalCycles}</span>
-            </div>
-          ) : (
-            <div className="text-lg font-semibold text-gray-400">
-              🔄 사이클: <span className="text-white">대기 중</span>
-            </div>
-          )}
-          
-          {/* 테스트 진행 상황 표시 */}
-          {testPhase !== 'none' && totalTestCount > 0 ? (
-            <span className={`px-3 py-2 rounded-lg text-white font-medium ${
-              testPhase === 'high_temp' ? 'bg-red-600' : 'bg-blue-600'
-            }`}>
-              {testPhase === 'high_temp' ? '🔥 고온' : '❄️ 저온'}: ({currentTestNumber} / {totalTestCount})
-            </span>
-          ) : (
-            <span className="px-3 py-2 rounded-lg text-gray-400 bg-gray-600 font-medium">
-              ⏳ 테스트 대기
-            </span>
-          )}
-          
-          {/* 테스트 상태 표시 */}
-          {testStatus !== 'none' ? (
-            <span className={`px-3 py-2 rounded-lg text-white font-medium ${
-              testStatus === 'ON' ? 'bg-green-600' : 'bg-red-600'
-            }`}>
-              {testStatus === 'ON' ? '🟢 실행중' : '🔴 중지됨'}
-            </span>
-          ) : (
-            <span className="px-3 py-2 rounded-lg text-gray-400 bg-gray-600 font-medium">
-              ⏸️ 대기
-            </span>
-          )}
-          
-          {/* 초기화 상태 표시 */}
-          <div className="text-sm text-gray-300">
-            📊 전압: <span className="text-white font-medium">
-              {Object.keys(voltageData).length === 0 ? '초기화됨' : `${Object.keys(voltageData).length}개`}
-            </span>
-            {Object.keys(voltageData).length > 0 && (
-              <span className="text-xs text-blue-300 ml-2">
-                (최근: {Object.values(voltageData).slice(-3).join(', ')})
+          {/* test_progress 정보만 표시 - test_progress가 있을 때만 표시 */}
+          {testPhase !== 'none' && totalTestCount > 0 && currentTestNumber > 0 ? (
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-2 rounded-lg text-white font-medium ${
+                testPhase === 'high_temp' ? 'bg-red-600' : 'bg-blue-600'
+              }`}>
+                {testPhase === 'high_temp' ? '🔥 고온' : '❄️ 저온'}: ({currentTestNumber} / {totalTestCount})
               </span>
-            )}
-          </div>
+              {testStatus !== 'none' && (
+                <span className={`px-3 py-2 rounded-lg text-white font-medium ${
+                  testStatus === 'ON' ? 'bg-green-600' : 'bg-red-600'
+                }`}>
+                  {testStatus === 'ON' ? '🟢 실행중' : '🔴 중지됨'}
+                </span>
+              )}
+            </div>
+          ) : null}
         </div>
         
-        {/* 두 번째 줄: 현재 진행 상황 메시지와 테스트 버튼 */}
-        <div className="flex items-center justify-between">
-          {/* 현재 진행 상황 메시지 */}
-          <div className="flex-1">
-            {cycleMessage ? (
-              <div className="text-green-300 font-medium text-center py-2 px-4 bg-green-900 bg-opacity-30 rounded-lg">
-                📢 {cycleMessage}
-              </div>
-            ) : (
-              <div className="text-gray-500 text-center py-2 px-4 bg-gray-800 bg-opacity-30 rounded-lg">
-                ⏳ 대기 중...
-              </div>
-            )}
-          </div>
-          
-          {/* 테스트 버튼들 */}
-          <div className="flex gap-2">
-            <button
-              onClick={sendTestMessage}
-              className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-md transition-colors font-medium"
-              title="테스트 메시지 전송"
-            >
-              🧪 테스트
-            </button>
-            <button
-              onClick={sendVoltageTestMessage}
-              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-md transition-colors font-medium"
-              title="전압 테스트 메시지 전송"
-            >
-              ⚡ 전압
-            </button>
-          </div>
-        </div>
-        
-        {/* 세 번째 줄: 디버깅용 상태 표시 (개발 중에만) */}
-        <div className="text-xs text-gray-500 text-center">
-          Debug: C:{currentCycle || 'N'}, T:{totalCycles || 'N'}, P:{testPhase || 'none'}, N:{currentTestNumber || 'N'}, C:{totalTestCount || 'N'}, S:{testStatus || 'none'}
-          <br />
-          WS: {wsConnection ? (wsConnection.readyState === WebSocket.OPEN ? '🟢 연결됨' : '🔴 연결안됨') : '❌ 없음'}
-        </div>
+
         
         {/* 네 번째 줄: 프로세스 로그 표시 */}
         {processLogs.length > 0 && (
