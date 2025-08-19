@@ -20,19 +20,15 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
         if (message.includes('ON - Machine running: true')) {
           setIsOn(true);
           setErrorMessage(null); // 에러 메시지 초기화
-          console.log('🔌 Power switch status synced: ON');
         } else if (message.includes('OFF - Machine running: false')) {
           setIsOn(false);
           setErrorMessage(null); // 에러 메시지 초기화
-          console.log('🔌 Power switch status synced: OFF');
         } else if (message.includes('STATUS - Machine running: true')) {
           setIsOn(true);
           setErrorMessage(null); // 에러 메시지 초기화
-          console.log('🔌 Power switch status synced from server: ON');
         } else if (message.includes('STATUS - Machine running: false')) {
           setIsOn(false);
           setErrorMessage(null); // 에러 메시지 초기화
-          console.log('🔌 Power switch status synced from server: OFF');
         } else if (message.includes('PROCESS_ERROR:')) {
           // 프로세스 에러 처리
           const errorMatch = message.match(/PROCESS_ERROR: (.+)/);
@@ -40,7 +36,6 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
             const errorMsg = errorMatch[1];
             setErrorMessage(errorMsg);
             setIsOn(false); // 에러 발생 시 OFF 상태로 변경
-            console.error('❌ Process error received:', errorMsg);
             
             // 10초 후 에러 메시지 자동 제거
             setTimeout(() => {
@@ -50,11 +45,9 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
         } else if (message.includes('PROCESS_COMPLETED')) {
           setIsOn(false);
           setErrorMessage(null);
-          console.log('✅ Process completed successfully');
         } else if (message.includes('PROCESS_STOPPED:')) {
           setIsOn(false);
           setErrorMessage(null);
-          console.log('🛑 Process stopped by user');
         }
       }
     };
@@ -75,16 +68,12 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
       const message = `[POWER_SWITCH] ${newState ? 'ON' : 'OFF'}`;
       wsConnection.send(message);
-      console.log(`🔌 Power switch ${newState ? 'ON' : 'OFF'} - Message sent:`, message);
       
       // 파워스위치가 ON될 때 전압 데이터 초기화 메시지 브로드캐스트
       if (newState) {
         const resetMessage = `[POWER_SWITCH] ON - Voltage data reset`;
         wsConnection.send(resetMessage);
-        console.log('🔌 Power switch ON - 전압 데이터 초기화 메시지 전송');
       }
-    } else {
-      console.warn('WebSocket connection not available for power switch');
     }
   };
 

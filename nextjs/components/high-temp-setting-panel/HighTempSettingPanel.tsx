@@ -82,7 +82,19 @@ export default function HighTempSettingPanel({
 
     const handleMessage = (event) => {
       const message = event.data;
-      console.log("📥 HighTempSettingPanel received WebSocket message:", message);
+      
+      // 온도 설정과 관련된 메시지만 처리
+      if (typeof message === 'string' && (
+        message.startsWith('Initial high temp settings:') ||
+        message.startsWith('High temp settings read:') ||
+        message.startsWith('High temp settings saved:') ||
+        message.startsWith('Error:')
+      )) {
+        console.log("📥 HighTempSettingPanel received relevant WebSocket message:", message);
+      } else {
+        // 관련 없는 메시지는 무시
+        return;
+      }
       
       // 서버에서 초기 고온 설정 응답 처리 (연결 시 자동 전송)
       if (typeof message === 'string' && message.startsWith('Initial high temp settings:')) {

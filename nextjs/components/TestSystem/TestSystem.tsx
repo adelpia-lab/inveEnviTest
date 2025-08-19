@@ -153,7 +153,21 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
     const handleMessage = (event: MessageEvent) => {
       const data = event.data;
       
-      console.log(`🔍 [TestSystem] Received WebSocket message: ${data}`);
+      // 테스트 시스템과 관련된 메시지만 처리
+      if (typeof data === 'string' && (
+        data.includes('[RELAY_ON]') || 
+        data.includes('[RELAY_OFF]') ||
+        data.includes('[CHAMBER_TEST]') || 
+        data.includes('[POWER_TEST]') || 
+        data.includes('[LOAD_TEST]') || 
+        data.includes('[RELAY_TEST]') ||
+        data.includes('LoadVoltage:')
+      )) {
+        console.log(`🔍 [TestSystem] Received relevant WebSocket message: ${data}`);
+      } else {
+        // 관련 없는 메시지는 무시
+        return;
+      }
       
       // Relay ON/OFF 응답 처리 (우선 처리)
       if (data.includes('[RELAY_ON]') || data.includes('[RELAY_OFF]')) {

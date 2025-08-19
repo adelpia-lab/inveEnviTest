@@ -8,7 +8,7 @@ import { SendVoltCommand } from './SetVolt.js';
 import { ReadAllVoltages, ReadVolt } from './ReadVolt.js';
 import { RelayAllOff, SelectDevice, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { GetData } from './GetData.js';
-import { runSinglePageProcess, runNextTankEnviTestProcess, setWebSocketServer } from './RunTestProcess.js';
+import { runSinglePageProcess, runNextTankEnviTestProcess, setWebSocketServer, testPowerTableReset } from './RunTestProcess.js';
 
 const LOCAL_WS_PORT = 8081; // WebSocket 서버가 사용할 포트
 const DELAY_SETTINGS_FILE = 'delay_settings.json'; // 딜레이 설정 저장 파일
@@ -81,6 +81,7 @@ function getProcessStopRequested() {
 // 프로세스 중지 플래그를 설정하는 함수
 function setProcessStopRequested(status) {
     processStopRequested = status;
+    console.log(`🔄 [Backend WS Server] Process stop flag set to: ${status}`);
 }
 
 // 챔버 온도를 읽어서 모든 클라이언트에게 전송하는 함수
@@ -1681,6 +1682,10 @@ wss.on('connection', ws => {
                     console.log(`🔌 [Backend WS Server] Power switch command: ${powerState}`);
                     
                     if (powerState === 'ON') {
+                        // 프로세스 중지 플래그 초기화 (재실행을 위해)
+                        setProcessStopRequested(false);
+                        console.log(`🔄 [Backend WS Server] Process stop flag reset to false for restart`);
+                        
                         // 머신 실행 상태를 true로 설정
                         setMachineRunningStatus(true);
                         console.log(`🔌 [Backend WS Server] Machine running status set to: true`);
@@ -1719,8 +1724,11 @@ wss.on('connection', ws => {
                         setProcessStopRequested(true);
                         console.log(`🛑 [Backend WS Server] Process stop requested`);
                         
+                        // 프로세스 중지 완료 후 재실행 준비 상태임을 명시
+                        console.log(`🔄 [Backend WS Server] Process stopped - Ready for restart`);
+                        
                         // 클라이언트에게 상태 확인 메시지 전송
-                        const responseMessage = `[POWER_SWITCH] OFF - Machine running: false`;
+                        const responseMessage = `[POWER_SWITCH] OFF - Machine running: false - Ready for restart`;
                         ws.send(responseMessage);
                         console.log(`✅ [Backend WS Server] Power switch OFF confirmation sent`);
                     } else {
@@ -1908,6 +1916,130 @@ wss.on('connection', ws => {
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Relay OFF error: ${error.message}`);
                     ws.send(`Error: Relay OFF failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[POWER_TABLE_TEST]') {
+                console.log("=== PowerTable Test Process: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    const testResult = testPowerTableReset();
+                    if (testResult.success) {
+                        const responseMessage = `[POWER_TABLE_TEST] SUCCESS - 클라이언트 ${testResult.sentCount}개에게 초기화 메시지 전송됨`;
+                        ws.send(responseMessage);
+                        console.log(`✅ [Backend WS Server] PowerTable 테스트 성공: ${responseMessage}`);
+                    } else {
+                        const responseMessage = `[POWER_TABLE_TEST] ERROR - ${testResult.error}`;
+                        ws.send(responseMessage);
+                        console.error(`❌ [Backend WS Server] PowerTable 테스트 실패: ${responseMessage}`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] PowerTable 테스트 오류: ${error.message}`);
+                    ws.send(`Error: PowerTable 테스트 실패 - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[SINGLE_PAGE_TEST]') {
+                console.log("=== Single Page Process Test: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // 단일 페이지 프로세스 초기화 메시지 전송
+                    const singlePageResetMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+                        action: 'single_page_reset',
+                        timestamp: new Date().toISOString(),
+                        message: '테스트용 단일 페이지 프로세스 초기화'
+                    })}`;
+                    
+                    let sentCount = 0;
+                    wss.clients.forEach(client => {
+                        if (client.readyState === 1) { // WebSocket.OPEN
+                            client.send(singlePageResetMessage);
+                            sentCount++;
+                        }
+                    });
+                    console.log(`[SinglePageTest] 단일 페이지 프로세스 초기화 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                } catch (error) {
+                    console.error(`[SinglePageTest] 메시지 전송 실패:`, error);
+                }
+                
+            } else if(decodeWebSocket[0] === '[CYCLE_TEST]') {
+                console.log("=== Cycle Test Simulation: OK ===");
+                console.log("📥 Raw message received:", decodedMessage);
+                console.log("📥 Parsed message parts:", decodeWebSocket);
+                
+                try {
+                    // 사이클 시작 시뮬레이션 메시지 전송
+                    const cycleStartMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+                        action: 'cycle_reset',
+                        cycle: 1,
+                        totalCycles: 3,
+                        testPhase: 'none',
+                        currentTestNumber: 0,
+                        totalTestCount: 0,
+                        testStatus: 'none',
+                        timestamp: new Date().toISOString(),
+                        message: '테스트용 사이클 1 시작 - 전압 데이터 초기화'
+                    })}`;
+                    
+                    let sentCount = 0;
+                    wss.clients.forEach(client => {
+                        if (client.readyState === 1) { // WebSocket.OPEN
+                            client.send(cycleStartMessage);
+                            sentCount++;
+                        }
+                    });
+                    console.log(`[CycleTest] 사이클 시작 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                    
+                    // 2초 후 고온 테스트 시작 시뮬레이션
+                    setTimeout(() => {
+                        const highTempStartMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+                            action: 'test_start',
+                            cycle: 1,
+                            totalCycles: 3,
+                            testPhase: 'high_temp',
+                            currentTestNumber: 0,
+                            totalTestCount: 5,
+                            testStatus: 'ON',
+                            timestamp: new Date().toISOString(),
+                            message: '테스트용 사이클 1: 고온 테스트 시작 (5회)'
+                        })}`;
+                        
+                        let sentCount = 0;
+                        wss.clients.forEach(client => {
+                            if (client.readyState === 1) { // WebSocket.OPEN
+                                client.send(highTempStartMessage);
+                                sentCount++;
+                            }
+                        });
+                        console.log(`[CycleTest] 고온 테스트 시작 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                        
+                        // 3초 후 테스트 진행 상황 시뮬레이션
+                        setTimeout(() => {
+                            const testProgressMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+                                action: 'test_progress',
+                                cycle: 1,
+                                totalCycles: 3,
+                                testPhase: 'high_temp',
+                                currentTestNumber: 3,
+                                totalTestCount: 5,
+                                testStatus: 'ON',
+                                timestamp: new Date().toISOString(),
+                                message: '테스트용 사이클 1: 고온 테스트 3/5 실행 중'
+                            })}`;
+                            
+                            let sentCount = 0;
+                            wss.clients.forEach(client => {
+                                if (client.readyState === 1) { // WebSocket.OPEN
+                                    client.send(testProgressMessage);
+                                    sentCount++;
+                                }
+                            });
+                            console.log(`[CycleTest] 테스트 진행 상황 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                        }, 3000);
+                    }, 2000);
+                    
+                } catch (error) {
+                    console.error(`[CycleTest] 메시지 전송 실패:`, error);
                 }
             } else {
                 console.log("📥 Unknown message type:", decodeWebSocket[0]);

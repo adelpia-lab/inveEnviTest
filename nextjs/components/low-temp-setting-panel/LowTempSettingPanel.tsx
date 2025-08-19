@@ -82,7 +82,19 @@ export default function LowTempSettingPanel({
 
     const handleMessage = (event) => {
       const message = event.data;
-      console.log("📥 LowTempSettingPanel received WebSocket message:", message);
+      
+      // 온도 설정과 관련된 메시지만 처리
+      if (typeof message === 'string' && (
+        message.startsWith('Initial low temp settings:') ||
+        message.startsWith('Low temp settings read:') ||
+        message.startsWith('Low temp settings saved:') ||
+        message.startsWith('Error:')
+      )) {
+        console.log("📥 LowTempSettingPanel received relevant WebSocket message:", message);
+      } else {
+        // 관련 없는 메시지는 무시
+        return;
+      }
       
       // 서버에서 초기 저온 설정 응답 처리 (연결 시 자동 전송)
       if (typeof message === 'string' && message.startsWith('Initial low temp settings:')) {
