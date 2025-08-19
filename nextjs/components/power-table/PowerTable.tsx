@@ -56,7 +56,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   useEffect(() => {
     //console.log('🔌 PowerTable: 컴포넌트 마운트 - 초기 상태 강제 설정');
     
-    // 모든 상태를 초기값으로 강제 설정
+    // 모든 상태를 초기값으로 강제 설정 (테스트 진행상황 메시지는 보호)
     setVoltageData({});
     setProcessLogs([]);
     setCurrentCycle(null);
@@ -66,8 +66,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     setCurrentTestNumber(0);
     setTotalTestCount(0);
     setTestStatus('none');
-    setTestProgressMessage('');
-    setIsTestProgressActive(false);
+    // testProgressMessage와 isTestProgressActive는 보호 - 초기화하지 않음
     
     //console.log('✅ PowerTable: 초기 상태 강제 설정 완료');
   }, [wsConnection]);
@@ -207,6 +206,12 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 setTotalTestCount(resetData.totalTestCount || 0);
                 setTestStatus(resetData.testStatus || 'none');
                 setCycleMessage(resetData.message || '');
+                
+                // 테스트 진행상황 메시지 처리
+                if (resetData.message) {
+                  setTestProgressMessage(resetData.message);
+                  setIsTestProgressActive(true);
+                }
                 break;
                 
               case 'test_progress':
@@ -408,35 +413,44 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       gap: '10px'
     }}>
       {/* 상단 정보 영역 - 그리드 영역 */}
-      <div className="flex flex-col gap-3 px-2" style={{ 
+      <div className="px-2" style={{ 
         gridArea: 'header',
         backgroundColor: '#23242a',
         borderRadius: '8px',
-        padding: '15px'
+        padding: '15px',
+        display: 'grid',
+        gridTemplateRows: '1fr',
+        gridTemplateAreas: '"status-line"',
+        alignItems: 'center'
       }}>
-        {/* 첫 번째 줄: 온도와 테스트 진행 상황 */}
-        <div className="flex items-center justify-between gap-4">
-          {/* 온도 표시 - 좌측으로 이동 */}
-          <div className="text-lg font-semibold text-blue-200">
+        {/* 상태 라인 - 그리드 레이아웃 사용 */}
+        <div className="flex items-center justify-between gap-4" style={{
+          gridArea: 'status-line',
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr',
+          gridTemplateAreas: '"temperature test-progress"',
+          gap: '20px',
+          alignItems: 'center'
+        }}>
+          {/* 온도 표시 - 좌측 고정 */}
+          <div className="text-lg font-semibold text-blue-200" style={{ gridArea: 'temperature' }}>
             🌡️ 온도: <span className="text-white">
               {chamberTemperature !== null ? `${chamberTemperature.toFixed(2)}°C` : `${group.temperature}°C`}
             </span>
           </div>
           
-          {/* 테스트 진행 상황 표시 (온도와 같은 라인) */}
-          {isTestProgressActive && testProgressMessage ? (
-            <div className="flex-1 text-center">
-              <div className="text-lg font-semibold text-green-300 bg-green-900 bg-opacity-30 rounded-lg py-2 px-4">
+          {/* 테스트 진행 상황 표시 - 중앙 확장 */}
+          <div className="text-center" style={{ gridArea: 'test-progress' }}>
+            {testProgressMessage ? (
+              <div className="text-lg font-semibold text-green-300 bg-green-900 bg-opacity-30 rounded-lg py-2 px-4 inline-block">
                 📢 {testProgressMessage}
               </div>
-            </div>
-          ) : (
-            <div className="flex-1 text-center">
-              <div className="text-lg font-semibold text-gray-400 bg-gray-800 bg-opacity-30 rounded-lg py-2 px-4">
+            ) : (
+              <div className="text-lg font-semibold text-gray-400 bg-gray-800 bg-opacity-30 rounded-lg py-2 px-4 inline-block">
                 ⏳ 테스트 대기 중
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
       
