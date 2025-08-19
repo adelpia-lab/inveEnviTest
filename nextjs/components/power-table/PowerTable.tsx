@@ -39,6 +39,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   const [totalTestCount, setTotalTestCount] = useState<number>(0);
   const [testStatus, setTestStatus] = useState<'ON' | 'OFF' | 'none'>('none');
   
+  // 테스트 진행상황 메시지 보호를 위한 상태
+  const [testProgressMessage, setTestProgressMessage] = useState<string>('');
+  const [isTestProgressActive, setIsTestProgressActive] = useState<boolean>(false);
+  
   //console.log('🔌 PowerTable: 컴포넌트 렌더링됨');
   //console.log('🔌 PowerTable: props 확인:', { groups: groups?.length, wsConnection: !!wsConnection, channelVoltages });
   //console.log('🔌 PowerTable: channelVoltages 상세:', channelVoltages);
@@ -62,14 +66,16 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     setCurrentTestNumber(0);
     setTotalTestCount(0);
     setTestStatus('none');
+    setTestProgressMessage('');
+    setIsTestProgressActive(false);
     
     //console.log('✅ PowerTable: 초기 상태 강제 설정 완료');
   }, [wsConnection]);
   
   // 상태 변경 감지를 위한 useEffect
   useEffect(() => {
-  }, [currentCycle, totalCycles, testPhase, currentTestNumber, totalTestCount, testStatus, cycleMessage]);
-  
+  }, [currentCycle, totalCycles, testPhase, currentTestNumber, totalTestCount, testStatus, cycleMessage, testProgressMessage, isTestProgressActive]);
+
   const group = groups[0]; // 첫 번째 그룹만 사용
   if (!group) return <div className="text-red-400">데이터 없음</div>;
 
@@ -122,7 +128,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   // 전압 데이터를 강제로 초기화하는 함수
   const resetVoltageData = () => {
     
-    // 모든 상태 완전 초기화
+    // 모든 상태 완전 초기화 (테스트 진행상황 메시지는 보호)
     setVoltageData({});
     setProcessLogs([]);
     setCurrentCycle(null);
@@ -131,7 +137,8 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     setTestPhase('none');
     setCurrentTestNumber(0);
     setTotalTestCount(0);
-    setTestStatus('none');    
+    setTestStatus('none');
+    // testProgressMessage와 isTestProgressActive는 보호
   };
 
   // WebSocket 메시지 수신 처리
@@ -162,7 +169,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
             // 액션 타입에 따른 처리
             switch (resetData.action) {
               case 'reset':
-                // 일반 초기화 - 모든 상태 초기화
+                // 일반 초기화 - 모든 상태 초기화 (테스트 진행상황 메시지는 보호)
                 resetVoltageData();
                 setCycleMessage(resetData.message || '');
                 break;
@@ -210,11 +217,16 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 setCurrentTestNumber(resetData.currentTestNumber || 0);
                 setTotalTestCount(resetData.totalTestCount || 0);
                 setTestStatus(resetData.testStatus || 'none');
-                setCycleMessage(resetData.message || '');
+                
+                // 테스트 진행상황 메시지 처리
+                if (resetData.message) {
+                  setTestProgressMessage(resetData.message);
+                  setIsTestProgressActive(true);
+                }
                 break;
                 
               default:
-                // 알 수 없는 액션 - 기본 초기화
+                // 알 수 없는 액션 - 기본 초기화 (테스트 진행상황 메시지는 보호)
                 console.log('🔄 PowerTable: 알 수 없는 액션 - 기본 초기화 실행');
                 resetVoltageData();
                 setCycleMessage(resetData.message || '');
@@ -229,6 +241,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         } catch (error) {
           console.error('PowerTable: PowerTable 메시지 파싱 오류:', error);
           console.error('PowerTable: 원본 메시지:', message);
+          
+          // 메시지 형식이 맞지 않으면 원본 메시지를 그대로 표시
+          setTestProgressMessage(message);
+          setIsTestProgressActive(true);
         }
       }
       
@@ -398,117 +414,30 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         borderRadius: '8px',
         padding: '15px'
       }}>
-        {/* 첫 번째 줄: 온도, 사이클, 테스트 진행 상황 */}
+        {/* 첫 번째 줄: 온도와 테스트 진행 상황 */}
         <div className="flex items-center justify-between gap-4">
-          {/* 온도 표시 */}
+          {/* 온도 표시 - 좌측으로 이동 */}
           <div className="text-lg font-semibold text-blue-200">
             🌡️ 온도: <span className="text-white">
               {chamberTemperature !== null ? `${chamberTemperature.toFixed(2)}°C` : `${group.temperature}°C`}
             </span>
           </div>
           
-          {/* 사이클 정보 표시 */}
-          {currentCycle && totalCycles > 0 ? (
-            <div className="text-lg font-semibold text-green-200">
-              🔄 사이클: <span className="text-white">{currentCycle}</span> / <span className="text-white">{totalCycles}</span>
+          {/* 테스트 진행 상황 표시 (온도와 같은 라인) */}
+          {isTestProgressActive && testProgressMessage ? (
+            <div className="flex-1 text-center">
+              <div className="text-lg font-semibold text-green-300 bg-green-900 bg-opacity-30 rounded-lg py-2 px-4">
+                📢 {testProgressMessage}
+              </div>
             </div>
           ) : (
-            <div className="text-lg font-semibold text-gray-400">
-              🔄 사이클: <span className="text-white">대기 중</span>
+            <div className="flex-1 text-center">
+              <div className="text-lg font-semibold text-gray-400 bg-gray-800 bg-opacity-30 rounded-lg py-2 px-4">
+                ⏳ 테스트 대기 중
+              </div>
             </div>
           )}
-          
-          {/* 테스트 진행 상황 표시 */}
-          {testPhase !== 'none' && totalTestCount > 0 ? (
-            <span className={`px-3 py-2 rounded-lg text-white font-medium ${
-              testPhase === 'high_temp' ? 'bg-red-600' : 'bg-blue-600'
-            }`}>
-              {testPhase === 'high_temp' ? '🔥 고온' : '❄️ 저온'}: ({currentTestNumber} / {totalTestCount})
-            </span>
-          ) : (
-            <span className="px-3 py-2 rounded-lg text-gray-400 bg-gray-600 font-medium">
-              ⏳ 테스트 대기
-            </span>
-          )}
-          
-          {/* 테스트 상태 표시 */}
-          {testStatus !== 'none' ? (
-            <span className={`px-3 py-2 rounded-lg text-white font-medium ${
-              testStatus === 'ON' ? 'bg-green-600' : 'bg-red-600'
-            }`}>
-              {testStatus === 'ON' ? '🟢 실행중' : '🔴 중지됨'}
-            </span>
-          ) : (
-            <span className="px-3 py-2 rounded-lg text-gray-400 bg-gray-600 font-medium">
-              ⏸️ 대기
-            </span>
-          )}
-          
-          {/* 초기화 상태 표시 */}
-          <div className="text-sm text-gray-300">
-            📊 전압: <span className="text-white font-medium">
-              {Object.keys(voltageData).length === 0 ? '초기화됨' : `${Object.keys(voltageData).length}개`}
-            </span>
-            {Object.keys(voltageData).length > 0 && (
-              <span className="text-xs text-blue-300 ml-2">
-                (최근: {Object.values(voltageData).slice(-3).join(', ')})
-              </span>
-            )}
-          </div>
         </div>
-        
-        {/* 두 번째 줄: 현재 진행 상황 메시지와 테스트 버튼 */}
-        <div className="flex items-center justify-between">
-          {/* 현재 진행 상황 메시지 */}
-          <div className="flex-1">
-            {cycleMessage ? (
-              <div className="text-green-300 font-medium text-center py-2 px-4 bg-green-900 bg-opacity-30 rounded-lg">
-                📢 {cycleMessage}
-              </div>
-            ) : (
-              <div className="text-gray-500 text-center py-2 px-4 bg-gray-800 bg-opacity-30 rounded-lg">
-                ⏳ 대기 중...
-              </div>
-            )}
-          </div>
-          
-          {/* 테스트 버튼들 */}
-          <div className="flex gap-2">
-            <button
-              onClick={sendTestMessage}
-              className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-md transition-colors font-medium"
-              title="테스트 메시지 전송"
-            >
-              🧪 테스트
-            </button>
-            <button
-              onClick={sendVoltageTestMessage}
-              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-md transition-colors font-medium"
-              title="전압 테스트 메시지 전송"
-            >
-              ⚡ 전압
-            </button>
-          </div>
-        </div>
-        
-        {/* 세 번째 줄: 디버깅용 상태 표시 (개발 중에만) */}
-        <div className="text-xs text-gray-500 text-center">
-          Debug: C:{currentCycle || 'N'}, T:{totalCycles || 'N'}, P:{testPhase || 'none'}, N:{currentTestNumber || 'N'}, C:{totalTestCount || 'N'}, S:{testStatus || 'none'}
-          <br />
-          WS: {wsConnection ? (wsConnection.readyState === WebSocket.OPEN ? '🟢 연결됨' : '🔴 연결안됨') : '❌ 없음'}
-        </div>
-        
-        {/* 네 번째 줄: 프로세스 로그 표시 */}
-        {processLogs.length > 0 && (
-          <div className="text-xs text-yellow-300 bg-yellow-900 bg-opacity-30 rounded-lg p-2 max-h-20 overflow-y-auto">
-            <div className="font-medium mb-1">📋 최근 로그:</div>
-            {processLogs.map((log, index) => (
-              <div key={index} className="text-xs">
-                {log}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
       
       {/* 테이블 컨테이너 - 그리드 영역 */}
