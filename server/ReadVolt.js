@@ -17,7 +17,7 @@ const CH_SELECT = [
 const READ_VOLT = 'MEAS:VOLT?';
 
 // --- 설정 상수 ---
-const BAUD_RATE = 19200;
+const BAUD_RATE = 9600;     // 9600bps PCZ1000A  : 19200bps Plz-50F
 const RESPONSE_TIMEOUT_MS = 5000; // 5초로 단축
 const CHANNEL_SELECT_DELAY_MS = 200; // 채널 선택 후 대기 시간
 const BUFFER_CLEAR_DELAY_MS = 100; // 버퍼 클리어 대기 시간
@@ -242,8 +242,8 @@ export async function ReadVolt(channel) {
             
             // 명령 시퀀스 준비
             const commands = [
-                CH_SELECT[channel - 1] + '\r\n',
-                READ_VOLT + '\r\n'
+                // CH_SELECT[channel - 1] + '\r\n',
+                "VOLT?" + '\r\n'
             ];
             
             // 통신 실행
