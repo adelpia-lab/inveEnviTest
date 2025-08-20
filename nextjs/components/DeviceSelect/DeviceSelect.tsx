@@ -10,18 +10,11 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   const devices = [
     { value: "#1 Device", label: "#1", index: 0 },
     { value: "#2 Device", label: "#2", index: 1 },
-    { value: "#3 Device", label: "#3", index: 2 },
-    { value: "#4 Device", label: "#4", index: 3 },
-    { value: "#5 Device", label: "#5", index: 4 },
-    { value: "#6 Device", label: "#6", index: 5 },
-    { value: "#7 Device", label: "#7", index: 6 },
-    { value: "#8 Device", label: "#8", index: 7 },
-    { value: "#9 Device", label: "#9", index: 8 },
-    { value: "#10 Device", label: "#A", index: 9 }
+    { value: "#3 Device", label: "#3", index: 2 }
   ];
 
   // Default states - same for server and client
-  const defaultStates = [true, false, false, false, false, false, false, false, false, false];
+  const defaultStates = [true, false, false];
 
   // Initialize state with default values to prevent hydration mismatch
   const [deviceStates, setDeviceStates] = useState<boolean[]>(defaultStates);
@@ -31,6 +24,18 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   const [isLoading, setIsLoading] = useState(true);
   const [isReading, setIsReading] = useState(false);
   const isClient = useIsClient();
+
+  // Helper function to normalize device states to 3 devices
+  const normalizeDeviceStates = (states: boolean[]) => {
+    if (Array.isArray(states)) {
+      if (states.length === 3) {
+        return states;
+      } else {  
+        return [false, false, false];
+      }
+    }
+    return defaultStates;
+  };
 
   // Load stored values from localStorage only after client-side hydration
   useEffect(() => {
@@ -43,15 +48,15 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           try {
             const parsed = JSON.parse(stored);
             // 배열 형태로 저장된 경우
-            if (Array.isArray(parsed) && parsed.length === 10) {
-              return parsed;
+            if (Array.isArray(parsed)) {
+              return normalizeDeviceStates(parsed);
             }
             // 기존 객체 형태로 저장된 경우 (마이그레이션)
             else if (typeof parsed === 'object' && parsed !== null) {
               // console.log('🔄 Migrating from object format to array format');
               const arrayFormat = devices.map(device => parsed[device.value] || false);
               // console.log('🔄 Migrated device states:', arrayFormat);
-              return arrayFormat;
+              return normalizeDeviceStates(arrayFormat);
             }
           } catch (error) {
             console.error('Failed to parse stored device states:', error);
@@ -80,13 +85,14 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           const match = message.match(/Initial device states: (.*)/);
           if (match && match[1]) {
             const serverStates = JSON.parse(match[1]);
-            if (Array.isArray(serverStates) && serverStates.length === 10) {
-              console.log('📥 Received device states from server:', serverStates);
-              setDeviceStates(serverStates);
-              setTempDeviceStates(serverStates);
-              // Update localStorage with server data
+            if (Array.isArray(serverStates)) {
+              // console.log('📥 Received device states from server:', serverStates);
+              const normalizedStates = normalizeDeviceStates(serverStates);
+              setDeviceStates(normalizedStates);
+              setTempDeviceStates(normalizedStates);
+              // Update localStorage with normalized data
               if (typeof window !== 'undefined') {
-                localStorage.setItem('deviceStates', JSON.stringify(serverStates));
+                localStorage.setItem('deviceStates', JSON.stringify(normalizedStates));
               }
             }
           }
@@ -151,9 +157,6 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   };
 
   const handleAcceptClick = () => {
-    // console.log("=== Accept button clicked - saving device states (array) ===");
-    // console.log("Current tempDeviceStates (array):", tempDeviceStates);
-    // console.log("WebSocket connection status:", wsConnection ? wsConnection.readyState : 'No connection');
     
     // 1. 로컬 상태 업데이트
     setDeviceStates([...tempDeviceStates]);
@@ -163,7 +166,6 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
     // 2. localStorage에 배열 형태로 저장
     if (typeof window !== 'undefined') {
       localStorage.setItem('deviceStates', JSON.stringify(tempDeviceStates));
-      // console.log("✅ Device states saved to localStorage (array):", tempDeviceStates);
     }
     
     // 3. WebSocket을 통해 서버에 전송 - Fix: Send device indices instead of device names
@@ -177,9 +179,10 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
       console.log("📤 Sent device selection to server:", message);
     }
     
-    // 4. 상위 컴포넌트 콜백 호출
+    // 4. 상위 컴포넌트 콜백 호출 - Fix: Ensure tempDeviceStates length matches devices length
     if (onSelectionChange) {
       const selectedDevices = tempDeviceStates
+        .slice(0, devices.length) // Ensure we only process up to devices.length
         .map((isSelected, index) => isSelected ? devices[index].value : null)
         .filter(device => device !== null);
       onSelectionChange(selectedDevices);

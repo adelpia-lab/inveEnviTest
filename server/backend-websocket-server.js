@@ -22,6 +22,8 @@ const CHANNEL_VOLTAGES_FILE = 'channel_voltages.json'; // 채널 전압 설정 �
 
 const SIMULATION_PROCESS = true;
 
+const DEVICE_COUNT = 3;
+
 // 전역 변수: 머신 실행 상태
 let machineRunning = false;
 
@@ -178,11 +180,9 @@ async function loadDelaySettings() {
 // 기기 상태를 파일에 저장하는 함수 - 10개 요소 배열로 저장
 async function saveDeviceStates(deviceStates) {
   try {
-    // console.log(`💾 [Backend WS Server] Attempting to save device states to file: ${DEVICE_STATES_FILE}`);
-    // console.log(`💾 [Backend WS Server] Device states to save (array):`, deviceStates);
     
     // 배열 형태 검증
-    if (!Array.isArray(deviceStates) || deviceStates.length !== 10) {
+    if (!Array.isArray(deviceStates) || deviceStates.length !== DEVICE_COUNT) {
       throw new Error(`Invalid device states format. Expected array with 10 elements, got: ${typeof deviceStates} with length ${Array.isArray(deviceStates) ? deviceStates.length : 'N/A'}`);
     }
     
@@ -213,25 +213,9 @@ async function loadDeviceStates() {
     const deviceStates = JSON.parse(data);
     
     // 배열 형태로 저장된 경우
-    if (Array.isArray(deviceStates) && deviceStates.length === 10) {
+    if (Array.isArray(deviceStates) && deviceStates.length === DEVICE_COUNT) {
       // console.log(`📖 [Backend WS Server] Device states loaded from file (array): ${JSON.stringify(deviceStates)}`);
       return deviceStates;
-    }
-    // 기존 객체 형태로 저장된 경우 (마이그레이션)
-    else if (typeof deviceStates === 'object' && deviceStates !== null) {
-      // console.log(`🔄 [Backend WS Server] Migrating from object format to array format`);
-      const expectedDevices = [
-        "#1 Device", "#2 Device", "#3 Device", "#4 Device", "#5 Device",
-        "#6 Device", "#7 Device", "#8 Device", "#9 Device", "#10 Device"
-      ];
-      const arrayFormat = expectedDevices.map(device => deviceStates[device] || false);
-      // console.log(`🔄 [Backend WS Server] Migrated device states (array): ${JSON.stringify(arrayFormat)}`);
-      
-      // 마이그레이션된 데이터를 파일에 저장
-      await saveDeviceStates(arrayFormat);
-      // console.log(`💾 [Backend WS Server] Migrated device states saved to file`);
-      
-      return arrayFormat;
     }
     else {
       throw new Error(`Invalid device states format in file: ${typeof deviceStates}`);
@@ -239,8 +223,8 @@ async function loadDeviceStates() {
   } catch (error) {
     // console.log(`📖 [Backend WS Server] No saved device states found or invalid format, using default: array with first device selected`);
     // 기본값: 10개 요소 배열 (첫 번째 기기만 선택된 상태)
-    const defaultStates = [true, false, false, false, false, false, false, false, false, false];
-    // console.log(`📖 [Backend WS Server] Default device states (array): ${JSON.stringify(defaultStates)}`);
+    const defaultStates = [true, false, false];
+     // console.log(`📖 [Backend WS Server] Default device states (array): ${JSON.stringify(defaultStates)}`);
     return defaultStates;
   }
 }
@@ -590,8 +574,8 @@ export async function loadGetTableOption() {
 // getTableOption 객체의 특정 섹션을 업데이트하고 해당 JSON 파일에 저장하는 함수
 async function updateGetTableOptionSection(sectionName, newData) {
   try {
-    console.log(`💾 [Backend WS Server] Updating getTableOption section: ${sectionName}`);
-    console.log(`💾 [Backend WS Server] New data:`, newData);
+    //console.log(`💾 [Backend WS Server] Updating getTableOption section: ${sectionName}`);
+    //console.log(`💾 [Backend WS Server] New data:`, newData);
     
     // getTableOption 객체 업데이트
     getTableOption[sectionName] = newData;
@@ -869,29 +853,29 @@ wss.on('connection', ws => {
             // device select process         
             if(decodeWebSocket[0] === '[DEVICE_SELECT]') {
                 console.log("=== Device Selection Process: OK ===");
-                console.log("📥 Raw message received:", decodedMessage);
-                console.log("📥 Parsed message parts:", decodeWebSocket);
+                //console.log("📥 Raw message received:", decodedMessage);
+                //console.log("📥 Parsed message parts:", decodeWebSocket);
                 
                 try {
                     // [DEVICE_SELECT] 부분을 제외하고 나머지 데이터 부분만 추출
                     const deviceSelectionData = decodedMessage.replace('[DEVICE_SELECT] ', '');
-                    console.log("📥 Device selection data extracted (without command):", deviceSelectionData);
+                    //console.log("📥 Device selection data extracted (without command):", deviceSelectionData);
                     
                     const selectedDeviceIndices = JSON.parse(deviceSelectionData);
-                    console.log("📥 Parsed selected device indices:", selectedDeviceIndices);
+                    //console.log("📥 Parsed selected device indices:", selectedDeviceIndices);
                     
                     if (Array.isArray(selectedDeviceIndices)) {
                         // 10개 디바이스의 boolean 배열 생성 (기본값: false)
-                        const deviceStates = new Array(10).fill(false);
+                        const deviceStates = new Array(DEVICE_COUNT).fill(false);
                         
                         // 선택된 디바이스 인덱스들을 true로 설정
                         selectedDeviceIndices.forEach(deviceIndex => {
-                            if (deviceIndex >= 0 && deviceIndex < 10) {
+                            if (deviceIndex >= 0 && deviceIndex < DEVICE_COUNT) {
                                 deviceStates[deviceIndex] = true;
                             }
                         });
                         
-                        console.log("📥 Converted device states array:", deviceStates);
+                        //console.log("📥 Converted device states array:", deviceStates);
                         
                         // getTableOption 업데이트 및 저장
                         const updateSuccess = await updateGetTableOptionSection('deviceStates', deviceStates);
@@ -919,7 +903,7 @@ wss.on('connection', ws => {
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Failed to load device states: ${error.message}`);
                     // 기본값 전송 - 10개 요소 배열 (첫 번째 기기만 선택된 상태)
-                    const defaultStates = [true, false, false, false, false, false, false, false, false, false];
+                    const defaultStates = [true, false, false];
                     console.log(`📤 [Backend WS Server] Sending default device states:`, defaultStates);
                     ws.send(`Initial device states: ${JSON.stringify(defaultStates)}`);
                 }
