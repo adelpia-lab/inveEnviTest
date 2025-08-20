@@ -9,8 +9,19 @@ import fs from 'fs';
 import path from 'path';
 import { InterByteTimeoutParser } from 'serialport';
 
-//const SIMULATION_PROC = false;
-const SIMULATION_PROC = true;
+// 시뮬레이션 모드 - backend-websocket-server.js에서 관리
+let SIMULATION_PROC = false;
+
+// 시뮬레이션 모드를 설정하는 함수
+export function setSimulationMode(enabled) {
+  SIMULATION_PROC = enabled;
+  console.log(`[RunTestProcess] 시뮬레이션 모드 설정: ${enabled}`);
+}
+
+// 시뮬레이션 모드를 가져오는 함수
+export function getSimulationMode() {
+  return SIMULATION_PROC;
+}
 
 // 전역 WebSocket 서버 참조를 위한 변수
 let globalWss = null;

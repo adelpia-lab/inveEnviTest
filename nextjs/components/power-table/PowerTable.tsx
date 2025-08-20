@@ -157,7 +157,27 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       const message = event.data;
       console.log('🔌 PowerTable: 메시지 수신:', message);
       
-      // PowerTable 전압 데이터 초기화 메시지 처리
+      // PowerTable에서 필요한 메시지만 처리
+      // 1. 챔버 온도 업데이트
+      if (typeof message === 'string' && message.startsWith('[CHAMBER_TEMPERATURE]')) {
+        try {
+          console.log('🔌 PowerTable: 챔버 온도 메시지 수신:', message);
+          const match = message.match(/\[CHAMBER_TEMPERATURE] (.+)/);
+          if (match && match[1]) {
+            const temperature = parseFloat(match[1]);
+            if (!isNaN(temperature)) {
+              console.log('🔌 PowerTable: 챔버 온도 업데이트:', temperature);
+              setChamberTemperature(temperature);
+            }
+          }
+        } catch (error) {
+          console.error('PowerTable: 챔버 온도 파싱 오류:', error);
+          console.error('PowerTable: 원본 메시지:', message);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 2. PowerTable 전압 데이터 초기화 메시지 처리
       if (typeof message === 'string' && message.startsWith('[POWER_TABLE_RESET]')) {
         try {
           
@@ -246,9 +266,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
           setTestProgressMessage(message);
           setIsTestProgressActive(true);
         }
+        return; // 처리 완료 후 종료
       }
       
-      // 전압 업데이트 메시지 처리
+      // 3. 전압 업데이트 메시지 처리
       if (typeof message === 'string' && message.startsWith('[VOLTAGE_UPDATE]')) {
         try {
           console.log('🔌 PowerTable: 전압 업데이트 메시지 수신:', message);
@@ -279,9 +300,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
           console.error('PowerTable: 전압 업데이트 파싱 오류:', error);
           console.error('PowerTable: 원본 메시지:', message);
         }
+        return; // 처리 완료 후 종료
       }
       
-      // 프로세스 로그 메시지 처리
+      // 4. 프로세스 로그 메시지 처리
       if (typeof message === 'string' && message.startsWith('[PROCESS_LOG]')) {
         try {
           console.log('🔌 PowerTable: 프로세스 로그 메시지 수신:', message);
@@ -298,25 +320,41 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
           console.error('PowerTable: 프로세스 로그 파싱 오류:', error);
           console.error('PowerTable: 원본 메시지:', message);
         }
+        return; // 처리 완료 후 종료
       }
       
-      // 챔버 온도 업데이트 메시지 처리
-      if (typeof message === 'string' && message.startsWith('[CHAMBER_TEMPERATURE]')) {
-        try {
-          console.log('🔌 PowerTable: 챔버 온도 메시지 수신:', message);
-          const match = message.match(/\[CHAMBER_TEMPERATURE] (.+)/);
-          if (match && match[1]) {
-            const temperature = parseFloat(match[1]);
-            if (!isNaN(temperature)) {
-              console.log('🔌 PowerTable: 챔버 온도 업데이트:', temperature);
-              setChamberTemperature(temperature);
-            }
-          }
-        } catch (error) {
-          console.error('PowerTable: 챔버 온도 파싱 오류:', error);
-          console.error('PowerTable: 원본 메시지:', message);
-        }
+      // 5. Power Switch 상태 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[POWER_SWITCH]')) {
+        console.log('🔌 PowerTable: Power Switch 메시지 수신 (무시):', message);
+        return; // 처리 완료 후 종료
       }
+      
+      // 6. 시뮬레이션 상태 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[SIMULATION_STATUS]')) {
+        console.log('🔌 PowerTable: 시뮬레이션 상태 메시지 수신 (무시):', message);
+        return; // 처리 완료 후 종료
+      }
+      
+      // 7. 기타 초기화 메시지들은 무시 (PowerTable과 관련없음)
+      if (typeof message === 'string' && (
+        message.startsWith('Initial high temp settings') ||
+        message.startsWith('Initial low temp settings') ||
+        message.startsWith('Initial product input') ||
+        message.startsWith('Initial USB port settings') ||
+        message.startsWith('Initial out volt settings') ||
+        message.startsWith('Initial channel voltages') ||
+        message.startsWith('Initial getTableOption') ||
+        message.startsWith('Initial device states') ||
+        message.startsWith('Delay settings') ||
+        message.startsWith('Device states saved') ||
+        message.includes('Echo from Backend WS Server')
+      )) {
+        console.log('🔌 PowerTable: 관련없는 초기화 메시지 무시:', message.substring(0, 50) + '...');
+        return; // 처리 완료 후 종료
+      }
+      
+      // 8. 처리되지 않은 메시지는 로그로만 기록
+      console.log('🔌 PowerTable: 처리되지 않은 메시지 (무시):', message);
     };
 
     wsConnection.addEventListener('message', handleMessage);
@@ -403,40 +441,86 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       width: '100%', 
       height: '100%',
       display: 'grid',
-      gridTemplateRows: '100px 1fr',
+      gridTemplateRows: 'auto 1fr',
       gridTemplateAreas: '"header" "table"',
       gap: '10px'
     }}>
       {/* 상단 정보 영역 - 그리드 영역 */}
-      <div className="flex flex-col gap-3 px-2" style={{ 
+      <div className="px-2" style={{ 
         gridArea: 'header',
         backgroundColor: '#23242a',
         borderRadius: '8px',
         padding: '15px'
       }}>
-        {/* 첫 번째 줄: 온도와 테스트 진행 상황 */}
-        <div className="flex items-center justify-between gap-4">
-          {/* 온도 표시 - 좌측으로 이동 */}
-          <div className="text-lg font-semibold text-blue-200">
-            🌡️ 온도: <span className="text-white">
-              {chamberTemperature !== null ? `${chamberTemperature.toFixed(2)}°C` : `${group.temperature}°C`}
-            </span>
+        {/* 온도와 테스트 진행상황을 가로로 배치 - 완전히 다른 접근법 */}
+        <div style={{ 
+          width: '100%',
+          height: 'auto',
+          display: 'table',
+          tableLayout: 'fixed'
+        }}>
+          <div style={{ 
+            display: 'table-row'
+          }}>
+            {/* 온도 표시 - 좌측 셀 */}
+            <div style={{ 
+              display: 'table-cell',
+              width: '30%',
+              verticalAlign: 'middle',
+              paddingRight: '20px'
+            }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#90CAF9',
+                backgroundColor: 'rgba(30, 58, 138, 0.3)',
+                borderRadius: '8px',
+                padding: '8px 16px'
+              }}>
+                <span style={{ color: '#F472B6' }}>🌡️</span>
+                <span>온도: <span style={{ color: '#FFFFFF', fontWeight: '700' }}>
+                  {chamberTemperature !== null ? `${chamberTemperature.toFixed(2)}°C` : `${group.temperature}°C`}
+                </span></span>
+              </div>
+            </div>
+            
+            {/* 테스트 진행 상황 표시 - 우측 셀 */}
+            <div style={{ 
+              display: 'table-cell',
+              width: '70%',
+              verticalAlign: 'middle',
+              textAlign: 'center'
+            }}>
+              {isTestProgressActive && testProgressMessage ? (
+                <div style={{
+                  display: 'inline-block',
+                  fontSize: '18px',
+                  fontWeight: '600',
+                  color: '#86EFAC',
+                  backgroundColor: 'rgba(20, 83, 45, 0.3)',
+                  borderRadius: '8px',
+                  padding: '8px 16px'
+                }}>
+                  <span style={{ color: '#F472B6' }}>📢</span> {testProgressMessage}
+                </div>
+              ) : (
+                <div style={{
+                  display: 'inline-block',
+                  fontSize: '18px',
+                  fontWeight: '600',
+                  color: '#9CA3AF',
+                  backgroundColor: 'rgba(31, 41, 55, 0.3)',
+                  borderRadius: '8px',
+                  padding: '8px 16px'
+                }}>
+                  <span style={{ color: '#F472B6' }}>⏳</span> 테스트 대기 중
+                </div>
+              )}
+            </div>
           </div>
-          
-          {/* 테스트 진행 상황 표시 (온도와 같은 라인) */}
-          {isTestProgressActive && testProgressMessage ? (
-            <div className="flex-1 text-center">
-              <div className="text-lg font-semibold text-green-300 bg-green-900 bg-opacity-30 rounded-lg py-2 px-4">
-                📢 {testProgressMessage}
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 text-center">
-              <div className="text-lg font-semibold text-gray-400 bg-gray-800 bg-opacity-30 rounded-lg py-2 px-4">
-                ⏳ 테스트 대기 중
-              </div>
-            </div>
-          )}
         </div>
       </div>
       

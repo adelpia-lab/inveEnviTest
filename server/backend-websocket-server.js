@@ -20,7 +20,11 @@ const USB_PORT_SETTINGS_FILE = 'usb_port_settings.json'; // USB 포트 설정 �
 const OUT_VOLT_SETTINGS_FILE = 'out_volt_settings.json'; // 입력 전압 설정 저장 파일
 const CHANNEL_VOLTAGES_FILE = 'channel_voltages.json'; // 채널 전압 설정 저장 파일
 
-const SIMULATION_PROCESS = true;
+// 시뮬레이션 모드 설정 (기본값: false)
+let SIMULATION_PROCESS = false;
+
+// RunTestProcess.js의 시뮬레이션 모드와 동기화
+import { setSimulationMode } from './RunTestProcess.js';
 
 // 전역 변수: 머신 실행 상태
 let machineRunning = false;
@@ -826,14 +830,9 @@ wss.on('connection', ws => {
         }
     };
 
-    // 연결 즉시 저장된 기기 상태, 고온 설정, 저온 설정, 제품 입력, USB 포트 설정, 입력 전압 설정, 채널 전압 설정 전송
+    // 연결 즉시 기본적인 메시지만 전송 (PowerTable 관련)
+    // 온도 정보는 모든 컴포넌트에서 필요하므로 전송
     sendInitialDeviceState();
-    sendInitialHighTempSettings();
-    sendInitialLowTempSettings();
-    sendInitialProductInput();
-    sendInitialUsbPortSettings();
-    sendInitialOutVoltSettings();
-    sendInitialChannelVoltages();
     
     // 현재 머신 실행 상태 전송
     const currentMachineStatus = getMachineRunningStatus();
@@ -841,19 +840,19 @@ wss.on('connection', ws => {
     ws.send(statusMessage);
     console.log(`📤 [Backend WS Server] Sending current machine status: ${currentMachineStatus}`);
     
-    // getTableOption 초기화 및 전송
-    const sendInitialGetTableOption = async () => {
-        try {
-            const tableOption = await loadGetTableOption();
-            console.log(`📤 [Backend WS Server] Sending initial getTableOption to client:`, tableOption);
-            ws.send(`Initial getTableOption: ${JSON.stringify(tableOption)}`);
-        } catch (error) {
-            console.error(`❌ [Backend WS Server] Failed to send initial getTableOption: ${error.message}`);
-            ws.send(`Error: Failed to load getTableOption - ${error.message}`);
-        }
-    };
+    // 클라이언트에게 현재 시뮬레이션 상태 전송
+    const simulationStatusMessage = `[SIMULATION_STATUS] ${SIMULATION_PROCESS}`;
+    ws.send(simulationStatusMessage);
+    console.log(`📤 [Backend WS Server] Sent initial simulation status: ${SIMULATION_PROCESS}`);
     
-    sendInitialGetTableOption();
+    // 고온/저온 설정은 해당 패널에서 요청할 때만 전송하도록 수정
+    // sendInitialHighTempSettings();  // 제거 - 필요시 요청
+    // sendInitialLowTempSettings();   // 제거 - 필요시 요청
+    // sendInitialProductInput();      // 제거 - 필요시 요청
+    // sendInitialUsbPortSettings();  // 제거 - 필요시 요청
+    // sendInitialOutVoltSettings();  // 제거 - 필요시 요청
+    // sendInitialChannelVoltages();  // 제거 - 필요시 요청
+    // sendInitialGetTableOption();   // 제거 - 필요시 요청
 
     // 클라이언트로부터 메시지를 수신했을 때
     ws.on('message', async message => {
@@ -910,6 +909,40 @@ wss.on('connection', ws => {
                     console.error(`❌ [Backend WS Server] Device selection error: ${error.message}`);
                     ws.send(`Error: Device selection failed - ${error.message}`);
                 }
+            } else if(decodeWebSocket[0] === '[SIMULATION_TOGGLE]') {
+                console.log("=== Simulation Toggle Process: OK ===");
+                try {
+                    const simulationEnabled = decodeWebSocket[1] === 'true';
+                    SIMULATION_PROCESS = simulationEnabled;
+                    
+                    // RunTestProcess.js의 시뮬레이션 모드와 동기화
+                    setSimulationMode(simulationEnabled);
+                    
+                    console.log(`🔄 [Backend WS Server] Simulation mode toggled: ${simulationEnabled}`);
+                    
+                    // 모든 클라이언트에게 시뮬레이션 모드 상태 브로드캐스트
+                    wss.clients.forEach(client => {
+                        if (client.readyState === 1) { // WebSocket.OPEN
+                            const simulationMessage = `[SIMULATION_STATUS] ${simulationEnabled}`;
+                            client.send(simulationMessage);
+                        }
+                    });
+                    
+                    ws.send(`Simulation mode toggled: ${simulationEnabled}`);
+                    
+                    // 시뮬레이션 모드 상태를 JSON 파일에 저장
+                    try {
+                        const fs = await import('fs/promises');
+                        const simulationConfig = { simulationEnabled };
+                        await fs.writeFile('simulation_config.json', JSON.stringify(simulationConfig, null, 2));
+                        console.log(`💾 [Backend WS Server] Simulation config saved to file`);
+                    } catch (error) {
+                        console.error(`❌ [Backend WS Server] Failed to save simulation config: ${error.message}`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Simulation toggle error: ${error.message}`);
+                    ws.send(`Error: Simulation toggle failed - ${error.message}`);
+                }
             } else if(decodeWebSocket[0] === '[DEVICE_READ]') {
                 console.log("=== Device Read Process: OK ===");
                 try {
@@ -922,6 +955,89 @@ wss.on('connection', ws => {
                     const defaultStates = [true, false, false, false, false, false, false, false, false, false];
                     console.log(`📤 [Backend WS Server] Sending default device states:`, defaultStates);
                     ws.send(`Initial device states: ${JSON.stringify(defaultStates)}`);
+                }
+            } else if(decodeWebSocket[0] === '[HIGH_TEMP_READ]') {
+                console.log("=== High Temp Settings Read Process: OK ===");
+                try {
+                    const highTempSettings = await loadHighTempSettings();
+                    console.log("📤 [Backend WS Server] Sending high temp settings to client:", highTempSettings);
+                    ws.send(`Initial high temp settings: ${JSON.stringify(highTempSettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load high temp settings: ${error.message}`);
+                    const defaultSettings = { highTemp: false, targetTemp: 75, waitTime: 200, readCount: 10 };
+                    ws.send(`Initial high temp settings: ${JSON.stringify(defaultSettings)}`);
+                }
+            } else if(decodeWebSocket[0] === '[LOW_TEMP_READ]') {
+                console.log("=== Low Temp Settings Read Process: OK ===");
+                try {
+                    const lowTempSettings = await loadLowTempSettings();
+                    console.log("📤 [Backend WS Server] Sending low temp settings to client:", lowTempSettings);
+                    ws.send(`Initial low temp settings: ${JSON.stringify(lowTempSettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load low temp settings: ${error.message}`);
+                    const defaultSettings = { lowTemp: false, targetTemp: -32, waitTime: 200, readCount: 10 };
+                    ws.send(`Initial low temp settings: ${JSON.stringify(defaultSettings)}`);
+                }
+            } else if(decodeWebSocket[0] === '[PRODUCT_INPUT_READ]') {
+                console.log("=== Product Input Read Process: OK ===");
+                try {
+                    const productInput = await loadProductInput();
+                    console.log("📤 [Backend WS Server] Sending product input to client:", productInput);
+                    ws.send(`Initial product input: ${JSON.stringify(productInput)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load product input: ${error.message}`);
+                    const defaultProductInput = { modelName: '61514540', productNames: ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311'] };
+                    ws.send(`Initial product input: ${JSON.stringify(defaultProductInput)}`);
+                }
+            } else if(decodeWebSocket[0] === '[USB_PORT_READ]') {
+                console.log("=== USB Port Settings Read Process: OK ===");
+                try {
+                    const usbPortSettings = await loadUsbPortSettings();
+                    console.log("📤 [Backend WS Server] Sending USB port settings to client:", usbPortSettings);
+                    ws.send(`Initial USB port settings: ${JSON.stringify(usbPortSettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load USB port settings: ${error.message}`);
+                    ws.send(`Error: No USB port settings found - please configure ports first`);
+                }
+            } else if(decodeWebSocket[0] === '[OUT_VOLT_READ]') {
+                console.log("=== Out Volt Settings Read Process: OK ===");
+                try {
+                    const outVoltSettings = await loadOutVoltSettings();
+                    console.log("📤 [Backend WS Server] Sending out volt settings to client:", outVoltSettings);
+                    ws.send(`Initial out volt settings: ${JSON.stringify(outVoltSettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load out volt settings: ${error.message}`);
+                    ws.send(`Initial out volt settings: ${JSON.stringify([18.0, 24.0, 30.0, 0.0])}`);
+                }
+            } else if(decodeWebSocket[0] === '[CHANNEL_VOLT_READ]') {
+                console.log("=== Channel Voltages Read Process: OK ===");
+                try {
+                    const channelVoltages = await loadChannelVoltages();
+                    console.log("📤 [Backend WS Server] Sending channel voltages to client:", channelVoltages);
+                    ws.send(`Initial channel voltages: ${JSON.stringify(channelVoltages)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load channel voltages: ${error.message}`);
+                    ws.send(`Initial channel voltages: ${JSON.stringify([5.0, 15.0, -15.0, 24.0])}`);
+                }
+            } else if(decodeWebSocket[0] === '[GET_TABLE_OPTION]') {
+                console.log("=== Get Table Option Read Process: OK ===");
+                try {
+                    const tableOption = await loadGetTableOption();
+                    console.log("📤 [Backend WS Server] Sending getTableOption to client:", tableOption);
+                    ws.send(`Initial getTableOption: ${JSON.stringify(tableOption)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load getTableOption: ${error.message}`);
+                    ws.send(`Error: Failed to load getTableOption - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[GET_DELAY_SETTINGS]') {
+                console.log("=== Delay Settings Read Process: OK ===");
+                try {
+                    const delaySettings = await loadDelaySettings();
+                    console.log("📤 [Backend WS Server] Sending delay settings to client:", delaySettings);
+                    ws.send(`Delay settings: ${JSON.stringify(delaySettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load delay settings: ${error.message}`);
+                    ws.send(`Error: Failed to load delay settings - ${error.message}`);
                 }
             } else if(decodeWebSocket[0] === '[VOLT_SELECT]') {
                 const voltCommand = decodeWebSocket[1];
@@ -1054,16 +1170,6 @@ wss.on('connection', ws => {
                     console.error(`❌ [Backend WS Server] Delay settings error: ${error.message}`);
                     ws.send(`Error: Delay settings failed - ${error.message}`);
                 }
-            } else if(decodeWebSocket[0] === '[GET_DELAY_SETTINGS]') {
-                console.log("Get Delay Settings Process: OK");
-                
-                try {
-                    const settings = await loadDelaySettings();
-                    ws.send(`Delay settings: ${JSON.stringify(settings)}`);
-                } catch (error) {
-                    console.error(`[Backend WS Server] Get delay settings error: ${error.message}`);
-                    ws.send(`Error: Failed to get delay settings - ${error.message}`);
-                }   
             } else if(decodeWebSocket[0] === '[SAVE_DEVICE_STATES]') {
                 console.log("=== Save Device States Process: OK ===");
                 console.log("📥 Raw message received:", decodedMessage);
@@ -2059,5 +2165,26 @@ wss.on('connection', ws => {
     });
 });
 
+// 시뮬레이션 설정을 로드하는 함수
+async function loadSimulationConfig() {
+    try {
+        const fs = await import('fs/promises');
+        const configData = await fs.readFile('simulation_config.json', 'utf8');
+        const config = JSON.parse(configData);
+        SIMULATION_PROCESS = config.simulationEnabled || false;
+        
+        // RunTestProcess.js의 시뮬레이션 모드와 동기화
+        setSimulationMode(SIMULATION_PROCESS);
+        
+        console.log(`🔄 [Backend WS Server] Simulation config loaded: ${SIMULATION_PROCESS}`);
+    } catch (error) {
+        console.log(`ℹ️ [Backend WS Server] No simulation config file found, using default: ${SIMULATION_PROCESS}`);
+    }
+}
+
+// 서버 시작 시 시뮬레이션 설정 로드
+loadSimulationConfig();
+
 console.log(`🚀 [Backend WS Server] WebSocket server running on port ${LOCAL_WS_PORT}`);
 console.log(`🔌 [Backend WS Server] WebSocket server ready for connections`);
+console.log(`🎮 [Backend WS Server] Simulation mode: ${SIMULATION_PROCESS ? 'ON' : 'OFF'}`);

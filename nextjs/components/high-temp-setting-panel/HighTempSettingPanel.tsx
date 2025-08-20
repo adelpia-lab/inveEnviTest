@@ -83,7 +83,7 @@ export default function HighTempSettingPanel({
     const handleMessage = (event) => {
       const message = event.data;
       
-      // 온도 설정과 관련된 메시지만 처리
+      // 고온 설정과 관련된 메시지만 처리
       if (typeof message === 'string' && (
         message.startsWith('Initial high temp settings:') ||
         message.startsWith('High temp settings read:') ||
@@ -92,7 +92,7 @@ export default function HighTempSettingPanel({
       )) {
         console.log("📥 HighTempSettingPanel received relevant WebSocket message:", message);
       } else {
-        // 관련 없는 메시지는 무시
+        // 관련 없는 메시지는 즉시 무시
         return;
       }
       
@@ -123,6 +123,7 @@ export default function HighTempSettingPanel({
           console.error('❌ Failed to parse initial high temp settings from server:', error);
           console.error('❌ Error details:', error.message);
         }
+        return; // 처리 완료 후 종료
       }
       
       // READ 버튼으로 서버에서 설정 읽기 응답 처리
@@ -148,6 +149,7 @@ export default function HighTempSettingPanel({
           console.error('❌ Failed to parse high temp settings read response from server:', error);
           setIsReading(false);
         }
+        return; // 처리 완료 후 종료
       }
       
       // 고온 설정 저장 확인 응답 처리
@@ -167,6 +169,7 @@ export default function HighTempSettingPanel({
         } catch (error) {
           console.error('❌ Failed to parse high temp settings saved response from server:', error);
         }
+        return; // 처리 완료 후 종료
       }
       
       // 에러 메시지 처리
@@ -174,7 +177,11 @@ export default function HighTempSettingPanel({
         console.error('Server returned error:', message);
         setError(message.replace('Error:', '').trim());
         setTimeout(() => setError(null), 5000);
+        return; // 처리 완료 후 종료
       }
+      
+      // 처리되지 않은 메시지는 로그로만 기록
+      console.log('🔌 HighTempSettingPanel: 처리되지 않은 메시지 (무시):', message);
     };
 
     wsConnection.addEventListener('message', handleMessage);

@@ -30,6 +30,7 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isReading, setIsReading] = useState(false);
+  const [isSimulationEnabled, setIsSimulationEnabled] = useState(false);
   const isClient = useIsClient();
 
   // Load stored values from localStorage only after client-side hydration
@@ -105,6 +106,20 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           }
         } catch (error) {
           console.error('Failed to parse saved device states:', error);
+        }
+      }
+      
+      // Handle simulation status updates
+      if (typeof message === 'string' && message.startsWith('[SIMULATION_STATUS]')) {
+        try {
+          const match = message.match(/\[SIMULATION_STATUS\] (.*)/);
+          if (match && match[1]) {
+            const simulationStatus = match[1] === 'true';
+            console.log('🔄 Received simulation status from server:', simulationStatus);
+            setIsSimulationEnabled(simulationStatus);
+          }
+        } catch (error) {
+          console.error('Failed to parse simulation status from server:', error);
         }
       }
       
@@ -194,6 +209,15 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   const handleCancelClick = () => {
     setIsSelectionMode(false);
     setTempDeviceStates([...deviceStates]);
+  };
+
+  const handleSimulationToggle = () => {
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      const newSimulationState = !isSimulationEnabled;
+      const message = `[SIMULATION_TOGGLE] ${newSimulationState}`;
+      wsConnection.send(message);
+      console.log('📤 Toggling simulation mode:', message);
+    }
   };
 
   const isDeviceSelected = (deviceIndex) => {
@@ -324,6 +348,30 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
         })}
       </Box>
       
+      {/* 시뮬레이션 토글 버튼 */}
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        mt: 1,
+        mb: 1
+      }}>
+        <Button 
+          variant={isSimulationEnabled ? "contained" : "outlined"}
+          color={isSimulationEnabled ? "warning" : "info"}
+          onClick={handleSimulationToggle}
+          size="small"
+          disabled={!wsConnection || wsConnection.readyState !== WebSocket.OPEN}
+          sx={{ 
+            py: 0.5,
+            px: 2,
+            fontSize: '0.75rem',
+            fontWeight: 'bold'
+          }}
+        >
+          {isSimulationEnabled ? '시뮬레이션 ON' : '시뮬레이션 OFF'}
+        </Button>
+      </Box>
+
       {isSelectionMode && (
         <Box sx={{ 
           display: 'flex', 
