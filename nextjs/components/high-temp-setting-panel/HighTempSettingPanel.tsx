@@ -39,6 +39,7 @@ export default function HighTempSettingPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isReading, setIsReading] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // 컴포넌트 마운트 시 서버에서 초기 설정 가져오기
   useEffect(() => {
@@ -51,17 +52,24 @@ export default function HighTempSettingPanel({
       if (wsConnection.readyState === WebSocket.OPEN) {
         console.log('🔌 WebSocket connected, waiting for initial high temp settings from server...');
         
-        // 10초 후에도 응답이 없으면 기본값 사용
-        setTimeout(() => {
+        // 서버에서 자동으로 초기 설정을 전송하므로 즉시 처리 가능
+        // 5초 후에도 응답이 없으면 기본값 사용
+        const timeoutId = setTimeout(() => {
           console.log('⏰ Timeout reached, using default settings');
-        }, 10000);
+        }, 5000);
+        
+        // 컴포넌트 언마운트 시 타임아웃 정리
+        return () => clearTimeout(timeoutId);
       } else if (wsConnection.readyState === WebSocket.CONNECTING) {
         console.log('🔌 WebSocket connecting, waiting for connection...');
         
-        // 연결 대기 중에도 10초 타임아웃 설정
-        setTimeout(() => {
+        // 연결 대기 중에도 5초 타임아웃 설정
+        const timeoutId = setTimeout(() => {
           console.log('⏰ Connection timeout, using default settings');
-        }, 10000);
+        }, 5000);
+        
+        // 컴포넌트 언마운트 시 타임아웃 정리
+        return () => clearTimeout(timeoutId);
       } else {
         console.log('❌ WebSocket not ready, using default settings');
         console.log('❌ WebSocket readyState:', wsConnection.readyState);
@@ -112,6 +120,7 @@ export default function HighTempSettingPanel({
             if (result.success) {
               console.log('📥 Received valid initial high temp settings from server:', initialSettings);
               setForm(initialSettings);
+              setIsInitialized(true);
               console.log('✅ Initial high temp settings loaded successfully from server');
             } else {
               console.log('❌ Server returned invalid high temp settings, using default');
@@ -369,6 +378,15 @@ export default function HighTempSettingPanel({
 
     {/* 상태 메시지 */}
     <div className="flex items-center justify-center mb-2">
+      {!isInitialized && (
+        <Typography 
+          variant="caption" 
+          color="info.main" 
+          sx={{ fontSize: '0.8rem' }}
+        >
+          서버에서 설정 로드 중...
+        </Typography>
+      )}
       {isReading && (
         <Typography 
           variant="caption" 

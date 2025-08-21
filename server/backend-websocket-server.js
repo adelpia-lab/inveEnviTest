@@ -838,14 +838,33 @@ wss.on('connection', ws => {
     ws.send(simulationStatusMessage);
     console.log(`📤 [Backend WS Server] Sent initial simulation status: ${SIMULATION_PROCESS}`);
     
-    // 고온/저온 설정은 해당 패널에서 요청할 때만 전송하도록 수정
-    // sendInitialHighTempSettings();  // 제거 - 필요시 요청
-    // sendInitialLowTempSettings();   // 제거 - 필요시 요청
-    // sendInitialProductInput();      // 제거 - 필요시 요청
-    // sendInitialUsbPortSettings();  // 제거 - 필요시 요청
-    // sendInitialOutVoltSettings();  // 제거 - 필요시 요청
-    // sendInitialChannelVoltages();  // 제거 - 필요시 요청
-    // sendInitialGetTableOption();   // 제거 - 필요시 요청
+    // 클라이언트 연결 시 자동으로 모든 초기 설정 전송
+    // 순차적으로 전송하여 클라이언트가 안정적으로 처리할 수 있도록 함
+    console.log('🚀 [Backend WS Server] Starting sequential initial settings transmission...');
+    setTimeout(() => {
+      console.log('📤 [Backend WS Server] Sending initial high temp settings...');
+      sendInitialHighTempSettings();
+    }, 100);
+    setTimeout(() => {
+      console.log('📤 [Backend WS Server] Sending initial low temp settings...');
+      sendInitialLowTempSettings();
+    }, 200);
+    setTimeout(() => {
+      console.log('📤 [Backend WS Server] Sending initial product input...');
+      sendInitialProductInput();
+    }, 300);
+    setTimeout(() => {
+      console.log('📤 [Backend WS Server] Sending initial USB port settings...');
+      sendInitialUsbPortSettings();
+    }, 400);
+    setTimeout(() => {
+      console.log('📤 [Backend WS Server] Sending initial out volt settings...');
+      sendInitialOutVoltSettings();
+    }, 500);
+    setTimeout(() => {
+      console.log('📤 [Backend WS Server] Sending initial channel voltages...');
+      sendInitialChannelVoltages();
+    }, 600);
 
     // 클라이언트로부터 메시지를 수신했을 때
     ws.on('message', async message => {

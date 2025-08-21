@@ -797,7 +797,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         borderRadius: '8px',
         padding: '15px'
       }}>
-        {/* 온도와 테스트 진행상황을 가로로 배치 - 완전히 다른 접근법 */}
+        {/* 온도와 테스트 진행상황, 그리고 테스트 버튼들을 가로로 배치 */}
         <div style={{ 
           width: '100%',
           height: 'auto',
@@ -810,7 +810,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
             {/* 온도 표시 - 좌측 셀 */}
             <div style={{ 
               display: 'table-cell',
-              width: '30%',
+              width: '25%',
               verticalAlign: 'middle',
               paddingRight: '20px'
             }}>
@@ -832,10 +832,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
               </div>
             </div>
             
-            {/* 테스트 진행 상황 표시 - 우측 셀 */}
+            {/* 테스트 진행 상황 표시 - 중앙 셀 */}
             <div style={{ 
               display: 'table-cell',
-              width: '70%',
+              width: '45%',
               verticalAlign: 'middle',
               textAlign: 'center'
             }}>
@@ -864,6 +864,81 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                   <span style={{ color: '#F472B6' }}>⏳</span> 테스트 대기 중
                 </div>
               )}
+            </div>
+
+            {/* 테스트 버튼들 - 우측 셀 */}
+            <div style={{ 
+              display: 'table-cell',
+              width: '30%',
+              verticalAlign: 'middle',
+              textAlign: 'right'
+            }}>
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                justifyContent: 'flex-end'
+              }}>
+                <button
+                  onClick={sendTestMessage}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#3B82F6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🧪 테스트 메시지
+                </button>
+                <button
+                  onClick={sendVoltageTestMessage}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#10B981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  ⚡ 전압 테스트
+                </button>
+                <button
+                  onClick={generateDemoCompleteTable}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#F59E0B',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🎯 데모 테이블
+                </button>
+                <button
+                  onClick={resetTable}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#EF4444',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🔄 테이블 초기화
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -913,70 +988,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
           }} />
         </div>
         
-        {/* 테스트 버튼들 */}
-        <div style={{
-          display: 'flex',
-          gap: '10px',
-          marginTop: '10px',
-          justifyContent: 'center'
-        }}>
-          <button
-            onClick={sendTestMessage}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: '#3B82F6',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            🧪 테스트 메시지
-          </button>
-          <button
-            onClick={sendVoltageTestMessage}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: '#10B981',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            ⚡ 전압 테스트
-          </button>
-          <button
-            onClick={generateDemoCompleteTable}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: '#F59E0B',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            🎯 데모 테이블
-          </button>
-          <button
-            onClick={resetTable}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: '#EF4444',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            🔄 테이블 초기화
-          </button>
-        </div>
+
       </div>
       
       {/* 테이블 컨테이너 - 그리드 영역 */}
