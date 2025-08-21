@@ -166,6 +166,19 @@ function getFormattedDateTime() {
 }
 
 /**
+ * 날짜별 디렉토리명을 생성하는 함수
+ * @returns {string} YYYYMMDD 형식의 날짜 디렉토리명
+ */
+function getDateDirectoryName() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  
+  return `${year}${month}${day}`;
+}
+
+/**
  * TotaReportTable을 이미지와 유사한 전기적 성능 시험 테이블 형태로 저장
  * 이미지의 테이블 구조에 맞춰 CSV 형식으로 저장
  */
@@ -182,7 +195,16 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
       console.log(`[SaveData] Data 폴더 생성됨: ${dataFolderPath}`);
     }
     
-    const filePath = path.join(dataFolderPath, filename);
+    // 날짜별 하위 디렉토리 생성
+    const dateDirectoryName = getDateDirectoryName();
+    const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+    
+    if (!fs.existsSync(dateFolderPath)) {
+      fs.mkdirSync(dateFolderPath, { recursive: true });
+      console.log(`[SaveData] 날짜별 디렉토리 생성됨: ${dateFolderPath}`);
+    }
+    
+    const filePath = path.join(dateFolderPath, filename);
     
     let csvContent = '';
     const reportData = data.reportTable[0];
@@ -1621,8 +1643,32 @@ async function generateFinalDeviceReport(cycleNumber) {
       console.log(`[FinalDeviceReport] Data 폴더 생성됨: ${dataFolderPath}`);
     }
     
-    const files = fs.readdirSync(dataFolderPath);
-    const csvFiles = files.filter(file => file.endsWith('.csv') && file.includes('Cycle'));
+    // 모든 날짜별 하위 디렉토리에서 CSV 파일 검색
+    const allCsvFiles = [];
+    
+    // Data 폴더의 모든 하위 디렉토리 검색
+    const subDirectories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory())
+      .map(dirent => dirent.name);
+    
+    // Data 폴더 자체에서도 CSV 파일 검색
+    const rootFiles = fs.readdirSync(dataFolderPath);
+    const rootCsvFiles = rootFiles.filter(file => file.endsWith('.csv') && file.includes('Cycle'));
+    allCsvFiles.push(...rootCsvFiles.map(file => ({ file, directory: '' })));
+    
+    // 각 하위 디렉토리에서 CSV 파일 검색
+    for (const subDir of subDirectories) {
+      try {
+        const subDirPath = path.join(dataFolderPath, subDir);
+        const subDirFiles = fs.readdirSync(subDirPath);
+        const subDirCsvFiles = subDirFiles.filter(file => file.endsWith('.csv') && file.includes('Cycle'));
+        allCsvFiles.push(...subDirCsvFiles.map(file => ({ file, directory: subDir })));
+      } catch (error) {
+        console.warn(`[FinalDeviceReport] 하위 디렉토리 ${subDir} 읽기 실패:`, error.message);
+      }
+    }
+    
+    const csvFiles = allCsvFiles;
     
     console.log(`[FinalDeviceReport] 발견된 CSV 파일 수: ${csvFiles.length}`);
     
@@ -1630,6 +1676,8 @@ async function generateFinalDeviceReport(cycleNumber) {
       console.warn(`[FinalDeviceReport] 분석할 CSV 파일이 없음`);
       return { success: false, error: '분석할 CSV 파일이 없음' };
     }
+    
+    console.log(`[FinalDeviceReport] 검색된 디렉토리: ${csvFiles.map(f => f.directory || 'root').join(', ')}`);
     
     // 디바이스별 G/N 카운트 초기화 (10개 디바이스, 4개 채널)
     const deviceResults = {};
@@ -1690,9 +1738,12 @@ async function generateFinalDeviceReport(cycleNumber) {
 
     // 각 CSV 파일 분석
     let processedFiles = 0;
-    for (const filename of csvFiles) {
+    for (const fileInfo of csvFiles) {
       try {
-        const filePath = path.join(dataFolderPath, filename);
+        const { file: filename, directory } = fileInfo;
+        const filePath = directory 
+          ? path.join(dataFolderPath, directory, filename)
+          : path.join(dataFolderPath, filename);
         const fileContent = fs.readFileSync(filePath, 'utf8');
         
         // 파일명에서 사이클 번호와 테스트 유형 추출
@@ -1799,7 +1850,17 @@ async function generateFinalDeviceReport(cycleNumber) {
     
     // 종합 리포트 파일 생성
     const reportFilename = `${getFormattedDateTime()}_Final_Device_Report.csv`;
-    const reportFilePath = path.join(dataFolderPath, reportFilename);
+    
+    // 날짜별 하위 디렉토리에 저장
+    const dateDirectoryName = getDateDirectoryName();
+    const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+    
+    if (!fs.existsSync(dateFolderPath)) {
+      fs.mkdirSync(dateFolderPath, { recursive: true });
+      console.log(`[FinalDeviceReport] 날짜별 디렉토리 생성됨: ${dateFolderPath}`);
+    }
+    
+    const reportFilePath = path.join(dateFolderPath, reportFilename);
     
     let reportContent = '';
     reportContent += `=== 디바이스별 종합 테스트 리포트 ===\n`;
