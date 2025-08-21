@@ -26,6 +26,9 @@ export function getSimulationMode() {
 // 전역 WebSocket 서버 참조를 위한 변수
 let globalWss = null;
 
+// 테스트 실행별 디렉토리명을 저장하는 전역 변수
+let currentTestDirectoryName = null;
+
 // WebSocket 서버 참조를 설정하는 함수
 export function setWebSocketServer(wss) {
   globalWss = wss;
@@ -174,8 +177,10 @@ function getDateDirectoryName() {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
+  const hour = String(now.getHours()).padStart(2, '0');
+  const minute = String(now.getMinutes()).padStart(2, '0');
   
-  return `${year}${month}${day}`;
+  return `${year}${month}${day}_${hour}${minute}`;
 }
 
 /**
@@ -195,13 +200,34 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
       console.log(`[SaveData] Data 폴더 생성됨: ${dataFolderPath}`);
     }
     
-    // 날짜별 하위 디렉토리 생성
-    const dateDirectoryName = getDateDirectoryName();
+    // 전역 변수에서 테스트 디렉토리명 사용 (없으면 새로 생성)
+    let dateDirectoryName = currentTestDirectoryName;
+    if (!dateDirectoryName) {
+      dateDirectoryName = getDateDirectoryName();
+      console.log(`[SaveData] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${dateDirectoryName}`);
+    }
+    
     const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
     
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
-      console.log(`[SaveData] 날짜별 디렉토리 생성됨: ${dateFolderPath}`);
+      console.log(`[SaveData] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
+      console.log(`[SaveData] 📅 디렉토리명: ${dateDirectoryName} (${new Date().toLocaleString('ko-KR')})`);
+      
+      // 클라이언트에게 디렉토리 생성 알림 전송
+      if (globalWss) {
+        const dirCreateMessage = `[DIRECTORY_CREATED] ${dateDirectoryName}`;
+        let sentCount = 0;
+        globalWss.clients.forEach(client => {
+          if (client.readyState === 1) { // WebSocket.OPEN
+            client.send(dirCreateMessage);
+            sentCount++;
+          }
+        });
+        console.log(`[SaveData] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
+      }
+    } else {
+      console.log(`[SaveData] 📁 기존 디렉토리 사용: ${dateFolderPath}`);
     }
     
     const filePath = path.join(dateFolderPath, filename);
@@ -899,6 +925,10 @@ export async function runNextTankEnviTestProcess() {
     const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
     
+    // 테스트 시작 시 디렉토리명을 한 번만 생성하여 저장
+    currentTestDirectoryName = getDateDirectoryName();
+    console.log(`[NextTankEnviTestProcess] 📁 테스트 결과 저장 디렉토리명 생성: ${currentTestDirectoryName}`);
+    
     // 프로세스 시작 시 파워스위치를 ON으로 설정
     console.log(`[NextTankEnviTestProcess] 🔌 파워스위치 ON 설정 시작...`);
     setMachineRunningStatus(true);
@@ -994,12 +1024,64 @@ export async function runNextTankEnviTestProcess() {
           console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 중지 시 파워스위치 OFF 메시지 전송 불가`);
         }
         
+        // 중단된 테스트 결과 파일 생성 (사용자 수동 중지)
+        console.log(`[NextTankEnviTestProcess] 📄 사용자 수동 중지로 인한 중단된 테스트 결과 파일 생성 시작...`);
+        try {
+          const dataFolderPath = path.join(process.cwd(), 'Data');
+          // 전역 변수에서 테스트 디렉토리명 사용
+          const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+          const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+          
+          let existingFiles = [];
+          if (fs.existsSync(dateFolderPath)) {
+            const files = fs.readdirSync(dateFolderPath);
+            existingFiles = files
+              .filter(file => file.endsWith('.csv'))
+              .map(file => path.join(dateFolderPath, file));
+          }
+          
+          // 테스트 설정 정보 수집
+          const testSettings = {
+            modelName: getTableOption.productInput?.modelName || 'N/A',
+            productNumber: getTableOption.productInput?.productNumber || 'N/A',
+            temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+            highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
+            lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
+            totalCycles: cycleNumber,
+            highTempWaitTime: getTableOption.highTempSettings?.waitTime || 'N/A',
+            lowTempWaitTime: getTableOption.lowTempSettings?.waitTime || 'N/A',
+            highTempReadCount: getTableOption.highTempSettings?.readCount || 'N/A',
+            lowTempReadCount: getTableOption.lowTempSettings?.readCount || 'N/A'
+          };
+          
+          await generateInterruptedTestResultFile({
+            stopReason: 'power_switch_off',
+            stoppedAtCycle: cycle,
+            stoppedAtPhase: 'manual_stop',
+            errorMessage: '사용자에 의한 파워스위치 OFF',
+            testSettings: testSettings,
+            existingFiles: existingFiles
+          });
+          console.log(`[NextTankEnviTestProcess] ✅ 사용자 수동 중지 중단 테스트 결과 파일 생성 완료`);
+        } catch (reportError) {
+          console.error(`[NextTankEnviTestProcess] ❌ 사용자 수동 중지 중단 테스트 결과 파일 생성 실패:`, reportError);
+        }
+        
         // 프로세스 중지 플래그 초기화 (재실행을 위해)
         const { setProcessStopRequested } = await import('./backend-websocket-server.js');
         setProcessStopRequested(false);
         console.log(`[NextTankEnviTestProcess] 🔄 프로세스 중지 플래그 초기화 - 재실행 준비 완료`);
         
-        return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtCycle: cycle };
+        // 파워스위치 OFF로 인한 중단 시 전역 디렉토리명 초기화
+        console.log(`[NextTankEnviTestProcess] 📁 파워스위치 OFF 중단 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+        currentTestDirectoryName = null;
+        
+        return { 
+          status: 'stopped', 
+          message: '사용자에 의한 파워스위치 OFF',
+          stoppedAtCycle: cycle,
+          stopReason: 'power_switch_off'
+        };
       }
       
       console.log(`[NextTankEnviTestProcess] === 사이클 ${cycle}/${cycleNumber} 시작 ===`);
@@ -1094,6 +1176,60 @@ export async function runNextTankEnviTestProcess() {
               console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 고온 테스트 대기 중단 시 파워스위치 OFF 메시지 전송 불가`);
             }
             
+            // 중단된 테스트 결과 파일 생성
+            console.log(`[NextTankEnviTestProcess] 📄 중단된 테스트 결과 파일 생성 시작...`);
+            
+            try {
+              // 생성된 파일들을 찾기 위해 Data 폴더 스캔
+              const dataFolderPath = path.join(process.cwd(), 'Data');
+              // 전역 변수에서 테스트 디렉토리명 사용
+              const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+              const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+              
+              let existingFiles = [];
+              if (fs.existsSync(dateFolderPath)) {
+                const files = fs.readdirSync(dateFolderPath);
+                existingFiles = files
+                  .filter(file => file.endsWith('.csv'))
+                  .map(file => path.join(dateFolderPath, file));
+              }
+              
+              // 테스트 설정 정보 수집
+              const testSettings = {
+                modelName: getTableOption.productInput?.modelName || 'N/A',
+                productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+                highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
+                lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
+                totalCycles: cycleNumber,
+                highTempWaitTime: getTableOption.highTempSettings?.waitTime || 'N/A',
+                lowTempWaitTime: getTableOption.lowTempSettings?.waitTime || 'N/A',
+                highTempReadCount: getTableOption.highTempSettings?.readCount || 'N/A',
+                lowTempReadCount: getTableOption.lowTempSettings?.readCount || 'N/A'
+              };
+              
+              // 중단된 테스트 결과 파일 생성
+              const result = await generateInterruptedTestResultFile({
+                stopReason: 'manual_stop',
+                stoppedAtCycle: cycle,
+                stoppedAtPhase: 'high_temp_waiting',
+                testSettings,
+                existingFiles
+              });
+              
+              if (result.success) {
+                console.log(`[NextTankEnviTestProcess] ✅ 중단된 테스트 결과 파일 생성 완료: ${result.filename}`);
+              } else {
+                console.error(`[NextTankEnviTestProcess] ❌ 중단된 테스트 결과 파일 생성 실패: ${result.error}`);
+              }
+            } catch (fileError) {
+              console.error(`[NextTankEnviTestProcess] 중단된 테스트 결과 파일 생성 중 오류:`, fileError);
+            }
+            
+            // 수동 중지 시 전역 디렉토리명 초기화
+            console.log(`[NextTankEnviTestProcess] 📁 수동 중지 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+            currentTestDirectoryName = null;
+            
             return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtCycle: cycle, stoppedAtPhase: 'high_temp_waiting' };
           }
           
@@ -1125,6 +1261,59 @@ export async function runNextTankEnviTestProcess() {
             } else {
               console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 챔버 오류 시 파워스위치 OFF 메시지 전송 불가`);
             }
+            
+            // 중단된 테스트 결과 파일 생성
+            console.log(`[NextTankEnviTestProcess] 📄 중단된 테스트 결과 파일 생성 시작...`);
+            
+            try {
+              // 생성된 파일들을 찾기 위해 Data 폴더 스캔
+              const dataFolderPath = path.join(process.cwd(), 'Data');
+              // 전역 변수에서 테스트 디렉토리명 사용
+              const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+              const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+              
+              let existingFiles = [];
+              if (fs.existsSync(dateFolderPath)) {
+                const files = fs.readdirSync(dateFolderPath);
+                existingFiles = files
+                  .filter(file => file.endsWith('.csv'))
+                  .map(file => path.join(dateFolderPath, file));
+              }
+              
+              // 테스트 설정 정보 수집
+              const testSettings = {
+                modelName: getTableOption.productInput?.modelName || 'N/A',
+                productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+                highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
+                lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
+                totalCycles: cycleNumber,
+                highTempWaitTime: getTableOption.highTempSettings?.waitTime || 'N/A',
+                lowTempWaitTime: getTableOption.lowTempSettings?.waitTime || 'N/A',
+                highTempReadCount: getTableOption.highTempSettings?.readCount || 'N/A',
+                lowTempReadCount: getTableOption.lowTempSettings?.readCount || 'N/A'
+              };
+              
+              // 중단된 테스트 결과 파일 생성
+              const result = await generateInterruptedTestResultFile({
+                stopReason: 'system_failure',
+                stoppedAtCycle: cycle,
+                stoppedAtPhase: 'high_temp_waiting',
+                errorMessage: '챔버 온도 읽기 실패 - 장비 연결 상태를 확인하세요',
+                testSettings,
+                existingFiles
+              });
+              
+              if (result.success) {
+                console.log(`[NextTankEnviTestProcess] ✅ 중단된 테스트 결과 파일 생성 완료: ${result.filename}`);
+              } else {
+                console.error(`[NextTankEnviTestProcess] ❌ 중단된 테스트 결과 파일 생성 실패: ${result.error}`);
+              }
+            } catch (fileError) {
+              console.error(`[NextTankEnviTestProcess] 중단된 테스트 결과 파일 생성 중 오류:`, fileError);
+            }
+            
+
             
             return { 
               status: 'error', 
@@ -1167,6 +1356,59 @@ export async function runNextTankEnviTestProcess() {
                 } else {
                   console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 고온 테스트 실행 중단 시 파워스위치 OFF 메시지 전송 불가`);
                 }
+                
+                // 중단된 테스트 결과 파일 생성
+                console.log(`[NextTankEnviTestProcess] 📄 중단된 테스트 결과 파일 생성 시작...`);
+                
+                try {
+                  // 생성된 파일들을 찾기 위해 Data 폴더 스캔
+                  const dataFolderPath = path.join(process.cwd(), 'Data');
+                  const dateDirectoryName = getDateDirectoryName();
+                  const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+                  
+                  let existingFiles = [];
+                  if (fs.existsSync(dateFolderPath)) {
+                    const files = fs.readdirSync(dateFolderPath);
+                    existingFiles = files
+                      .filter(file => file.endsWith('.csv'))
+                      .map(file => path.join(dateFolderPath, file));
+                  }
+                  
+                  // 테스트 설정 정보 수집
+                  const testSettings = {
+                    modelName: getTableOption.productInput?.modelName || 'N/A',
+                    productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                    temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+                    highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
+                    lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
+                    totalCycles: cycleNumber,
+                    highTempWaitTime: getTableOption.highTempSettings?.waitTime || 'N/A',
+                    lowTempWaitTime: getTableOption.lowTempSettings?.waitTime || 'N/A',
+                    highTempReadCount: getTableOption.highTempSettings?.readCount || 'N/A',
+                    lowTempReadCount: getTableOption.lowTempSettings?.readCount || 'N/A'
+                  };
+                  
+                  // 중단된 테스트 결과 파일 생성
+                  const result = await generateInterruptedTestResultFile({
+                    stopReason: 'manual_stop',
+                    stoppedAtCycle: cycle,
+                    stoppedAtPhase: 'high_temp_test',
+                    testSettings,
+                    existingFiles
+                  });
+                  
+                  if (result.success) {
+                    console.log(`[NextTankEnviTestProcess] ✅ 중단된 테스트 결과 파일 생성 완료: ${result.filename}`);
+                  } else {
+                    console.error(`[NextTankEnviTestProcess] ❌ 중단된 테스트 결과 파일 생성 실패: ${result.error}`);
+                  }
+                } catch (fileError) {
+                  console.error(`[NextTankEnviTestProcess] 중단된 테스트 결과 파일 생성 중 오류:`, fileError);
+                }
+                
+                // 수동 중지 시 전역 디렉토리명 초기화
+                console.log(`[NextTankEnviTestProcess] 📁 수동 중지 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+                currentTestDirectoryName = null;
                 
                 return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtCycle: cycle, stoppedAtPhase: 'high_temp_test', stoppedAtTest: i+1 };
               }
@@ -1337,6 +1579,60 @@ export async function runNextTankEnviTestProcess() {
               console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 저온 테스트 대기 중단 시 파워스위치 OFF 메시지 전송 불가`);
             }
             
+            // 중단된 테스트 결과 파일 생성
+            console.log(`[NextTankEnviTestProcess] 📄 중단된 테스트 결과 파일 생성 시작...`);
+            
+            try {
+              // 생성된 파일들을 찾기 위해 Data 폴더 스캔
+              const dataFolderPath = path.join(process.cwd(), 'Data');
+              // 전역 변수에서 테스트 디렉토리명 사용
+              const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+              const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+              
+              let existingFiles = [];
+              if (fs.existsSync(dateFolderPath)) {
+                const files = fs.readdirSync(dateFolderPath);
+                existingFiles = files
+                  .filter(file => file.endsWith('.csv'))
+                  .map(file => path.join(dateFolderPath, file));
+              }
+              
+              // 테스트 설정 정보 수집
+              const testSettings = {
+                modelName: getTableOption.productInput?.modelName || 'N/A',
+                productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
+                highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
+                lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
+                totalCycles: cycleNumber,
+                highTempWaitTime: getTableOption.highTempSettings?.waitTime || 'N/A',
+                lowTempWaitTime: getTableOption.lowTempSettings?.waitTime || 'N/A',
+                highTempReadCount: getTableOption.highTempSettings?.readCount || 'N/A',
+                lowTempReadCount: getTableOption.lowTempSettings?.readCount || 'N/A'
+              };
+              
+              // 중단된 테스트 결과 파일 생성
+              const result = await generateInterruptedTestResultFile({
+                stopReason: 'manual_stop',
+                stoppedAtCycle: cycle,
+                stoppedAtPhase: 'low_temp_waiting',
+                testSettings,
+                existingFiles
+              });
+              
+              if (result.success) {
+                console.log(`[NextTankEnviTestProcess] ✅ 중단된 테스트 결과 파일 생성 완료: ${result.filename}`);
+              } else {
+                console.error(`[NextTankEnviTestProcess] ❌ 중단된 테스트 결과 파일 생성 실패: ${result.error}`);
+              }
+            } catch (fileError) {
+              console.error(`[NextTankEnviTestProcess] 중단된 테스트 결과 파일 생성 중 오류:`, fileError);
+            }
+            
+            // 수동 중지 시 전역 디렉토리명 초기화
+            console.log(`[NextTankEnviTestProcess] 📁 수동 중지 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+            currentTestDirectoryName = null;
+            
             return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtCycle: cycle, stoppedAtPhase: 'low_temp_waiting' };
           }
           
@@ -1411,6 +1707,60 @@ export async function runNextTankEnviTestProcess() {
                   console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 저온 테스트 실행 중단 시 파워스위치 OFF 메시지 전송 불가`);
                 }
                 
+                // 중단된 테스트 결과 파일 생성
+                console.log(`[NextTankEnviTestProcess] 📄 중단된 테스트 결과 파일 생성 시작...`);
+                
+                try {
+                  // 생성된 파일들을 찾기 위해 Data 폴더 스캔
+                  const dataFolderPath = path.join(process.cwd(), 'Data');
+                  // 전역 변수에서 테스트 디렉토리명 사용
+                  const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+                  const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+                  
+                  let existingFiles = [];
+                  if (fs.existsSync(dateFolderPath)) {
+                    const files = fs.readdirSync(dateFolderPath);
+                    existingFiles = files
+                      .filter(file => file.endsWith('.csv'))
+                      .map(file => path.join(dateFolderPath, file));
+                  }
+                  
+                  // 테스트 설정 정보 수집
+                  const testSettings = {
+                    modelName: getTableOption.productInput?.modelName || 'N/A',
+                    productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                    temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
+                    highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
+                    lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
+                    totalCycles: cycleNumber,
+                    highTempWaitTime: getTableOption.highTempSettings?.waitTime || 'N/A',
+                    lowTempWaitTime: getTableOption.lowTempSettings?.waitTime || 'N/A',
+                    highTempReadCount: getTableOption.highTempSettings?.readCount || 'N/A',
+                    lowTempReadCount: getTableOption.lowTempSettings?.readCount || 'N/A'
+                  };
+                  
+                  // 중단된 테스트 결과 파일 생성
+                  const result = await generateInterruptedTestResultFile({
+                    stopReason: 'manual_stop',
+                    stoppedAtCycle: cycle,
+                    stoppedAtPhase: 'low_temp_test',
+                    testSettings,
+                    existingFiles
+                  });
+                  
+                  if (result.success) {
+                    console.log(`[NextTankEnviTestProcess] ✅ 중단된 테스트 결과 파일 생성 완료: ${result.filename}`);
+                  } else {
+                    console.error(`[NextTankEnviTestProcess] ❌ 중단된 테스트 결과 파일 생성 실패: ${result.error}`);
+                  }
+                } catch (fileError) {
+                  console.error(`[NextTankEnviTestProcess] 중단된 테스트 결과 파일 생성 중 오류:`, fileError);
+                }
+                
+                // 수동 중지 시 전역 디렉토리명 초기화
+                console.log(`[NextTankEnviTestProcess.js] 📁 수동 중지 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+                currentTestDirectoryName = null;
+                
                 return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtCycle: cycle, stoppedAtPhase: 'low_temp_test', stoppedAtTest: i+1 };
               }
               
@@ -1437,7 +1787,7 @@ export async function runNextTankEnviTestProcess() {
                     sentCount++;
                   }
                 });
-                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 진행 상황 업데이트 전송 완료`);
+                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 진행 상황 업데이트 전송 완료 - 클라이언트 수: ${sentCount}`);
               }
               
               // SinglePageProcess 재시도 로직 (최대 5회)
@@ -1588,6 +1938,10 @@ export async function runNextTankEnviTestProcess() {
     setProcessStopRequested(false);
     console.log(`[NextTankEnviTestProcess] 🔄 프로세스 중지 플래그 초기화 - 재실행 준비 완료`);
     
+    // 테스트 완료 시 전역 디렉토리명 초기화
+    console.log(`[NextTankEnviTestProcess] 📁 테스트 완료 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+    currentTestDirectoryName = null;
+    
     return { status: 'completed', message: '모든 사이클 완료 및 종합 리포트 생성 완료' };
     
   } catch (error) {
@@ -1620,6 +1974,61 @@ export async function runNextTankEnviTestProcess() {
     } else {
       console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 에러 발생 시 파워스위치 OFF 메시지 전송 불가`);
     }
+    
+    // 에러 발생 시에도 중단된 테스트 결과 파일 생성
+    console.log(`[NextTankEnviTestProcess] 📄 에러로 인한 중단된 테스트 결과 파일 생성 시작...`);
+    
+    try {
+      // 생성된 파일들을 찾기 위해 Data 폴더 스캔
+      const dataFolderPath = path.join(process.cwd(), 'Data');
+      // 전역 변수에서 테스트 디렉토리명 사용
+      const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+      const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+      
+      let existingFiles = [];
+      if (fs.existsSync(dateFolderPath)) {
+        const files = fs.readdirSync(dateFolderPath);
+        existingFiles = files
+          .filter(file => file.endsWith('.csv'))
+          .map(file => path.join(dateFolderPath, file));
+      }
+      
+      // 테스트 설정 정보 수집 (에러 발생 시에는 기본값 사용)
+      const testSettings = {
+        modelName: 'N/A',
+        productNumber: 'N/A',
+        temperature: 'N/A',
+        highTempEnabled: false,
+        lowTempEnabled: false,
+        totalCycles: 1,
+        highTempWaitTime: 'N/A',
+        lowTempWaitTime: 'N/A',
+        highTempReadCount: 'N/A',
+        lowTempReadCount: 'N/A'
+      };
+      
+      // 중단된 테스트 결과 파일 생성
+      const result = await generateInterruptedTestResultFile({
+        stopReason: 'error',
+        stoppedAtCycle: 1, // 에러 발생 시에는 사이클 1로 가정
+        stoppedAtPhase: 'unknown',
+        errorMessage: error.message || '알 수 없는 에러',
+        testSettings,
+        existingFiles
+      });
+      
+      if (result.success) {
+        console.log(`[NextTankEnviTestProcess] ✅ 에러로 인한 중단된 테스트 결과 파일 생성 완료: ${result.filename}`);
+      } else {
+        console.error(`[NextTankEnviTestProcess] ❌ 에러로 인한 중단된 테스트 결과 파일 생성 실패: ${result.error}`);
+      }
+    } catch (fileError) {
+      console.error(`[NextTankEnviTestProcess] 에러로 인한 중단된 테스트 결과 파일 생성 중 오류:`, fileError);
+    }
+    
+    // 에러 발생 시에도 전역 디렉토리명 초기화
+    console.log(`[NextTankEnviTestProcess] 📁 에러 발생 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+    currentTestDirectoryName = null;
     
     throw error;
   }
@@ -1851,8 +2260,8 @@ async function generateFinalDeviceReport(cycleNumber) {
     // 종합 리포트 파일 생성
     const reportFilename = `${getFormattedDateTime()}_Final_Device_Report.csv`;
     
-    // 날짜별 하위 디렉토리에 저장
-    const dateDirectoryName = getDateDirectoryName();
+    // 전역 변수에서 테스트 디렉토리명 사용 (없으면 새로 생성)
+    const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
     const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
     
     if (!fs.existsSync(dateFolderPath)) {
@@ -1930,6 +2339,206 @@ async function generateFinalDeviceReport(cycleNumber) {
   } catch (error) {
     console.error('[FinalDeviceReport] 종합 리포트 생성 실패:', error);
     return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 테스트가 중단된 경우에도 생성된 파일들을 기반으로 결과 파일을 생성하고 중단 원인을 기록
+ * @param {Object} options - 중단 정보 및 설정
+ * @param {string} options.stopReason - 중단 원인 ('manual_stop', 'error', 'system_failure')
+ * @param {number} options.stoppedAtCycle - 중단된 사이클 번호
+ * @param {string} options.stoppedAtPhase - 중단된 테스트 페이즈
+ * @param {string} options.errorMessage - 에러 메시지 (에러 발생 시)
+ * @param {Object} options.testSettings - 테스트 설정 정보
+ * @param {Array} options.existingFiles - 이미 생성된 파일들의 경로 배열
+ * @returns {Object} 결과 파일 생성 결과
+ */
+export async function generateInterruptedTestResultFile(options) {
+  const { stopReason, stoppedAtCycle, stoppedAtPhase, errorMessage, testSettings, existingFiles } = options;
+  
+  try {
+    console.log(`[InterruptedTestResult] 📄 중단된 테스트 결과 파일 생성 시작...`);
+    console.log(`[InterruptedTestResult] 중단 원인: ${stopReason}, 사이클: ${stoppedAtCycle}, 페이즈: ${stoppedAtPhase}`);
+    
+    // 중단 원인에 따른 메시지 생성
+    let stopReasonText = '';
+    let stopReasonDetail = '';
+    let stopReasonCode = '';
+    
+    switch (stopReason) {
+      case 'manual_stop':
+        stopReasonText = '사용자에 의한 수동 정지';
+        stopReasonDetail = '테스트 진행 중 사용자가 중지 버튼을 눌러 테스트가 중단되었습니다.';
+        stopReasonCode = 'MS001';
+        break;
+      case 'chamber_read_failure':
+        stopReasonText = '챔버 온도 읽기 실패';
+        stopReasonDetail = '챔버 온도 센서에서 데이터를 읽을 수 없어 테스트가 중단되었습니다.';
+        stopReasonCode = 'CR001';
+        break;
+      case 'error':
+        stopReasonText = '시스템 에러 발생';
+        stopReasonDetail = `테스트 진행 중 시스템 에러가 발생하여 테스트가 중단되었습니다. 에러: ${errorMessage || '알 수 없는 에러'}`;
+        stopReasonCode = 'SE001';
+        break;
+      case 'system_failure':
+        stopReasonText = '시스템 장애';
+        stopReasonDetail = '하드웨어 또는 소프트웨어 장애로 인해 테스트가 중단되었습니다.';
+        stopReasonCode = 'SF001';
+        break;
+      case 'power_switch_off':
+        stopReasonText = '파워스위치 OFF';
+        stopReasonDetail = '클라이언트에서 파워스위치를 OFF로 설정하여 테스트가 중단되었습니다.';
+        stopReasonCode = 'PS001';
+        break;
+      default:
+        stopReasonText = '알 수 없는 원인';
+        stopReasonDetail = '테스트가 예상치 못한 원인으로 중단되었습니다.';
+        stopReasonCode = 'UN001';
+    }
+    
+    // 전역 변수에서 테스트 디렉토리명 사용 (없으면 새로 생성)
+    let dateDirectoryName = currentTestDirectoryName;
+    if (!dateDirectoryName) {
+      dateDirectoryName = getDateDirectoryName();
+      console.log(`[InterruptedTestResult] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${dateDirectoryName}`);
+    }
+    
+    // Data 폴더 경로 설정
+    const dataFolderPath = path.join(process.cwd(), 'Data');
+    const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+    
+    // 날짜별 하위 디렉토리 생성
+    if (!fs.existsSync(dateFolderPath)) {
+      fs.mkdirSync(dateFolderPath, { recursive: true });
+      console.log(`[InterruptedTestResult] 📁 중단 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
+      console.log(`[InterruptedTestResult] 📅 디렉토리명: ${dateDirectoryName} (${new Date().toLocaleString('ko-KR')})`);
+    } else {
+      console.log(`[InterruptedTestResult] 📁 기존 디렉토리 사용: ${dateFolderPath}`);
+    }
+    
+    const filePath = path.join(dateFolderPath, `${getFormattedDateTime()}_Interrupted_Cycle${stoppedAtCycle}_${stopReason.replace('_', '-')}.csv`);
+    
+    let csvContent = '';
+    
+    // 문서 헤더 정보
+    csvContent += `문서번호,K2-AD-110-A241023-001\n`;
+    csvContent += `제품명,${testSettings?.modelName || 'N/A'}\n`;
+    csvContent += `제품번호,${testSettings?.productNumber || 'N/A'}\n`;
+    csvContent += `검사날짜,${new Date().toLocaleDateString('ko-KR')}\n`;
+    csvContent += `검사시간,${new Date().toLocaleTimeString('ko-KR')}\n`;
+    csvContent += `테스트온도,${testSettings?.temperature || 'N/A'}℃\n`;
+    csvContent += `사이클번호,${stoppedAtCycle} (중단됨)\n`;
+    csvContent += `테스트유형,중단된 테스트\n`;
+    csvContent += '\n';
+    
+    // 중단 정보 섹션
+    csvContent += `=== 테스트 중단 정보 ===\n`;
+    csvContent += `중단 원인 코드,${stopReasonCode}\n`;
+    csvContent += `중단 원인,${stopReasonText}\n`;
+    csvContent += `중단 상세,${stopReasonDetail}\n`;
+    csvContent += `중단 시점,사이클 ${stoppedAtCycle}\n`;
+    csvContent += `중단 페이즈,${stoppedAtPhase || 'N/A'}\n`;
+    csvContent += `중단 일시,${new Date().toLocaleString('ko-KR')}\n`;
+    csvContent += `중단 처리 시간,${new Date().toISOString()}\n`;
+    csvContent += `\n`;
+    
+    // 생성된 파일 정보
+    csvContent += `=== 생성된 파일 정보 ===\n`;
+    csvContent += `총 파일 수,${existingFiles?.length || 0}\n`;
+    csvContent += `파일 목록,\n`;
+    
+    if (existingFiles && existingFiles.length > 0) {
+      existingFiles.forEach((filePath, index) => {
+        const fileName = path.basename(filePath);
+        const fileSize = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+        const fileSizeKB = (fileSize / 1024).toFixed(2);
+        csvContent += `  ${index + 1}. ${fileName} (${fileSizeKB} KB)\n`;
+      });
+    } else {
+      csvContent += `  생성된 파일이 없습니다.\n`;
+    }
+    
+    csvContent += `\n`;
+    
+    // 테스트 설정 정보
+    csvContent += `=== 테스트 설정 정보 ===\n`;
+    csvContent += `고온 테스트,${testSettings?.highTempEnabled ? '활성화' : '비활성화'}\n`;
+    csvContent += `저온 테스트,${testSettings?.lowTempEnabled ? '활성화' : '비활성화'}\n`;
+    csvContent += `목표 사이클 수,${testSettings?.totalCycles || 'N/A'}\n`;
+    csvContent += `완료된 사이클 수,${stoppedAtCycle - 1}\n`;
+    csvContent += `완료율,${testSettings?.totalCycles ? ((stoppedAtCycle - 1) / testSettings.totalCycles * 100).toFixed(1) : 'N/A'}%\n`;
+    csvContent += `\n`;
+    
+    // 중단 시점 분석
+    csvContent += `=== 중단 시점 분석 ===\n`;
+    if (stoppedAtPhase) {
+      csvContent += `중단된 테스트 단계,${stoppedAtPhase}\n`;
+      
+      // 페이즈별 상세 정보
+      switch (stoppedAtPhase) {
+        case 'high_temp_waiting':
+          csvContent += `중단 상황,고온 테스트 대기 중 온도 도달 대기\n`;
+          csvContent += `예상 완료 시간,온도 도달 후 ${testSettings?.highTempWaitTime || 'N/A'}분 대기 필요\n`;
+          break;
+        case 'high_temp_test':
+          csvContent += `중단 상황,고온 테스트 진행 중\n`;
+          csvContent += `완료된 테스트,${testSettings?.highTempReadCount || 'N/A'}회 중 일부 완료\n`;
+          break;
+        case 'low_temp_waiting':
+          csvContent += `중단 상황,저온 테스트 대기 중 온도 도달 대기\n`;
+          csvContent += `예상 완료 시간,온도 도달 후 ${testSettings?.lowTempWaitTime || 'N/A'}분 대기 필요\n`;
+          break;
+        case 'low_temp_test':
+          csvContent += `중단 상황,저온 테스트 진행 중\n`;
+          csvContent += `완료된 테스트,${testSettings?.lowTempReadCount || 'N/A'}회 중 일부 완료\n`;
+          break;
+        default:
+          csvContent += `중단 상황,알 수 없는 테스트 단계\n`;
+      }
+    } else {
+      csvContent += `중단 상황,사이클 시작 전 또는 사이클 간 전환 중\n`;
+    }
+    
+    csvContent += `\n`;
+    
+    // 권장 조치사항
+    csvContent += `=== 권장 조치사항 ===\n`;
+    csvContent += `1. 시스템 상태 점검,하드웨어 및 소프트웨어 상태 확인\n`;
+    csvContent += `2. 에러 로그 확인,시스템 로그 및 에러 메시지 분석\n`;
+    csvContent += `3. 테스트 재시작,문제 해결 후 테스트 재시작 권장\n`;
+    csvContent += `4. 데이터 백업,생성된 파일들의 백업 권장\n`;
+    csvContent += `5. 중단 원인 분석,${stopReasonCode} 코드에 따른 상세 분석 수행\n`;
+    csvContent += `6. 예방 조치,유사한 중단 상황 방지를 위한 시스템 점검\n`;
+    csvContent += `\n`;
+    
+    // 파일 저장
+    fs.writeFileSync(filePath, csvContent, 'utf8');
+    
+    console.log(`[InterruptedTestResult] 중단된 테스트 결과 파일 생성 완료: ${filePath}`);
+    console.log(`[InterruptedTestResult] 파일 경로: ${filePath}`);
+    console.log(`[InterruptedTestResult] 중단 원인: ${stopReason}`);
+    
+    return { 
+      success: true, 
+      filename: path.basename(filePath),
+      filePath,
+      stopReason: stopReasonText,
+      stopReasonCode,
+      stoppedAtCycle,
+      stoppedAtPhase,
+      existingFilesCount: existingFiles?.length || 0,
+      timestamp: new Date().toISOString(),
+      directoryPath: dateFolderPath
+    };
+    
+  } catch (error) {
+    console.error('[InterruptedTestResult] 중단된 테스트 결과 파일 생성 실패:', error);
+    return { 
+      success: false, 
+      error: error.message,
+      stopReason: options?.stopReason || 'unknown'
+    };
   }
 }
 
