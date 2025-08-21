@@ -26,7 +26,7 @@ interface VoltageData {
 }
 
 export default function PowerTable({ groups, wsConnection, channelVoltages = [5, 15, -15, 24] }: PowerTableProps) {
-  const [voltageData, setVoltageData] = useState<{ [key: string]: string }>({});
+  const [voltageData, setVoltageData] = useState<{ [key: string]: string | boolean }>({});
   const [chamberTemperature, setChamberTemperature] = useState<number | null>(null);
   const [processLogs, setProcessLogs] = useState<string[]>([]);
   const [currentCycle, setCurrentCycle] = useState<number | null>(null);
@@ -119,6 +119,12 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   const getVoltageDisplay = (device: number, test: number, channel: number) => {
     const key = `device${device}_test${test}_channel${channel}`;
     const voltage = voltageData[key];
+    
+    // boolean 값은 처리 완료 표시이므로 무시
+    if (typeof voltage === 'boolean') {
+      return '-.-';
+    }
+    
     if (voltage && voltage !== '-.-') {
       return voltage;
     }
@@ -155,13 +161,11 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
 
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
-      console.log('🔌 PowerTable: 메시지 수신:', message);
       
       // PowerTable에서 필요한 메시지만 처리
       // 1. 챔버 온도 업데이트
       if (typeof message === 'string' && message.startsWith('[CHAMBER_TEMPERATURE]')) {
         try {
-          console.log('🔌 PowerTable: 챔버 온도 메시지 수신:', message);
           const match = message.match(/\[CHAMBER_TEMPERATURE] (.+)/);
           if (match && match[1]) {
             const temperature = parseFloat(match[1]);
@@ -172,7 +176,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
           }
         } catch (error) {
           console.error('PowerTable: 챔버 온도 파싱 오류:', error);
-          console.error('PowerTable: 원본 메시지:', message);
         }
         return; // 처리 완료 후 종료
       }
@@ -272,33 +275,56 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       // 3. 전압 업데이트 메시지 처리
       if (typeof message === 'string' && message.startsWith('[VOLTAGE_UPDATE]')) {
         try {
-          console.log('🔌 PowerTable: 전압 업데이트 메시지 수신:', message);
           const match = message.match(/\[VOLTAGE_UPDATE\] (.+)/);
           if (match && match[1]) {
             const voltageUpdate: VoltageData = JSON.parse(match[1]);
-            console.log('🔌 PowerTable: 파싱된 전압 데이터:', voltageUpdate);
             
-            // 각 채널의 전압 데이터를 저장
+            // 중복 처리 방지를 위한 키 생성
+            const updateKey = `device${voltageUpdate.device}_test${voltageUpdate.voltageTest}_row${voltageUpdate.rowIndex}`;
+            
+            // 이미 처리된 업데이트인지 확인
+            if (voltageData[`${updateKey}_processed`]) {
+              console.log(`🔌 PowerTable: 중복 전압 업데이트 무시 - ${updateKey}`);
+              return;
+            }
+            
+            // 각 채널의 전압 데이터를 일괄 처리
+            const newVoltageData = { ...voltageData };
+            let updatedCount = 0;
+            
             voltageUpdate.channels.forEach(channel => {
               const key = `device${channel.device}_test${voltageUpdate.voltageTest}_channel${channel.channel}`;
               const displayValue = channel.voltage === 'error' ? '-.-' : 
                 typeof channel.voltage === 'number' ? `${channel.voltage.toFixed(2)}V` : '-.-';
               
-              console.log(`🔌 PowerTable: 채널 데이터 저장 - key: ${key}, value: ${displayValue}`);
-              
-              setVoltageData(prev => {
-                const newData = {
-                  ...prev,
-                  [key]: displayValue
-                };
-                console.log(`🔌 PowerTable: 전압 데이터 업데이트 - 이전: ${Object.keys(prev).length}개, 현재: ${Object.keys(newData).length}개`);
-                return newData;
-              });
+              // 기존 값과 동일한지 확인
+              if (newVoltageData[key] !== displayValue) {
+                newVoltageData[key] = displayValue;
+                updatedCount++;
+              }
             });
+            
+            // 처리 완료 표시
+            newVoltageData[`${updateKey}_processed`] = true;
+            
+            // 실제 변경사항이 있을 때만 상태 업데이트
+            if (updatedCount > 0) {
+              console.log(`🔌 PowerTable: 전압 데이터 일괄 업데이트 - ${updatedCount}개 채널 변경됨`);
+              setVoltageData(newVoltageData);
+            }
+            
+            // 5초 후 처리 완료 표시 제거 (메모리 정리)
+            setTimeout(() => {
+              setVoltageData(prev => {
+                const cleaned = { ...prev };
+                delete cleaned[`${updateKey}_processed`];
+                return cleaned;
+              });
+            }, 5000);
+            
           }
         } catch (error) {
           console.error('PowerTable: 전압 업데이트 파싱 오류:', error);
-          console.error('PowerTable: 원본 메시지:', message);
         }
         return; // 처리 완료 후 종료
       }

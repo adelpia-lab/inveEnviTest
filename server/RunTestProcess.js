@@ -204,15 +204,15 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
       // 검사항목: 전기적 성능 시험 - Line/Load Regulation
       csvContent += `${rowNumber},전기적 성능 시험,Power Supply,${voltageName},최대부하,5V (4.75V~5.25V),,,,,,,,A\n`;
       csvContent += `,Line/Load Regulation,O.S.C,${voltageName},최대부하,15V (14.25V~15.75V),,,,,,,,A\n`;
-      csvContent += `,,전자부하기,${voltageName},최대부하,-15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,전자부하기,${voltageName},최대부하,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
       csvContent += `,,DVM,${voltageName},최대부하,24V (22.80V~25.20V),,,,,,,,A\n`;
       csvContent += `,,<SPEC>,${voltageName},최소부하,5V (4.75V~5.25V),,,,,,,,A\n`;
       csvContent += `,,Line R.: ±1%,${voltageName},최소부하,15V (14.25V~15.75V),,,,,,,,A\n`;
-      csvContent += `,,Load R.: ±5%,${voltageName},최소부하,-15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,Load R.: ±5%,${voltageName},최소부하,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
       csvContent += `,,,${voltageName},최소부하,24V (22.80V~25.20V),,,,,,,,A\n`;
       csvContent += `,,,${voltageName},정격부하,5V (4.75V~5.25V),,,,,,,,A\n`;
       csvContent += `,,,${voltageName},정격부하,15V (14.25V~15.75V),,,,,,,,A\n`;
-      csvContent += `,,,${voltageName},정격부하,-15V (14.25V~15.75V),,,,,,,,A\n`;
+      csvContent += `,,,${voltageName},정격부하,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
       csvContent += `,,,${voltageName},정격부하,24V (22.80V~25.20V),,,,,,,,A\n`;
       
       // 실제 측정 데이터 입력

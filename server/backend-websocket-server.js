@@ -44,15 +44,8 @@ function getMachineRunningStatus() {
 // 머신 실행 상태를 설정하는 함수
 function setMachineRunningStatus(status) {
     machineRunning = status;
-    
-    // 모든 연결된 클라이언트에게 상태 변경 알림
-    wss.clients.forEach(client => {
-        if (client.readyState === 1) { // WebSocket.OPEN
-            const statusMessage = `[POWER_SWITCH] ${status ? 'ON' : 'OFF'} - Machine running: ${status}`;
-            client.send(statusMessage);
-            console.log(`📤 [Backend WS Server] Power switch status broadcast: ${statusMessage}`);
-        }
-    });
+    console.log(`🔌 [Backend WS Server] Machine running status set to: ${status}`);
+    // 상태 변경 알림은 개별 Power Switch 명령 처리에서만 전송하므로 여기서는 제거
 }
 
 // 프로세스 완료 시 클라이언트에게 알림을 보내는 함수
@@ -859,8 +852,6 @@ wss.on('connection', ws => {
         try {
             const decodedMessage = message.toString(); // Buffer를 문자열로 변환
             console.log(`[Backend WS Server] 메시지 수신: ${decodedMessage}`);
-            // 수신한 메시지를 클라이언트에게 다시 에코합니다.
-            ws.send(`[Echo from Backend WS Server] ${decodedMessage}`);
             const decodeWebSocket = convertStringToArray(decodedMessage);
 
             console.log(decodeWebSocket);
@@ -1794,14 +1785,8 @@ wss.on('connection', ws => {
                         
                         // 머신 실행 상태를 true로 설정
                         setMachineRunningStatus(true);
-                        console.log(`🔌 [Backend WS Server] Machine running status set to: true`);
                         
-                        // 클라이언트에게 상태 확인 메시지 전송
-                        const responseMessage = `[POWER_SWITCH] ON - Machine running: true`;
-                        ws.send(responseMessage);
-                        console.log(`✅ [Backend WS Server] Power switch ON confirmation sent`);
-                        
-                        // 전압 데이터 초기화 메시지를 모든 클라이언트에게 브로드캐스트
+                        // 전압 데이터 초기화 메시지를 모든 클라이언트에게 브로드캐스트 (중복 제거)
                         const resetMessage = `[POWER_SWITCH] ON - Voltage data reset`;
                         broadcastToClients(resetMessage);
                         console.log(`🔌 [Backend WS Server] 전압 데이터 초기화 메시지 브로드캐스트`);
@@ -1824,7 +1809,6 @@ wss.on('connection', ws => {
                     } else if (powerState === 'OFF') {
                         // 머신 실행 상태를 false로 설정
                         setMachineRunningStatus(false);
-                        console.log(`🔌 [Backend WS Server] Machine running status set to: false`);
                         
                         // 프로세스 중지 플래그 설정
                         setProcessStopRequested(true);
@@ -1833,7 +1817,7 @@ wss.on('connection', ws => {
                         // 프로세스 중지 완료 후 재실행 준비 상태임을 명시
                         console.log(`🔄 [Backend WS Server] Process stopped - Ready for restart`);
                         
-                        // 클라이언트에게 상태 확인 메시지 전송
+                        // 클라이언트에게 상태 확인 메시지 전송 (중복 제거)
                         const responseMessage = `[POWER_SWITCH] OFF - Machine running: false - Ready for restart`;
                         ws.send(responseMessage);
                         console.log(`✅ [Backend WS Server] Power switch OFF confirmation sent`);
