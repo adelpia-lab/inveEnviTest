@@ -16,7 +16,7 @@ import {
   IconButton,
   TextField
 } from '@mui/material';
-import { Close as CloseIcon, PlayArrow as PlayIcon, Stop as StopIcon } from '@mui/icons-material';
+import { Close as CloseIcon } from '@mui/icons-material';
 
 // 온도 표시 컴포넌트
 function TemperatureDisplay({ temperature }: { temperature: number | null }) {
@@ -142,9 +142,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
     { port: 4, status: 'idle', message: '대기 중', type: 'relay', deviceNumber: 1 }
   ]);
   
-  const [isRunningProcess, setIsRunningProcess] = useState(false);
-  const [processStatus, setProcessStatus] = useState<'idle' | 'running' | 'completed' | 'error'>('idle');
-  const [processMessage, setProcessMessage] = useState('');
+
 
   // WebSocket 메시지 처리
   useEffect(() => {
@@ -336,21 +334,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
         }
       }
       
-      // 프로세스 실행 응답 처리
-      if (data.includes('[SINGLE_PAGE_PROCESS]')) {
-        if (data.includes('STARTED')) {
-          setProcessStatus('running');
-          setProcessMessage('테스트 프로세스가 시작되었습니다...');
-        } else if (data.includes('COMPLETED')) {
-          setProcessStatus('completed');
-          setProcessMessage('테스트 프로세스가 완료되었습니다.');
-          setIsRunningProcess(false);
-        } else if (data.includes('ERROR')) {
-          setProcessStatus('error');
-          setProcessMessage('테스트 프로세스 실행 중 오류가 발생했습니다.');
-          setIsRunningProcess(false);
-        }
-      }
+
     };
 
     wsConnection.addEventListener('message', handleMessage);
@@ -430,34 +414,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
 
 
 
-  // 단일 페이지 프로세스 실행
-  const runSinglePageProcess = () => {
-    if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
-      alert('WebSocket 연결이 없습니다.');
-      return;
-    }
 
-    setIsRunningProcess(true);
-    setProcessStatus('running');
-    setProcessMessage('프로세스를 시작합니다...');
-    
-    const message = `[SINGLE_PAGE_PROCESS] START`;
-    wsConnection.send(message);
-  };
-
-  // 테스트 중지
-  const stopProcess = () => {
-    if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    const message = `[SINGLE_PAGE_PROCESS] STOP`;
-    wsConnection.send(message);
-    
-    setIsRunningProcess(false);
-    setProcessStatus('idle');
-    setProcessMessage('');
-  };
 
   // 포트 테스트 결과 색상 결정
   const getStatusColor = (status: PortTestResult['status']) => {
@@ -469,15 +426,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
     }
   };
 
-  // 프로세스 상태 색상 결정
-  const getProcessStatusColor = () => {
-    switch (processStatus) {
-      case 'running': return 'warning';
-      case 'completed': return 'success';
-      case 'error': return 'error';
-      default: return 'default';
-    }
-  };
+
 
   // Voltage input change handler
   const handleVoltageChange = (portNumber: number, value: string) => {
@@ -766,76 +715,7 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
             </Box>
           </Box>
 
-          {/* 프로세스 실행 섹션 */}
-          <Box>
-            <Typography variant="subtitle1" sx={{ mb: 2, color: '#ffffff' }}>
-              테스트 프로세스 실행
-            </Typography>
-            <Card sx={{ 
-              backgroundColor: '#2a2a2a',
-              border: '1px solid #333',
-              p: 2
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                <Typography variant="body1" sx={{ color: '#ffffff' }}>
-                  runSinglePageProcess()
-                </Typography>
-                <Chip
-                  label={processStatus === 'idle' ? '대기 중' : 
-                         processStatus === 'running' ? '실행 중' :
-                         processStatus === 'completed' ? '완료' : '오류'}
-                  color={getProcessStatusColor()}
-                  size="small"
-                />
-              </Box>
-              
-              {processMessage && (
-                <Alert 
-                  severity={processStatus === 'error' ? 'error' : 
-                           processStatus === 'completed' ? 'success' : 'info'}
-                  sx={{ mb: 2 }}
-                >
-                  {processMessage}
-                </Alert>
-              )}
 
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button
-                  variant="contained"
-                  startIcon={<PlayIcon />}
-                  onClick={runSinglePageProcess}
-                  disabled={isRunningProcess}
-                  sx={{ 
-                    backgroundColor: '#2e7d32',
-                    '&:hover': { backgroundColor: '#1b5e20' },
-                    '&:disabled': { backgroundColor: '#666' }
-                  }}
-                >
-                  프로세스 시작
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<StopIcon />}
-                  onClick={stopProcess}
-                  disabled={!isRunningProcess}
-                  sx={{ 
-                    borderColor: '#f44336',
-                    color: '#f44336',
-                    '&:hover': { 
-                      borderColor: '#d32f2f',
-                      backgroundColor: 'rgba(244, 67, 54, 0.1)'
-                    },
-                    '&:disabled': { 
-                      borderColor: '#666',
-                      color: '#666'
-                    }
-                  }}
-                >
-                  중지
-                </Button>
-              </Box>
-            </Card>
-          </Box>
         </Box>
       </DialogContent>
 
