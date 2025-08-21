@@ -673,8 +673,17 @@ export async function runSinglePageProcess() {
                   } else {
                     // 시뮬레이션 모드에서는 설정된 채널 전압값을 사용하고 약간의 변동 추가
                     const baseVoltage = getTableOption.channelVoltages[j];
-                    const variation = (Math.random() - 0.5) * 0.2; // ±0.1V 변동
-                    voltData = baseVoltage + variation;
+                    let variation = (Math.random() - 0.5) * 0.2; // ±0.1V 변동
+                    
+                    // 채널 3 (-15)의 경우 음수 값이 올바르게 생성되도록 보장
+                    if (j === 2 && baseVoltage < 0) {
+                      // -15 채널의 경우 음수 값 유지
+                      voltData = baseVoltage + variation;
+                      console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 시뮬레이션 -15 채널 전압 생성: ${voltData}V`);
+                    } else {
+                      voltData = baseVoltage + variation;
+                    }
+                    
                     await sleep(100); // 시뮬레이션을 위한 짧은 대기
                   }
                   voltReadSuccess = true;
@@ -693,11 +702,17 @@ export async function runSinglePageProcess() {
               }
                
               // 채널 3 (j=2)의 경우 읽은 전압에 -1.0을 곱함
-              // 시물레이션인 경우는 통과 한다. 
+              // 시뮬레이션인 경우는 통과한다. 
               if( SIMULATION_PROC === false ){
-              if (j === 2 && voltData !== 'error' && typeof voltData === 'number') {
-                voltData = voltData * -1.0;
-                console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 채널 3 전압값에 -1.0 곱함: ${voltData}V`);
+                if (j === 2 && voltData !== 'error' && typeof voltData === 'number') {
+                  voltData = voltData * -1.0;
+                  console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 채널 3 전압값에 -1.0 곱함: ${voltData}V`);
+                }
+              } else {
+                // 시뮬레이션 모드에서도 채널 3 (-15) 처리
+                if (j === 2 && voltData !== 'error' && typeof voltData === 'number') {
+                  // 시뮬레이션에서는 이미 -15 근처의 값이 생성되므로 추가 변환 불필요
+                  console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1}: 시뮬레이션 모드 채널 3 (-15) 처리: ${voltData}V`);
                 }
               }
                
