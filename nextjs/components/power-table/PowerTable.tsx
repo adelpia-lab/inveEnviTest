@@ -25,8 +25,32 @@ interface VoltageData {
   testIndex: number;
 }
 
+// 누적 테이블 데이터 인터페이스
+interface AccumulatedTableData {
+  [deviceKey: string]: {
+    [testKey: string]: {
+      [channelKey: string]: string;
+    };
+  };
+}
+
 export default function PowerTable({ groups, wsConnection, channelVoltages = [5, 15, -15, 24] }: PowerTableProps) {
-  const [voltageData, setVoltageData] = useState<{ [key: string]: string | boolean }>({});
+  // 누적 전압 데이터 상태
+  const [accumulatedVoltageData, setAccumulatedVoltageData] = useState<AccumulatedTableData>({});
+  
+  // 테이블 완성도 추적 상태
+  const [tableCompletionStatus, setTableCompletionStatus] = useState<{
+    totalCells: number;
+    filledCells: number;
+    completionPercentage: number;
+    isComplete: boolean;
+  }>({
+    totalCells: 0,
+    filledCells: 0,
+    completionPercentage: 0,
+    isComplete: false
+  });
+
   const [chamberTemperature, setChamberTemperature] = useState<number | null>(null);
   const [processLogs, setProcessLogs] = useState<string[]>([]);
   const [currentCycle, setCurrentCycle] = useState<number | null>(null);
@@ -43,10 +67,87 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   const [testProgressMessage, setTestProgressMessage] = useState<string>('');
   const [isTestProgressActive, setIsTestProgressActive] = useState<boolean>(false);
   
-  //console.log('🔌 PowerTable: 컴포넌트 렌더링됨');
-  //console.log('🔌 PowerTable: props 확인:', { groups: groups?.length, wsConnection: !!wsConnection, channelVoltages });
-  //console.log('🔌 PowerTable: channelVoltages 상세:', channelVoltages);
-  
+  // 테이블 완성도 계산 함수
+  const calculateTableCompletion = (data: AccumulatedTableData) => {
+    const totalCells = 10 * 3 * 4; // 10개 디바이스 * 3개 테스트 * 4개 채널
+    let filledCells = 0;
+    
+    Object.values(data).forEach(deviceData => {
+      Object.values(deviceData).forEach(testData => {
+        Object.values(testData).forEach(channelData => {
+          if (channelData && channelData !== '-.-') {
+            filledCells++;
+          }
+        });
+      });
+    });
+    
+    // 완성도가 95% 이상이면 완성으로 간주 (일부 오류 데이터 허용)
+    const completionPercentage = (filledCells / totalCells) * 100;
+    const isComplete = completionPercentage >= 95;
+    
+    return {
+      totalCells,
+      filledCells,
+      completionPercentage,
+      isComplete
+    };
+  };
+
+  // 전압 데이터 누적 함수
+  const accumulateVoltageData = (newData: VoltageData) => {
+    setAccumulatedVoltageData(prevData => {
+      const updatedData = { ...prevData };
+      
+      // 디바이스 키가 없으면 생성
+      if (!updatedData[`device${newData.device}`]) {
+        updatedData[`device${newData.device}`] = {};
+      }
+      
+      // 테스트 키가 없으면 생성
+      if (!updatedData[`device${newData.device}`][`test${newData.voltageTest}`]) {
+        updatedData[`device${newData.device}`][`test${newData.voltageTest}`] = {};
+      }
+      
+      // 각 채널 데이터 누적
+      newData.channels.forEach(channel => {
+        const channelKey = `channel${channel.channel}`;
+        const displayValue = channel.voltage === 'error' ? '-.-' : 
+          typeof channel.voltage === 'number' ? `${channel.voltage.toFixed(2)}V` : '-.-';
+        
+        updatedData[`device${newData.device}`][`test${newData.voltageTest}`][channelKey] = displayValue;
+      });
+      
+      return updatedData;
+    });
+  };
+
+  // 테이블 초기화 함수
+  const resetTable = () => {
+    console.log('🔄 PowerTable: 테이블 초기화 실행');
+    setAccumulatedVoltageData({});
+    setTableCompletionStatus({
+      totalCells: 0,
+      filledCells: 0,
+      completionPercentage: 0,
+      isComplete: false
+    });
+  };
+
+  // 테이블 완성도 모니터링
+  useEffect(() => {
+    const completion = calculateTableCompletion(accumulatedVoltageData);
+    setTableCompletionStatus(completion);
+    
+    // 테이블이 완성되면 초기화
+    if (completion.isComplete) {
+      console.log('✅ PowerTable: 테이블 완성! 초기화 실행');
+      setTimeout(() => {
+        resetTable();
+      }, 2000); // 2초 후 초기화
+    }
+  }, [accumulatedVoltageData]);
+
   // channelVoltages 변경 추적
   useEffect(() => {
     //console.log('🔌 PowerTable: channelVoltages 변경됨:', channelVoltages);
@@ -57,7 +158,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     //console.log('🔌 PowerTable: 컴포넌트 마운트 - 초기 상태 강제 설정');
     
     // 모든 상태를 초기값으로 강제 설정
-    setVoltageData({});
+    resetTable();
     setProcessLogs([]);
     setCurrentCycle(null);
     setCycleMessage('');
@@ -71,10 +172,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     
     //console.log('✅ PowerTable: 초기 상태 강제 설정 완료');
   }, [wsConnection]);
-  
-  // 상태 변경 감지를 위한 useEffect
-  useEffect(() => {
-  }, [currentCycle, totalCycles, testPhase, currentTestNumber, totalTestCount, testStatus, cycleMessage, testProgressMessage, isTestProgressActive]);
 
   const group = groups[0]; // 첫 번째 그룹만 사용
   if (!group) return <div className="text-red-400">데이터 없음</div>;
@@ -115,36 +212,18 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     else return 1; // 기본값
   };
 
-  // 전압 데이터 표시 함수
-  const getVoltageDisplay = (device: number, test: number, channel: number) => {
-    const key = `device${device}_test${test}_channel${channel}`;
-    const voltage = voltageData[key];
+  // 누적된 전압 데이터 표시 함수
+  const getAccumulatedVoltageDisplay = (device: number, test: number, channel: number) => {
+    const deviceKey = `device${device}`;
+    const testKey = `test${test}`;
+    const channelKey = `channel${channel}`;
     
-    // boolean 값은 처리 완료 표시이므로 무시
-    if (typeof voltage === 'boolean') {
-      return '-.-';
-    }
+    const voltage = accumulatedVoltageData[deviceKey]?.[testKey]?.[channelKey];
     
     if (voltage && voltage !== '-.-') {
       return voltage;
     }
     return '-.-';
-  };
-
-  // 전압 데이터를 강제로 초기화하는 함수
-  const resetVoltageData = () => {
-    
-    // 모든 상태 완전 초기화 (테스트 진행상황 메시지는 보호)
-    setVoltageData({});
-    setProcessLogs([]);
-    setCurrentCycle(null);
-    setCycleMessage('');
-    setTotalCycles(0);
-    setTestPhase('none');
-    setCurrentTestNumber(0);
-    setTotalTestCount(0);
-    setTestStatus('none');
-    // testProgressMessage와 isTestProgressActive는 보호
   };
 
   // WebSocket 메시지 수신 처리
@@ -157,7 +236,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       console.log('🔌 PowerTable: WebSocket이 아직 열리지 않았습니다. readyState:', wsConnection.readyState);
       return;
     }
-
 
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
@@ -193,13 +271,13 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
             switch (resetData.action) {
               case 'reset':
                 // 일반 초기화 - 모든 상태 초기화 (테스트 진행상황 메시지는 보호)
-                resetVoltageData();
+                resetTable();
                 setCycleMessage(resetData.message || '');
                 break;
                 
               case 'cycle_reset':
                 // 사이클 시작 - 전압 데이터 초기화하고 사이클 정보 설정
-                resetVoltageData();
+                resetTable();
                 setCurrentCycle(resetData.cycle || null);
                 setTotalCycles(resetData.totalCycles || 0);
                 setCycleMessage(resetData.message || '');
@@ -211,7 +289,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 
               case 'single_page_reset':
                 // 단일 페이지 프로세스 - 전압 데이터 초기화
-                resetVoltageData();
+                resetTable();
                 setCurrentCycle(null);
                 setTotalCycles(0);
                 setCycleMessage(resetData.message || '');
@@ -251,7 +329,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
               default:
                 // 알 수 없는 액션 - 기본 초기화 (테스트 진행상황 메시지는 보호)
                 console.log('🔄 PowerTable: 알 수 없는 액션 - 기본 초기화 실행');
-                resetVoltageData();
+                resetTable();
                 setCycleMessage(resetData.message || '');
                 console.log('✅ PowerTable: 기본 초기화 완료');
                 break;
@@ -272,59 +350,71 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 3. 전압 업데이트 메시지 처리
+      // 3. 전압 업데이트 메시지 처리 - 누적 방식으로 변경
       if (typeof message === 'string' && message.startsWith('[VOLTAGE_UPDATE]')) {
         try {
           const match = message.match(/\[VOLTAGE_UPDATE\] (.+)/);
           if (match && match[1]) {
             const voltageUpdate: VoltageData = JSON.parse(match[1]);
             
-            // 중복 처리 방지를 위한 키 생성
-            const updateKey = `device${voltageUpdate.device}_test${voltageUpdate.voltageTest}_row${voltageUpdate.rowIndex}`;
+            console.log(`🔌 PowerTable: 전압 데이터 누적 업데이트 - Device ${voltageUpdate.device}, Test ${voltageUpdate.voltageTest}`);
             
-            // 이미 처리된 업데이트인지 확인
-            if (voltageData[`${updateKey}_processed`]) {
-              console.log(`🔌 PowerTable: 중복 전압 업데이트 무시 - ${updateKey}`);
-              return;
-            }
-            
-            // 각 채널의 전압 데이터를 일괄 처리
-            const newVoltageData = { ...voltageData };
-            let updatedCount = 0;
-            
-            voltageUpdate.channels.forEach(channel => {
-              const key = `device${channel.device}_test${voltageUpdate.voltageTest}_channel${channel.channel}`;
-              const displayValue = channel.voltage === 'error' ? '-.-' : 
-                typeof channel.voltage === 'number' ? `${channel.voltage.toFixed(2)}V` : '-.-';
-              
-              // 기존 값과 동일한지 확인
-              if (newVoltageData[key] !== displayValue) {
-                newVoltageData[key] = displayValue;
-                updatedCount++;
-              }
-            });
-            
-            // 처리 완료 표시
-            newVoltageData[`${updateKey}_processed`] = true;
-            
-            // 실제 변경사항이 있을 때만 상태 업데이트
-            if (updatedCount > 0) {
-              console.log(`🔌 PowerTable: 전압 데이터 일괄 업데이트 - ${updatedCount}개 채널 변경됨`);
-              setVoltageData(newVoltageData);
-            }
-            
-            // 5초 후 처리 완료 표시 제거 (메모리 정리)
-            setTimeout(() => {
-              setVoltageData(prev => {
-                const cleaned = { ...prev };
-                delete cleaned[`${updateKey}_processed`];
-                return cleaned;
-              });
-            }, 5000);
+            // 전압 데이터를 누적 방식으로 처리
+            accumulateVoltageData(voltageUpdate);
             
           }
         } catch (error) {
           console.error('PowerTable: 전압 업데이트 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 3-1. 전체 테이블 완성 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[POWER_TABLE_COMPLETE]')) {
+        try {
+          const match = message.match(/\[POWER_TABLE_COMPLETE\] (.+)/);
+          if (match && match[1]) {
+            const completeTableData = JSON.parse(match[1]);
+            
+            console.log('🔌 PowerTable: 전체 테이블 완성 데이터 수신:', completeTableData);
+            
+            // 서버에서 전달받은 테이블 데이터를 누적 데이터로 변환
+            const newAccumulatedData: AccumulatedTableData = {};
+            
+            if (completeTableData.tableData && Array.isArray(completeTableData.tableData)) {
+              completeTableData.tableData.forEach((deviceData: any[], deviceIndex: number) => {
+                const deviceNumber = deviceIndex + 1;
+                newAccumulatedData[`device${deviceNumber}`] = {};
+                
+                deviceData.forEach((testData: any[], testIndex: number) => {
+                  const testNumber = testIndex + 1;
+                  newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`] = {};
+                  
+                  testData.forEach((channelData: any, channelIndex: number) => {
+                    const channelNumber = channelIndex + 1;
+                    
+                    // channelData가 문자열인 경우 (예: "5.2V|G") 전압값만 추출
+                    let displayValue = '-.-';
+                    if (typeof channelData === 'string' && channelData !== '') {
+                      const voltageMatch = channelData.match(/^([\d.-]+)V/);
+                      if (voltageMatch) {
+                        displayValue = `${voltageMatch[1]}V`;
+                      }
+                    }
+                    
+                    newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`][`channel${channelNumber}`] = displayValue;
+                  });
+                });
+              });
+              
+              // 누적 데이터 업데이트
+              setAccumulatedVoltageData(newAccumulatedData);
+              console.log('✅ PowerTable: 서버 테이블 데이터로 누적 데이터 업데이트 완료');
+            }
+            
+          }
+        } catch (error) {
+          console.error('PowerTable: 전체 테이블 완성 데이터 파싱 오류:', error);
         }
         return; // 처리 완료 후 종료
       }
@@ -462,13 +552,69 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     }
   };
 
+  // 데모 테이블 완성 데이터 생성 함수
+  const generateDemoCompleteTable = () => {
+    const demoTableData = {
+      timestamp: new Date().toISOString(),
+      totalDevices: 10,
+      totalTests: 3,
+      totalChannels: 4,
+      tableData: Array.from({ length: 10 }, (_, deviceIndex) =>
+        Array.from({ length: 3 }, (_, testIndex) =>
+          Array.from({ length: 4 }, (_, channelIndex) => {
+            // 각 채널에 대해 랜덤한 전압값 생성
+            const baseVoltages = [5, 15, -15, 24];
+            const voltage = baseVoltages[channelIndex] + (Math.random() - 0.5) * 0.2;
+            return `${voltage.toFixed(2)}V|G`;
+          })
+        )
+      ),
+      summary: {
+        totalCells: 120,
+        completedCells: 120,
+        status: 'completed'
+      }
+    };
+
+    // 데모 데이터를 누적 데이터로 변환하여 표시
+    const newAccumulatedData: AccumulatedTableData = {};
+    
+    demoTableData.tableData.forEach((deviceData: any[], deviceIndex: number) => {
+      const deviceNumber = deviceIndex + 1;
+      newAccumulatedData[`device${deviceNumber}`] = {};
+      
+      deviceData.forEach((testData: any[], testIndex: number) => {
+        const testNumber = testIndex + 1;
+        newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`] = {};
+        
+        testData.forEach((channelData: any, channelIndex: number) => {
+          const channelNumber = channelIndex + 1;
+          
+          // channelData에서 전압값 추출
+          let displayValue = '-.-';
+          if (typeof channelData === 'string' && channelData !== '') {
+            const voltageMatch = channelData.match(/^([\d.-]+)V/);
+            if (voltageMatch) {
+              displayValue = `${voltageMatch[1]}V`;
+            }
+          }
+          
+          newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`][`channel${channelNumber}`] = displayValue;
+        });
+      });
+    });
+    
+    setAccumulatedVoltageData(newAccumulatedData);
+    console.log('🧪 PowerTable: 데모 테이블 데이터 생성 완료');
+  };
+
   return (
     <div className="w-full h-full bg-[#181A20] rounded-lg shadow-md p-2" style={{ 
       width: '100%', 
       height: '100%',
       display: 'grid',
-      gridTemplateRows: 'auto 1fr',
-      gridTemplateAreas: '"header" "table"',
+      gridTemplateRows: 'auto auto 1fr',
+      gridTemplateAreas: '"header" "progress" "table"',
       gap: '10px'
     }}>
       {/* 상단 정보 영역 - 그리드 영역 */}
@@ -549,6 +695,114 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
           </div>
         </div>
       </div>
+
+      {/* 테이블 진행 상황 표시 영역 */}
+      <div className="px-2" style={{ 
+        gridArea: 'progress',
+        backgroundColor: '#23242a',
+        borderRadius: '8px',
+        padding: '10px'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontSize: '16px',
+          color: '#E5E7EB'
+        }}>
+          <span>📊 테이블 진행 상황:</span>
+          <span>
+            {tableCompletionStatus.filledCells} / {tableCompletionStatus.totalCells} 셀 완성
+            <span style={{ color: '#60A5FA', marginLeft: '10px' }}>
+              ({tableCompletionStatus.completionPercentage?.toFixed(1)}%)
+            </span>
+            {tableCompletionStatus.isComplete && (
+              <span style={{ color: '#10B981', marginLeft: '10px' }}>✅ 완성! 2초 후 초기화</span>
+            )}
+          </span>
+        </div>
+        {/* 진행률 바 */}
+        <div style={{
+          width: '100%',
+          height: '8px',
+          backgroundColor: '#374151',
+          borderRadius: '4px',
+          marginTop: '8px',
+          overflow: 'hidden'
+        }}>
+          <div style={{
+            width: `${(tableCompletionStatus.filledCells / tableCompletionStatus.totalCells) * 100}%`,
+            height: '100%',
+            backgroundColor: tableCompletionStatus.isComplete ? '#10B981' : '#3B82F6',
+            transition: 'width 0.3s ease'
+          }} />
+        </div>
+        
+        {/* 테스트 버튼들 */}
+        <div style={{
+          display: 'flex',
+          gap: '10px',
+          marginTop: '10px',
+          justifyContent: 'center'
+        }}>
+          <button
+            onClick={sendTestMessage}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#3B82F6',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            🧪 테스트 메시지
+          </button>
+          <button
+            onClick={sendVoltageTestMessage}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#10B981',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            ⚡ 전압 테스트
+          </button>
+          <button
+            onClick={generateDemoCompleteTable}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#F59E0B',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            🎯 데모 테이블
+          </button>
+          <button
+            onClick={resetTable}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#EF4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            🔄 테이블 초기화
+          </button>
+        </div>
+      </div>
       
       {/* 테이블 컨테이너 - 그리드 영역 */}
       <div className="overflow-x-auto" style={{ 
@@ -575,7 +829,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>{row.input}</td>
                 <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>{getOutputVoltageDisplay(row.output)}</td>
                 {row.devs.map((v, i) => {
-                  // 실시간 전압 데이터가 있으면 표시, 없으면 기본값 사용
+                  // 누적된 전압 데이터를 사용하여 표시
                   const deviceNumber = i + 1; // 디바이스 번호 (1-10)
                   
                   // 현재 행의 출력값을 기반으로 채널 번호 결정
@@ -587,11 +841,11 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                   else if (row.input === '+18') testNumber = 2;  // 두 번째: 18V
                   else if (row.input === '+30') testNumber = 3;  // 세 번째: 30V
                   
-                  const realTimeVoltage = getVoltageDisplay(deviceNumber, testNumber, channelNumber);
+                  const accumulatedVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, channelNumber);
                   
                   return (
                     <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>
-                      {realTimeVoltage !== '-.-' ? realTimeVoltage : '-.-'}
+                      {accumulatedVoltage}
                     </td>
                   );
                 })}
@@ -603,4 +857,4 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       </div>
     </div>
   );
-} 
+}
