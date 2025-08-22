@@ -334,8 +334,10 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
           }
           
           if (voltageValue && voltageValue !== "-.-") {
+            // 전압값을 소수점 2자리로 자르기
+            const truncatedVoltageValue = truncateVoltageToTwoDecimals(voltageValue);
             // "5.2V|G" 형식에서 전압값만 추출
-            const voltagePart = voltageValue.split('|')[0];
+            const voltagePart = truncatedVoltageValue.split('|')[0];
             csvContent += `${voltagePart},`;
           } else {
             csvContent += `-,`;
@@ -508,8 +510,10 @@ function combineTestResults(testResults) {
         testResults.forEach(result => {
           const voltageValue = result.reportTable[0].voltagTable[k][i][j];
           if (voltageValue && voltageValue !== "-.-") {
-            const voltagePart = voltageValue.split('|')[0];
-            const comparisonPart = voltageValue.split('|')[1];
+            // 전압값을 소수점 2자리로 자르기
+            const truncatedVoltageValue = truncateVoltageToTwoDecimals(voltageValue);
+            const voltagePart = truncatedVoltageValue.split('|')[0];
+            const comparisonPart = truncatedVoltageValue.split('|')[1];
             
             // 전압값 추출 (V 제거)
             const voltage = parseFloat(voltagePart.replace('V', ''));
@@ -527,7 +531,8 @@ function combineTestResults(testResults) {
         
         // 평균 계산 및 결과 저장
         if (validCount > 0) {
-          const averageVoltage = (totalVoltage / validCount).toFixed(2);
+          // 소수점 2자리로 자르기 (3자리 이하 버림)
+          const averageVoltage = Math.floor((totalVoltage / validCount) * 100) / 100;
           const averageGood = totalGood / totalTests;
           const comparisonResult = averageGood >= 0.5 ? 'G' : 'N'; // 50% 이상이 Good이면 Good
           
@@ -918,7 +923,9 @@ export async function runSinglePageProcess() {
               const comparisonResult = voltData === 'error' ? 'N' : compareVoltage(voltData, expectedVoltage);
                
               // 전압값과 비교 결과를 함께 저장 (예: "5.2V|G" 또는 "5.2V|N")
-              const voltageWithComparison = voltData === 'error' ? 'error|N' : `${voltData}V|${comparisonResult}`;
+              // 전압값을 소수점 2자리로 자르기 (3자리 이하 버림)
+              const truncatedVoltData = voltData === 'error' ? voltData : Math.floor(voltData * 100) / 100;
+              const voltageWithComparison = voltData === 'error' ? 'error|N' : `${truncatedVoltData}V|${comparisonResult}`;
                
               // 기존 voltagTable에도 저장 (호환성 유지)
               currentTable.reportTable[0].voltagTable[k][i][j] = voltageWithComparison;
@@ -2782,7 +2789,7 @@ export function broadcastTableData() {
         device.tests.map(test => 
           test.channels.map(channel => {
             if (channel.status === 'completed' && channel.voltage !== null) {
-              return `${channel.voltage.toFixed(2)}V`;
+              return truncateNumericVoltageToTwoDecimals(channel.voltage);
             } else {
               return '-.-';
             }
@@ -2851,6 +2858,54 @@ export function resetTableData() {
   
   // 테이블 초기화 시에는 클라이언트에 전송하지 않음 - 실제 데이터가 있을 때만 전송
   // broadcastTableData(); // 제거: 초기화 시 불필요한 전송 방지
+}
+
+/**
+ * 전압값을 소수점 2자리로 자르는 함수 (3자리 이하 버림)
+ * @param {string} voltageValue - "5.2V|G" 형식의 전압값 문자열
+ * @returns {string} 소수점 2자리로 자른 전압값 문자열
+ */
+function truncateVoltageToTwoDecimals(voltageValue) {
+  if (!voltageValue || voltageValue === "-.-") {
+    return voltageValue;
+  }
+  
+  // "5.2V|G" 형식에서 전압값만 추출
+  const parts = voltageValue.split('|');
+  if (parts.length < 2) {
+    return voltageValue; // 형식이 맞지 않으면 원본 반환
+  }
+  
+  const voltagePart = parts[0];
+  const comparisonPart = parts[1];
+  
+  // V 제거하고 숫자로 변환
+  const voltage = parseFloat(voltagePart.replace('V', ''));
+  if (isNaN(voltage)) {
+    return voltageValue; // 숫자로 변환할 수 없으면 원본 반환
+  }
+  
+  // 소수점 2자리로 자르기 (3자리 이하 버림)
+  const truncatedVoltage = Math.floor(voltage * 100) / 100;
+  
+  // 원본 형식으로 반환
+  return `${truncatedVoltage}V|${comparisonPart}`;
+}
+
+/**
+ * 숫자 전압값을 소수점 2자리로 자르는 함수 (3자리 이하 버림)
+ * @param {number} voltage - 숫자 전압값
+ * @returns {string} 소수점 2자리로 자른 전압값 문자열 (V 포함)
+ */
+function truncateNumericVoltageToTwoDecimals(voltage) {
+  if (typeof voltage !== 'number' || isNaN(voltage)) {
+    return '-.-';
+  }
+  
+  // 소수점 2자리로 자르기 (3자리 이하 버림)
+  const truncatedVoltage = Math.floor(voltage * 100) / 100;
+  
+  return `${truncatedVoltage}V`;
 }
 
 
