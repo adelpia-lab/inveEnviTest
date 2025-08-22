@@ -1011,8 +1011,8 @@ wss.on('connection', ws => {
                         updateTableData(deviceNumber, testNumber, channelNumber, voltage, status || 'completed');
                         console.log(`✅ [Backend WS Server] Table data updated: Device ${deviceNumber}, Test ${testNumber}, Channel ${channelNumber}: ${voltage}V`);
                         
-                        // 업데이트된 테이블 데이터를 모든 클라이언트에게 전송
-                        broadcastTableData();
+                        // 수동 업데이트 시에는 즉시 전송하지 않음 - 자동 테스트 프로세스에서 처리
+                        // broadcastTableData(); // 제거: 자동 테스트와 중복 방지
                         
                         ws.send(`Table data updated successfully: Device ${deviceNumber}, Test ${testNumber}, Channel ${channelNumber}: ${voltage}V`);
                     } else {

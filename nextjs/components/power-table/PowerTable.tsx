@@ -360,14 +360,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       
       const voltage = accumulatedVoltageData[deviceKey]?.[testKey]?.[channelKey];
       
-      // 디버깅을 위한 로그 (특히 -15 채널에 대해)
-      if (process.env.NODE_ENV === 'development' && channel === 3) {
-        console.log(`PowerTable: getAccumulatedVoltageDisplay - Device: ${device}, Test: ${test}, Channel: ${channel}`);
-        console.log(`PowerTable: Keys - deviceKey: ${deviceKey}, testKey: ${testKey}, channelKey: ${channelKey}`);
-        console.log(`PowerTable: Found voltage: ${voltage}`);
-        console.log(`PowerTable: Full device data:`, accumulatedVoltageData[deviceKey]);
-      }
-      
       // 데이터가 없거나 비어있으면 기본값 반환
       if (!voltage || voltage === '' || voltage === '-.-') {
         return '-.-';
@@ -403,6 +395,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       console.log('🔌 PowerTable: WebSocket이 아직 열리지 않았습니다. readyState:', wsConnection.readyState);
       return;
     }
+
+    // 마지막으로 받은 테이블 데이터를 추적하여 중복 처리 방지
+    let lastTableDataHash = '';
 
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
@@ -517,20 +512,57 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 3. 새로운 테이블 업데이트 메시지 처리 - 일괄 갱신 방식
-      if (typeof message === 'string' && message.startsWith('[POWER_TABLE_UPDATE]')) {
+      // 3. 테이블 업데이트 메시지 처리 - 통합된 방식으로 변경
+      if (typeof message === 'string' && (
+        message.startsWith('[POWER_TABLE_UPDATE]') || 
+        message.startsWith('[TABLE_DATA_RESPONSE]') || 
+        message.startsWith('[POWER_TABLE_COMPLETE]')
+      )) {
         try {
+          let tableData: any;
+          let messageType = '';
+          
+          // 메시지 타입에 따른 파싱
+          if (message.startsWith('[POWER_TABLE_UPDATE]')) {
           const match = message.match(/\[POWER_TABLE_UPDATE\] (.+)/);
           if (match && match[1]) {
-            const tableUpdateData = JSON.parse(match[1]);
+              tableData = JSON.parse(match[1]);
+              messageType = 'POWER_TABLE_UPDATE';
+            }
+          } else if (message.startsWith('[TABLE_DATA_RESPONSE]')) {
+            const match = message.match(/\[TABLE_DATA_RESPONSE\] (.+)/);
+            if (match && match[1]) {
+              tableData = JSON.parse(match[1]);
+              messageType = 'TABLE_DATA_RESPONSE';
+            }
+          } else if (message.startsWith('[POWER_TABLE_COMPLETE]')) {
+            const match = message.match(/\[POWER_TABLE_COMPLETE\] (.+)/);
+            if (match && match[1]) {
+              tableData = JSON.parse(match[1]);
+              messageType = 'POWER_TABLE_COMPLETE';
+            }
+          }
+          
+          if (tableData) {
+            // 중복 데이터 처리 방지: 데이터 해시 생성 및 비교
+            const currentDataHash = JSON.stringify(tableData);
+            if (currentDataHash === lastTableDataHash) {
+              console.log(`🔌 PowerTable: ${messageType} 중복 데이터 무시`);
+              return;
+            }
             
-            console.log('🔌 PowerTable: 테이블 업데이트 데이터 수신:', tableUpdateData);
+            // 새로운 데이터인 경우 해시 업데이트
+            lastTableDataHash = currentDataHash;
+            
+            //console.log(`🔌 PowerTable: ${messageType} 데이터 수신:`, tableData);
             
             // 서버에서 전달받은 테이블 데이터를 누적 데이터로 변환
             const newAccumulatedData: AccumulatedTableData = {};
             
-            if (tableUpdateData.tableData && Array.isArray(tableUpdateData.tableData)) {
-              tableUpdateData.tableData.forEach((deviceData: any[], deviceIndex: number) => {
+            // 메시지 타입에 따른 데이터 구조 처리
+            if (messageType === 'POWER_TABLE_UPDATE' && tableData.tableData && Array.isArray(tableData.tableData)) {
+              // POWER_TABLE_UPDATE 형식 처리
+              tableData.tableData.forEach((deviceData: any[], deviceIndex: number) => {
                 const deviceNumber = deviceIndex + 1;
                 newAccumulatedData[`device${deviceNumber}`] = {};
                 
@@ -557,62 +589,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                   });
                 });
               });
-              
-              // 누적 데이터 업데이트
-              setAccumulatedVoltageData(newAccumulatedData);
-              console.log('✅ PowerTable: 서버 테이블 데이터로 누적 데이터 업데이트 완료');
-              
-              // 테이블 완성도 정보 업데이트
-              if (tableUpdateData.completionPercentage !== undefined) {
-                setTableCompletionStatus({
-                  totalCells: tableUpdateData.totalCells || 120,
-                  filledCells: tableUpdateData.completedCells || 0,
-                  completionPercentage: tableUpdateData.completionPercentage || 0,
-                  isComplete: tableUpdateData.completionPercentage >= 95
-                });
-              }
-            }
-            
-          }
-        } catch (error) {
-          console.error('PowerTable: 테이블 업데이트 데이터 파싱 오류:', error);
-        }
-        return; // 처리 완료 후 종료
-      }
-      
-      // 4. 전압 업데이트 메시지 처리 - 누적 방식으로 변경 (기존 호환성 유지)
-      if (typeof message === 'string' && message.startsWith('[VOLTAGE_UPDATE]')) {
-        try {
-          const match = message.match(/\[VOLTAGE_UPDATE\] (.+)/);
-          if (match && match[1]) {
-            const voltageUpdate: VoltageData = JSON.parse(match[1]);
-            
-            console.log(`🔌 PowerTable: 전압 데이터 누적 업데이트 - Device ${voltageUpdate.device}, Test ${voltageUpdate.voltageTest}`);
-            
-            // 전압 데이터를 누적 방식으로 처리
-            accumulateVoltageData(voltageUpdate);
-            
-          }
-        } catch (error) {
-          console.error('PowerTable: 전압 업데이트 파싱 오류:', error);
-        }
-        return; // 처리 완료 후 종료
-      }
-      
-      // 5. 테이블 데이터 응답 메시지 처리
-      if (typeof message === 'string' && message.startsWith('[TABLE_DATA_RESPONSE]')) {
-        try {
-          const match = message.match(/\[TABLE_DATA_RESPONSE\] (.+)/);
-          if (match && match[1]) {
-            const tableResponseData = JSON.parse(match[1]);
-            
-            console.log('🔌 PowerTable: 테이블 데이터 응답 수신:', tableResponseData);
-            
-            // 서버에서 전달받은 테이블 데이터를 누적 데이터로 변환
-            const newAccumulatedData: AccumulatedTableData = {};
-            
-            if (tableResponseData.devices && Array.isArray(tableResponseData.devices)) {
-              tableResponseData.devices.forEach((device: any) => {
+            } else if (messageType === 'TABLE_DATA_RESPONSE' && tableData.devices && Array.isArray(tableData.devices)) {
+              // TABLE_DATA_RESPONSE 형식 처리
+              tableData.devices.forEach((device: any) => {
                 const deviceNumber = device.deviceNumber;
                 newAccumulatedData[`device${deviceNumber}`] = {};
                 
@@ -632,33 +611,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                   });
                 });
               });
-              
-              // 누적 데이터 업데이트
-              setAccumulatedVoltageData(newAccumulatedData);
-              console.log('✅ PowerTable: 서버 테이블 데이터 응답으로 누적 데이터 업데이트 완료');
-            }
-            
-          }
-        } catch (error) {
-          console.error('PowerTable: 테이블 데이터 응답 파싱 오류:', error);
-        }
-        return; // 처리 완료 후 종료
-      }
-      
-      // 6. 전체 테이블 완성 메시지 처리 - 수정됨
-      if (typeof message === 'string' && message.startsWith('[POWER_TABLE_COMPLETE]')) {
-        try {
-          const match = message.match(/\[POWER_TABLE_COMPLETE\] (.+)/);
-          if (match && match[1]) {
-            const completeTableData = JSON.parse(match[1]);
-            
-            console.log('🔌 PowerTable: 전체 테이블 완성 데이터 수신:', completeTableData);
-            
-            // 서버에서 전달받은 테이블 데이터를 누적 데이터로 변환
-            const newAccumulatedData: AccumulatedTableData = {};
-            
-            if (completeTableData.tableData && Array.isArray(completeTableData.tableData)) {
-              completeTableData.tableData.forEach((deviceData: any[], deviceIndex: number) => {
+            } else if (messageType === 'POWER_TABLE_COMPLETE' && tableData.tableData && Array.isArray(tableData.tableData)) {
+              // POWER_TABLE_COMPLETE 형식 처리
+              tableData.tableData.forEach((deviceData: any[], deviceIndex: number) => {
                 const deviceNumber = deviceIndex + 1;
                 newAccumulatedData[`device${deviceNumber}`] = {};
                 
@@ -682,105 +637,58 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                   });
                 });
               });
+            }
               
               // 누적 데이터 업데이트
               setAccumulatedVoltageData(newAccumulatedData);
-              console.log('✅ PowerTable: 서버 테이블 데이터로 누적 데이터 업데이트 완료');
-              
-              // 테이블 완성 메시지 수신 후 자동 초기화 방지
-              setIsTableStable(false);
-              setTimeout(() => {
-                setIsTableStable(true);
-              }, 3000);
+            console.log(`✅ PowerTable: ${messageType}으로 누적 데이터 업데이트 완료`);
+            
+            // 테이블 완성도 정보 업데이트 (POWER_TABLE_UPDATE와 POWER_TABLE_COMPLETE에서만)
+            if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
+                tableData.completionPercentage !== undefined) {
+              setTableCompletionStatus({
+                totalCells: tableData.totalCells || 120,
+                filledCells: tableData.completedCells || 0,
+                completionPercentage: tableData.completionPercentage || 0,
+                isComplete: tableData.completionPercentage >= 95
+              });
             }
+          }
+          
+        } catch (error) {
+          console.error('PowerTable: 테이블 데이터 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 4. 전압 업데이트 메시지 처리 - 누적 방식으로 변경 (기존 호환성 유지)
+      if (typeof message === 'string' && message.startsWith('[VOLTAGE_UPDATE]')) {
+        try {
+          const match = message.match(/\[VOLTAGE_UPDATE\] (.+)/);
+          if (match && match[1]) {
+            const voltageUpdate: VoltageData = JSON.parse(match[1]);
+            
+            console.log(`🔌 PowerTable: 전압 데이터 누적 업데이트 - Device ${voltageUpdate.device}, Test ${voltageUpdate.voltageTest}`);
+            
+            // 전압 데이터를 누적 방식으로 처리
+            accumulateVoltageData(voltageUpdate);
             
           }
         } catch (error) {
-          console.error('PowerTable: 전체 테이블 완성 데이터 파싱 오류:', error);
+          console.error('PowerTable: 전압 업데이트 파싱 오류:', error);
         }
         return; // 처리 완료 후 종료
       }
       
-      // 6. 프로세스 로그 메시지 처리
-      if (typeof message === 'string' && message.startsWith('[PROCESS_LOG]')) {
-        try {
-          console.log('🔌 PowerTable: 프로세스 로그 메시지 수신:', message);
-          const match = message.match(/\[PROCESS_LOG\] (.+)/);
-          if (match && match[1]) {
-            const logMessage = match[1];
-            console.log('🔌 PowerTable: 로그 메시지 추가:', logMessage);
-            setProcessLogs(prev => {
-              const newLogs = [...prev, logMessage];
-              return newLogs.slice(-5); // 최대 5개의 로그만 유지
-            });
-          }
-        } catch (error) {
-          console.error('PowerTable: 프로세스 로그 파싱 오류:', error);
-          console.error('PowerTable: 원본 메시지:', message);
-        }
-        return; // 처리 완료 후 종료
-      }
-      
-      // 7. Power Switch 상태 메시지 처리
-      if (typeof message === 'string' && message.startsWith('[POWER_SWITCH]')) {
-        console.log('🔌 PowerTable: Power Switch 메시지 수신 (무시):', message);
-        return; // 처리 완료 후 종료
-      }
-      
-      // 8. 시뮬레이션 상태 메시지 처리
-      if (typeof message === 'string' && message.startsWith('[SIMULATION_STATUS]')) {
-        console.log('🔌 PowerTable: 시뮬레이션 상태 메시지 수신 (무시):', message);
-        return; // 처리 완료 후 종료
-      }
-      
-      // 9. 기타 초기화 메시지들은 무시 (PowerTable과 관련없음)
-      if (typeof message === 'string' && (
-        message.startsWith('Initial high temp settings') ||
-        message.startsWith('Initial low temp settings') ||
-        message.startsWith('Initial product input') ||
-        message.startsWith('Initial USB port settings') ||
-        message.startsWith('Initial out volt settings') ||
-        message.startsWith('Initial channel voltages') ||
-        message.startsWith('Initial getTableOption') ||
-        message.startsWith('Initial device states') ||
-        message.startsWith('Delay settings') ||
-        message.startsWith('Device states saved') ||
-        message.includes('Echo from Backend WS Server')
-      )) {
-        console.log('🔌 PowerTable: 관련없는 초기화 메시지 무시:', message.substring(0, 50) + '...');
-        return; // 처리 완료 후 종료
-      }
-      
-      // 10. 처리되지 않은 메시지는 로그로만 기록
-      console.log('🔌 PowerTable: 처리되지 않은 메시지 (무시):', message);
+      // 5. 기타 메시지는 무시 (PowerTable에서 처리하지 않음)
     };
 
     wsConnection.addEventListener('message', handleMessage);
     
-    // 연결 상태 변경 이벤트 리스너 추가
-    const handleOpen = () => {
-      console.log('🔌 PowerTable: WebSocket 연결됨');
-    };
-    
-    const handleClose = () => {
-      console.log('🔌 PowerTable: WebSocket 연결 끊어짐');
-    };
-    
-    const handleError = (error) => {
-      console.error('🔌 PowerTable: WebSocket 오류:', error);
-    };
-    
-    wsConnection.addEventListener('open', handleOpen);
-    wsConnection.addEventListener('close', handleClose);
-    wsConnection.addEventListener('error', handleError);
-    
     return () => {
       wsConnection.removeEventListener('message', handleMessage);
-      wsConnection.removeEventListener('open', handleOpen);
-      wsConnection.removeEventListener('close', handleClose);
-      wsConnection.removeEventListener('error', handleError);
     };
-  }, [wsConnection]);
+  }, [wsConnection, accumulateVoltageData]);
 
   // 초기화 메시지 타입에 따른 텍스트 반환 함수
   const getActionTypeText = (message: string) => {
@@ -1137,17 +1045,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                     else if (row.input === '+30') testNumber = 3;  // 세 번째: 30V
                     
                     const accumulatedVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, channelNumber);
-                    
-                    // 디버깅을 위한 로그 (개발 중에만 사용)
-                    if (process.env.NODE_ENV === 'development' && (deviceNumber <= 3 || channelNumber === 3)) {
-                      console.log(`PowerTable: Device ${deviceNumber}, Test ${testNumber}, Channel ${channelNumber}, Output: ${row.output}, Input: ${row.input}, Voltage: ${accumulatedVoltage}`);
-                      
-                      // -15 채널에 대한 추가 디버깅
-                      if (channelNumber === 3) {
-                        console.log(`PowerTable: -15 채널 디버깅 - Device ${deviceNumber}, Test ${testNumber}`);
-                        console.log(`PowerTable: -15 채널 누적 데이터:`, accumulatedVoltageData[`device${deviceNumber}`]?.[`test${testNumber}`]?.[`channel${channelNumber}`]);
-                      }
-                    }
                     
                     return (
                       <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>

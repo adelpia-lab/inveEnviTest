@@ -189,6 +189,40 @@ function getDateDirectoryName() {
  */
 function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0], cycleNumber = 1, testType = '') {
   try {
+    // 데이터 유효성 검사 강화
+    if (!data) {
+      console.error('[SaveData] ❌ 데이터가 undefined입니다.');
+      return { success: false, error: '데이터가 undefined입니다.' };
+    }
+    
+    if (!data.reportTable || !Array.isArray(data.reportTable) || data.reportTable.length === 0) {
+      console.error('[SaveData] ❌ reportTable이 유효하지 않습니다.');
+      return { success: false, error: 'reportTable이 유효하지 않습니다.' };
+    }
+    
+    if (!data.reportTable[0] || !data.reportTable[0].voltagTable) {
+      console.error('[SaveData] ❌ voltagTable이 유효하지 않습니다.');
+      return { success: false, error: 'voltagTable이 유효하지 않습니다.' };
+    }
+    
+    // ProductNumber 배열 검증 및 기본값 설정
+    if (!data.ProductNumber || !Array.isArray(data.ProductNumber)) {
+      console.warn('[SaveData] ⚠️ ProductNumber가 유효하지 않아 기본값을 사용합니다.');
+      data.ProductNumber = ['Unknown'];
+    }
+    
+    // modelName 검증 및 기본값 설정
+    if (!data.modelName) {
+      console.warn('[SaveData] ⚠️ modelName이 없어 기본값을 사용합니다.');
+      data.modelName = 'Unknown Model';
+    }
+    
+    // inputVolt 검증 및 기본값 설정
+    if (!data.inputVolt || !Array.isArray(data.inputVolt)) {
+      console.warn('[SaveData] ⚠️ inputVolt가 유효하지 않아 기본값을 사용합니다.');
+      data.inputVolt = [18, 24, 30];
+    }
+    
     const filename = `${getFormattedDateTime()}_Cycle${cycleNumber}_${testType}.csv`;
     
     // 절대 경로로 Data 폴더 설정
@@ -285,7 +319,20 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
         csvContent += `${channelName} (${expectedVoltage}V),`;
         
         for (let i = 0; i < 10; i++) {
-          const voltageValue = reportData.voltagTable[k][i][j] || '';
+          // voltagTable 접근 시 안전한 검증
+          let voltageValue = '';
+          try {
+            if (reportData.voltagTable && 
+                reportData.voltagTable[k] && 
+                reportData.voltagTable[k][i] && 
+                reportData.voltagTable[k][i][j] !== undefined) {
+              voltageValue = reportData.voltagTable[k][i][j];
+            }
+          } catch (accessError) {
+            console.warn(`[SaveData] ⚠️ voltagTable[${k}][${i}][${j}] 접근 오류:`, accessError.message);
+            voltageValue = '';
+          }
+          
           if (voltageValue && voltageValue !== "-.-") {
             // "5.2V|G" 형식에서 전압값만 추출
             const voltagePart = voltageValue.split('|')[0];
@@ -307,7 +354,20 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
         csvContent += `${channelName},`;
         
         for (let i = 0; i < 10; i++) {
-          const voltageValue = reportData.voltagTable[k][i][j] || '';
+          // voltagTable 접근 시 안전한 검증
+          let voltageValue = '';
+          try {
+            if (reportData.voltagTable && 
+                reportData.voltagTable[k] && 
+                reportData.voltagTable[k][i] && 
+                reportData.voltagTable[k][i][j] !== undefined) {
+              voltageValue = reportData.voltagTable[k][i][j];
+            }
+          } catch (accessError) {
+            console.warn(`[SaveData] ⚠️ voltagTable[${k}][${i}][${j}] 접근 오류:`, accessError.message);
+            voltageValue = '';
+          }
+          
           if (voltageValue && voltageValue !== "-.-") {
             // "5.2V|G" 형식에서 비교 결과만 추출
             const comparisonResult = voltageValue.includes('|') ? voltageValue.split('|')[1] : '';
@@ -331,7 +391,20 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
     for (let k = 0; k < 3; k++) {
       for (let i = 0; i < 10; i++) {
         for (let j = 0; j < 4; j++) {
-          const voltageValue = reportData.voltagTable[k][i][j] || '';
+          // voltagTable 접근 시 안전한 검증
+          let voltageValue = '';
+          try {
+            if (reportData.voltagTable && 
+                reportData.voltagTable[k] && 
+                reportData.voltagTable[k][i] && 
+                reportData.voltagTable[k][i][j] !== undefined) {
+              voltageValue = reportData.voltagTable[k][i][j];
+            }
+          } catch (accessError) {
+            console.warn(`[SaveData] ⚠️ 통계 계산 중 voltagTable[${k}][${i}][${j}] 접근 오류:`, accessError.message);
+            voltageValue = '';
+          }
+          
           if (voltageValue && voltageValue !== "-.-") {
             totalTests++;
             if (voltageValue.includes('|G')) {
@@ -512,6 +585,43 @@ export async function runSinglePageProcess() {
       };
     }
     
+    // 디렉토리 공유 확인 및 설정
+    if (!currentTestDirectoryName) {
+      // runNextTankEnviTestProcess에서 생성된 디렉토리가 없으면 새로 생성
+      currentTestDirectoryName = getDateDirectoryName();
+      console.log(`[SinglePageProcess] 📁 전역 디렉토리명이 없어 새로 생성: ${currentTestDirectoryName}`);
+      
+      // 테스트 결과 저장을 위한 디렉토리 생성
+      const dataFolderPath = path.join(process.cwd(), 'Data');
+      if (!fs.existsSync(dataFolderPath)) {
+        fs.mkdirSync(dataFolderPath, { recursive: true });
+        console.log(`[SinglePageProcess] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
+      }
+      
+      const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
+      if (!fs.existsSync(dateFolderPath)) {
+        fs.mkdirSync(dateFolderPath, { recursive: true });
+        console.log(`[SinglePageProcess] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
+        
+        // 클라이언트에게 디렉토리 생성 알림 전송
+        if (globalWss) {
+          const dirCreateMessage = `[DIRECTORY_CREATED] ${currentTestDirectoryName}`;
+          let sentCount = 0;
+          globalWss.clients.forEach(client => {
+            if (client.readyState === 1) { // WebSocket.OPEN
+              client.send(dirCreateMessage);
+              sentCount++;
+            }
+          });
+          console.log(`[SinglePageProcess] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
+        }
+      } else {
+        console.log(`[SinglePageProcess] 📁 기존 테스트 결과 저장 디렉토리 사용: ${dateFolderPath}`);
+      }
+    } else {
+      console.log(`[SinglePageProcess] 📁 기존 전역 디렉토리명 사용: ${currentTestDirectoryName}`);
+    }
+    
     // 프로세스 시작 시 테이블 데이터 초기화
     console.log(`[SinglePageProcess] 📊 테이블 데이터 초기화 시작...`);
     resetTableData();
@@ -543,7 +653,13 @@ export async function runSinglePageProcess() {
     
     // currentTable 변수 정의 - 테이블 데이터 저장용
     const currentTable = {
+      modelName: getTableOption.modelName || 'Unknown Model',
+      ProductNumber: getTableOption.ProductNumber || ['Unknown'],
+      inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
       reportTable: [{
+        TestDate: new Date().toLocaleDateString('ko-KR'),
+        TestTime: new Date().toLocaleTimeString('ko-KR'),
+        TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
         voltagTable: Array(3).fill(null).map(() => 
           Array(10).fill(null).map(() => 
             Array(4).fill("-.-")
@@ -832,8 +948,12 @@ export async function runSinglePageProcess() {
               }
             });
             
-            // 테이블 데이터를 클라이언트에 일괄 전송
+            // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
+            // 각 디바이스가 선정되고 4개의 전압을 읽었을 때 송신
+            console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 4개 채널 완료 - 클라이언트에 데이터 전송`);
             broadcastTableData();
+            
+            // 이제 각 디바이스의 4개 채널이 완료될 때마다 전송됨
             
             // 디바이스 해제 재시도 로직
             retryCount = 0;
@@ -889,22 +1009,45 @@ export async function runSinglePageProcess() {
         } // for (let i = 0; i < 10; i++) 루프 닫기
     } // for (let k = 0; k < 3; k++) 루프 닫기
     
-    // 모든 테스트가 완료된 후 테이블 완성 상태 확인 및 전송
+    // 모든 테스트가 완료된 후 테이블 완성 상태 확인
     console.log('[SinglePageProcess] 모든 테스트 완료 - 테이블 완성 상태 확인');
     
-    // 테이블 데이터가 완성되었는지 확인하고 최종 전송
-    if (globalTableData.isComplete) {
-      console.log('[SinglePageProcess] 테이블이 이미 완성되어 있음 - 최종 상태 전송');
-      broadcastTableData();
-    } else {
-      console.log('[SinglePageProcess] 테이블 완성 상태 확인 중...');
-      // 테이블 완성도 재계산 및 전송
-      broadcastTableData();
-    }
+    // 이미 각 디바이스의 4개 채널 완료 시점에 전송했으므로 중복 전송 제거
+    // broadcastTableData(); // 제거: 중복 전송 방지
     
     console.log('[SinglePageProcess] 프로세스 완료');
     console.log('[SinglePageProcess] 테이블 출력:', currentTable);
     console.log('[SinglePageProcess] 테이블 출력:', currentTable.reportTable[0].voltagTable);
+    
+    // 테스트 결과를 파일로 저장
+    try {
+      console.log('[SinglePageProcess] 📁 테스트 결과 저장 시작');
+      console.log(`[SinglePageProcess] 📁 사용 중인 디렉토리: ${currentTestDirectoryName || '새로 생성됨'}`);
+      
+      // getTableOption에서 channelVoltages 가져오기
+      const getTableOption = await getSafeGetTableOption();
+      const channelVoltages = getTableOption.channelVoltages || [5.0, 15.0, -15.0, 24.0];
+      
+      // 현재 시간을 기준으로 테스트 타입 설정
+      const testType = 'SinglePageTest';
+      
+      // 결과 저장
+      const saveResult = saveTotaReportTableToFile(
+        currentTable,
+        channelVoltages,
+        1, // cycleNumber (단일 페이지 테스트는 1)
+        testType
+      );
+      
+      if (saveResult.success) {
+        console.log(`[SinglePageProcess] ✅ 테스트 결과 저장 완료: ${saveResult.filename}`);
+        console.log(`[SinglePageProcess] 📁 저장 경로: ${saveResult.filePath}`);
+      } else {
+        console.error(`[SinglePageProcess] ❌ 테스트 결과 저장 실패: ${saveResult.error}`);
+      }
+    } catch (saveError) {
+      console.error('[SinglePageProcess] ❌ 결과 저장 중 오류 발생:', saveError);
+    }
     
     return { 
       status: 'completed', 
@@ -2584,6 +2727,10 @@ export function updateTableData(deviceNumber, testNumber, channelNumber, voltage
       globalTableData.lastUpdate = new Date().toISOString();
       
       console.log(`[TableData] Device ${deviceNumber}, Test ${testNumber}, Channel ${channelNumber}: ${voltage}V (${status})`);
+      
+      // 전압 데이터가 업데이트될 때마다 즉시 클라이언트에 전송하는 대신
+      // 4개 채널이 모두 읽힌 후에 전송하도록 변경
+      // broadcastTableData(); // 이 줄 제거
     }
   } catch (error) {
     console.error(`[TableData] 테이블 데이터 업데이트 오류:`, error);
@@ -2603,9 +2750,11 @@ export function broadcastTableData() {
   }
   
   try {
+    // 시간 기반 디바운싱 제거 - 이벤트 기반 전송으로 변경
+    
     // 테이블 완성도 계산
-    let completedCells = 0;
     let totalCells = 0;
+    let completedCells = 0;
     
     globalTableData.devices.forEach(device => {
       device.tests.forEach(test => {
@@ -2700,8 +2849,8 @@ export function resetTableData() {
   
   console.log(`[TableData] 테이블 데이터 초기화 완료`);
   
-  // 초기화된 테이블을 클라이언트에 전송
-  broadcastTableData();
+  // 테이블 초기화 시에는 클라이언트에 전송하지 않음 - 실제 데이터가 있을 때만 전송
+  // broadcastTableData(); // 제거: 초기화 시 불필요한 전송 방지
 }
 
 
