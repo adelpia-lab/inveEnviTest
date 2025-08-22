@@ -23,6 +23,9 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
         } else if (message.includes('OFF - Machine running: false')) {
           setIsOn(false);
           setErrorMessage(null); // 에러 메시지 초기화
+          
+          // 파워스위치 OFF 시 즉시 UI 업데이트
+          console.log('🔌 PowerSwitch: 파워스위치 OFF 상태 감지 - UI 즉시 업데이트');
         } else if (message.includes('STATUS - Machine running: true')) {
           setIsOn(true);
           setErrorMessage(null); // 에러 메시지 초기화
@@ -48,6 +51,15 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
         } else if (message.includes('PROCESS_STOPPED:')) {
           setIsOn(false);
           setErrorMessage(null);
+        } else if (message.includes('Process stop requested')) {
+          // 프로세스 중지 요청 감지
+          setIsOn(false);
+          setErrorMessage('프로세스 중지 요청됨 - 안전하게 종료 중...');
+          
+          // 5초 후 메시지 제거
+          setTimeout(() => {
+            setErrorMessage(null);
+          }, 5000);
         }
       }
     };

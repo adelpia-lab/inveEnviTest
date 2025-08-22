@@ -517,7 +517,70 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 3. 전압 업데이트 메시지 처리 - 누적 방식으로 변경
+      // 3. 새로운 테이블 업데이트 메시지 처리 - 일괄 갱신 방식
+      if (typeof message === 'string' && message.startsWith('[POWER_TABLE_UPDATE]')) {
+        try {
+          const match = message.match(/\[POWER_TABLE_UPDATE\] (.+)/);
+          if (match && match[1]) {
+            const tableUpdateData = JSON.parse(match[1]);
+            
+            console.log('🔌 PowerTable: 테이블 업데이트 데이터 수신:', tableUpdateData);
+            
+            // 서버에서 전달받은 테이블 데이터를 누적 데이터로 변환
+            const newAccumulatedData: AccumulatedTableData = {};
+            
+            if (tableUpdateData.tableData && Array.isArray(tableUpdateData.tableData)) {
+              tableUpdateData.tableData.forEach((deviceData: any[], deviceIndex: number) => {
+                const deviceNumber = deviceIndex + 1;
+                newAccumulatedData[`device${deviceNumber}`] = {};
+                
+                deviceData.forEach((testData: any[], testIndex: number) => {
+                  const testNumber = testIndex + 1;
+                  newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`] = {};
+                  
+                  testData.forEach((channelData: any, channelIndex: number) => {
+                    const channelNumber = channelIndex + 1;
+                    
+                    // channelData가 문자열인 경우 (예: "5.2V" 또는 "-.-") 그대로 사용
+                    let displayValue = '-.-';
+                    if (typeof channelData === 'string' && channelData !== '') {
+                      if (channelData === '-.-') {
+                        displayValue = '-.-';
+                      } else if (channelData.endsWith('V')) {
+                        displayValue = channelData;
+                      } else {
+                        displayValue = '-.-';
+                      }
+                    }
+                    
+                    newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`][`channel${channelNumber}`] = displayValue;
+                  });
+                });
+              });
+              
+              // 누적 데이터 업데이트
+              setAccumulatedVoltageData(newAccumulatedData);
+              console.log('✅ PowerTable: 서버 테이블 데이터로 누적 데이터 업데이트 완료');
+              
+              // 테이블 완성도 정보 업데이트
+              if (tableUpdateData.completionPercentage !== undefined) {
+                setTableCompletionStatus({
+                  totalCells: tableUpdateData.totalCells || 120,
+                  filledCells: tableUpdateData.completedCells || 0,
+                  completionPercentage: tableUpdateData.completionPercentage || 0,
+                  isComplete: tableUpdateData.completionPercentage >= 95
+                });
+              }
+            }
+            
+          }
+        } catch (error) {
+          console.error('PowerTable: 테이블 업데이트 데이터 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 4. 전압 업데이트 메시지 처리 - 누적 방식으로 변경 (기존 호환성 유지)
       if (typeof message === 'string' && message.startsWith('[VOLTAGE_UPDATE]')) {
         try {
           const match = message.match(/\[VOLTAGE_UPDATE\] (.+)/);
@@ -536,7 +599,53 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 3-1. 전체 테이블 완성 메시지 처리 - 수정됨
+      // 5. 테이블 데이터 응답 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[TABLE_DATA_RESPONSE]')) {
+        try {
+          const match = message.match(/\[TABLE_DATA_RESPONSE\] (.+)/);
+          if (match && match[1]) {
+            const tableResponseData = JSON.parse(match[1]);
+            
+            console.log('🔌 PowerTable: 테이블 데이터 응답 수신:', tableResponseData);
+            
+            // 서버에서 전달받은 테이블 데이터를 누적 데이터로 변환
+            const newAccumulatedData: AccumulatedTableData = {};
+            
+            if (tableResponseData.devices && Array.isArray(tableResponseData.devices)) {
+              tableResponseData.devices.forEach((device: any) => {
+                const deviceNumber = device.deviceNumber;
+                newAccumulatedData[`device${deviceNumber}`] = {};
+                
+                device.tests.forEach((test: any) => {
+                  const testNumber = test.testNumber;
+                  newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`] = {};
+                  
+                  test.channels.forEach((channel: any) => {
+                    const channelNumber = channel.channelNumber;
+                    
+                    let displayValue = '-.-';
+                    if (channel.status === 'completed' && channel.voltage !== null) {
+                      displayValue = `${channel.voltage.toFixed(2)}V`;
+                    }
+                    
+                    newAccumulatedData[`device${deviceNumber}`][`test${testNumber}`][`channel${channelNumber}`] = displayValue;
+                  });
+                });
+              });
+              
+              // 누적 데이터 업데이트
+              setAccumulatedVoltageData(newAccumulatedData);
+              console.log('✅ PowerTable: 서버 테이블 데이터 응답으로 누적 데이터 업데이트 완료');
+            }
+            
+          }
+        } catch (error) {
+          console.error('PowerTable: 테이블 데이터 응답 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 6. 전체 테이블 완성 메시지 처리 - 수정됨
       if (typeof message === 'string' && message.startsWith('[POWER_TABLE_COMPLETE]')) {
         try {
           const match = message.match(/\[POWER_TABLE_COMPLETE\] (.+)/);
@@ -592,7 +701,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 4. 프로세스 로그 메시지 처리
+      // 6. 프로세스 로그 메시지 처리
       if (typeof message === 'string' && message.startsWith('[PROCESS_LOG]')) {
         try {
           console.log('🔌 PowerTable: 프로세스 로그 메시지 수신:', message);
@@ -612,19 +721,19 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 5. Power Switch 상태 메시지 처리
+      // 7. Power Switch 상태 메시지 처리
       if (typeof message === 'string' && message.startsWith('[POWER_SWITCH]')) {
         console.log('🔌 PowerTable: Power Switch 메시지 수신 (무시):', message);
         return; // 처리 완료 후 종료
       }
       
-      // 6. 시뮬레이션 상태 메시지 처리
+      // 8. 시뮬레이션 상태 메시지 처리
       if (typeof message === 'string' && message.startsWith('[SIMULATION_STATUS]')) {
         console.log('🔌 PowerTable: 시뮬레이션 상태 메시지 수신 (무시):', message);
         return; // 처리 완료 후 종료
       }
       
-      // 7. 기타 초기화 메시지들은 무시 (PowerTable과 관련없음)
+      // 9. 기타 초기화 메시지들은 무시 (PowerTable과 관련없음)
       if (typeof message === 'string' && (
         message.startsWith('Initial high temp settings') ||
         message.startsWith('Initial low temp settings') ||
@@ -642,7 +751,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 8. 처리되지 않은 메시지는 로그로만 기록
+      // 10. 처리되지 않은 메시지는 로그로만 기록
       console.log('🔌 PowerTable: 처리되지 않은 메시지 (무시):', message);
     };
 
@@ -680,65 +789,52 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     return '일반 초기화';
   };
   
-  // 테스트용 메시지 전송 함수
-  const sendTestMessage = () => {
+
+
+
+
+
+
+  // 현재 테이블 데이터 가져오기 함수
+  const getCurrentTableData = () => {
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      const testMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
-        action: 'test_start',
-        cycle: 1,
-        totalCycles: 3,
-        testPhase: 'high_temp',
-        currentTestNumber: 2,
-        totalTestCount: 5,
-        testStatus: 'ON',
-        timestamp: new Date().toISOString(),
-        message: '테스트용 메시지 - 고온 테스트 2/5 실행 중'
-      })}`;
-      
-      wsConnection.send(testMessage);
+      const getTableMessage = `[TABLE_DATA_GET]`;
+      wsConnection.send(getTableMessage);
+      console.log('📊 PowerTable: 현재 테이블 데이터 요청 전송');
     } else {
-      console.warn('🧪 PowerTable: WebSocket 연결이 없습니다.');
+      console.warn('📊 PowerTable: 테이블 데이터 요청: WebSocket 연결이 없습니다.');
     }
   };
 
-  // 전압 업데이트 테스트 함수
-  const sendVoltageTestMessage = () => {
+  // 테이블 데이터 초기화 함수
+  const resetTableData = () => {
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      const testVoltageMessage = `[VOLTAGE_UPDATE] ${JSON.stringify({
-        device: 1,
-        voltageTest: 1,
-        channels: [
-          { device: 1, channel: 1, voltage: 5.12, expected: 5.0, result: 'PASS', voltageWithComparison: '5.12V' },
-          { device: 1, channel: 2, voltage: 15.08, expected: 15.0, result: 'PASS', voltageWithComparison: '15.08V' },
-          { device: 1, channel: 3, voltage: -14.95, expected: -15.0, result: 'PASS', voltageWithComparison: '-14.95V' },
-          { device: 1, channel: 4, voltage: 24.02, expected: 24.0, result: 'PASS', voltageWithComparison: '24.02V' }
-        ],
-        inputVoltage: 24,
-        rowIndex: 0,
-        testIndex: 0
-      })}`;
-      
-      wsConnection.send(testVoltageMessage);
-      console.log('🧪 PowerTable: 테스트 전압 메시지 전송:', testVoltageMessage);
+      const resetTableMessage = `[TABLE_DATA_RESET]`;
+      wsConnection.send(resetTableMessage);
+      console.log('🔄 PowerTable: 테이블 데이터 초기화 요청 전송');
     } else {
-      console.warn('🧪 PowerTable: WebSocket 연결이 없습니다.');
+      console.warn('🔄 PowerTable: 테이블 초기화: WebSocket 연결이 없습니다.');
     }
   };
 
   // 데모 테이블 완성 데이터 생성 함수
   const generateDemoCompleteTable = () => {
+    // 새로운 테이블 업데이트 방식으로 데모 데이터 생성
     const demoTableData = {
       timestamp: new Date().toISOString(),
       totalDevices: 10,
       totalTests: 3,
       totalChannels: 4,
+      completionPercentage: 100.0,
+      completedCells: 120,
+      totalCells: 120,
       tableData: Array.from({ length: 10 }, (_, deviceIndex) =>
         Array.from({ length: 3 }, (_, testIndex) =>
           Array.from({ length: 4 }, (_, channelIndex) => {
             // 각 채널에 대해 랜덤한 전압값 생성
             const baseVoltages = [5, 15, -15, 24];
             const voltage = baseVoltages[channelIndex] + (Math.random() - 0.5) * 0.2;
-            return `${voltage.toFixed(2)}V|G`;
+            return `${voltage.toFixed(2)}V`;
           })
         )
       ),
@@ -763,12 +859,11 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         testData.forEach((channelData: any, channelIndex: number) => {
           const channelNumber = channelIndex + 1;
           
-          // channelData에서 전압값 추출
+          // channelData가 이미 전압값 형식이므로 그대로 사용
           let displayValue = '-.-';
           if (typeof channelData === 'string' && channelData !== '') {
-            const voltageMatch = channelData.match(/^([\d.-]+)V/);
-            if (voltageMatch) {
-              displayValue = `${voltageMatch[1]}V`;
+            if (channelData.endsWith('V')) {
+              displayValue = channelData;
             }
           }
           
@@ -778,6 +873,15 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     });
     
     setAccumulatedVoltageData(newAccumulatedData);
+    
+    // 테이블 완성도 상태도 업데이트
+    setTableCompletionStatus({
+      totalCells: 120,
+      filledCells: 120,
+      completionPercentage: 100,
+      isComplete: true
+    });
+    
     console.log('🧪 PowerTable: 데모 테이블 데이터 생성 완료');
   };
 
@@ -878,36 +982,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 gap: '8px',
                 justifyContent: 'flex-end'
               }}>
-                <button
-                  onClick={sendTestMessage}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#3B82F6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  🧪 테스트 메시지
-                </button>
-                <button
-                  onClick={sendVoltageTestMessage}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#10B981',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  ⚡ 전압 테스트
-                </button>
+                
+                
+                
                 <button
                   onClick={generateDemoCompleteTable}
                   style={{
@@ -922,6 +999,36 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                   }}
                 >
                   🎯 데모 테이블
+                </button>
+                <button
+                  onClick={getCurrentTableData}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#06B6D4',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  📊 데이터 요청
+                </button>
+                <button
+                  onClick={resetTableData}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#F97316',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🔄 서버 초기화
                 </button>
                 <button
                   onClick={resetTable}
