@@ -592,7 +592,7 @@ export async function runSinglePageProcess() {
         errorType: 'power_switch_off',
         stoppedAtPhase: 'power_check'
       };
-      return await generateStopReport(stopInfo);
+      return stopInfo;
     }
     
     // 디렉토리 공유 확인 및 설정
@@ -613,18 +613,6 @@ export async function runSinglePageProcess() {
         fs.mkdirSync(dateFolderPath, { recursive: true });
         console.log(`[SinglePageProcess] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
         
-        // 클라이언트에게 디렉토리 생성 알림 전송
-        if (globalWss) {
-          const dirCreateMessage = `[DIRECTORY_CREATED] ${currentTestDirectoryName}`;
-          let sentCount = 0;
-          globalWss.clients.forEach(client => {
-            if (client.readyState === 1) { // WebSocket.OPEN
-              client.send(dirCreateMessage);
-              sentCount++;
-            }
-          });
-          console.log(`[SinglePageProcess] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
-        }
       } else {
         console.log(`[SinglePageProcess] 📁 기존 테스트 결과 저장 디렉토리 사용: ${dateFolderPath}`);
       }
@@ -689,8 +677,8 @@ export async function runSinglePageProcess() {
     }
     
     // 딜레이 설정 로드
-    const onDelay = getTableOption.delaySettings.onDelay || 1000;
-    const offDelay = getTableOption.delaySettings.offDelay || 1000;
+    const onDelay = getTableOption.delaySettings.onDelay;
+    const offDelay = getTableOption.delaySettings.offDelay;
     
     // 프로세스 시작 전 포트 상태 초기화
     if( SIMULATION_PROC === false ){
@@ -703,7 +691,7 @@ export async function runSinglePageProcess() {
       if (getProcessStopRequested()) {
         console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 테스트 ${k+1}/3에서 중단`);
         stopInfo = { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'voltage_test_start' };
-        return await generateStopReport(stopInfo);
+        return stopInfo;
       }
       
       // 전압을 설정 한다. 
@@ -720,14 +708,14 @@ export async function runSinglePageProcess() {
         if (getProcessStopRequested()) {
           console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 설정 중 중단`);
           stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'voltage_setting' };
-          return await generateStopReport(stopInfo);
+          return stopInfo;
         }
         
         // 전압 설정 전 정지 신호 확인 - 릴레이 동작 전
         if (getProcessStopRequested()) {
           console.log(`[SinglePageProcess] 🛑 전압 설정 전 정지 신호 감지 - 전압 ${inputVolt}V 설정 중단`);
           stopInfo = { status: 'stopped', message: '전압 설정 전 정지 신호 감지', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
-          return await generateStopReport(stopInfo);
+          return stopInfo;
         }
 
         try {
@@ -744,7 +732,9 @@ export async function runSinglePageProcess() {
             await sleep(3000);
           } else {
             throw new Error(`전압 설정 실패: ${error}`);
-          }
+            stopInfo = { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
+            return stopInfo;
+            }
         }
       }
       
@@ -753,7 +743,7 @@ export async function runSinglePageProcess() {
         if (getProcessStopRequested()) {
           console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 디바이스 ${i+1}/10에서 중단`);
           stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'device_start' };
-          return await generateStopReport(stopInfo);
+          return stopInfo;
         }
           
         if (getTableOption.deviceStates[i] === false) {
@@ -770,7 +760,7 @@ export async function runSinglePageProcess() {
             if (getProcessStopRequested()) {
               console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 디바이스 ${i+1} 선택 중 중단`);
               stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'device_selection' };
-              return await generateStopReport(stopInfo);
+              return stopInfo;
             }
             
             try {
@@ -781,7 +771,7 @@ export async function runSinglePageProcess() {
               if (getProcessStopRequested()) {
                 console.log(`[SinglePageProcess] 🛑 릴레이 동작 전 정지 신호 감지 - 디바이스 ${i+1} 선택 중단`);
                 stopInfo = { status: 'stopped', message: '릴레이 동작 전 정지 신호 감지', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'before_relay_operation' };
-                return await generateStopReport(stopInfo);
+                return stopInfo;
               }
 
               await sleep(2000);
@@ -806,8 +796,8 @@ export async function runSinglePageProcess() {
                 await sleep(10000); // 10초 대기로 증가
               } else {
                 console.error(`[SinglePageProcess] 디바이스 ${i+1} 선택 최종 실패`);
-                // 실패 시에도 계속 진행
-                break;
+                stopInfo = { status: 'stopped', message: '[SinglePageProcess] 디바이스선택 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'before_relay_operation' };
+                return stopInfo;
               }
             }
           }
@@ -827,7 +817,7 @@ export async function runSinglePageProcess() {
                 await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
               }
               stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'channel_start' };
-              return await generateStopReport(stopInfo);
+              return stopInfo;
             }
              
             // 전압 읽기 재시도 로직
@@ -843,7 +833,7 @@ export async function runSinglePageProcess() {
                   await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
                 }
                 stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'voltage_reading' };
-                return await generateStopReport(stopInfo);
+                return stopInfo;
               }
               
               try {
@@ -874,7 +864,8 @@ export async function runSinglePageProcess() {
                 } else {
                   console.error(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 최종 실패`);
                   voltData = 'error';
-                  break;
+                  stopInfo = { status: 'stopped', message: '전압 읽기 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'channel_start' };
+                  return stopInfo;
                 }
               }
             }
@@ -947,7 +938,7 @@ export async function runSinglePageProcess() {
                 console.warn(`[SinglePageProcess] 디바이스 ${i+1} 해제 실패 (중지 요청으로 인한): ${error}`);
               }
               stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'device_release' };
-              return await generateStopReport(stopInfo);
+              return stopInfo;
             }
             
             try {
@@ -973,7 +964,8 @@ export async function runSinglePageProcess() {
                 await sleep(5000);
               } else {
                 console.error(`[SinglePageProcess] 디바이스 ${i+1} 해제 최종 실패`);
-                break;
+                stopInfo = { status: 'stopped', message: '[SinglePageProcess] 디바이스 해제 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'before_relay_operation' };
+                return stopInfo;
               }
             }
           }
@@ -986,37 +978,6 @@ export async function runSinglePageProcess() {
     // 모든 테스트가 완료된 후 테이블 완성 상태 확인
     console.log('[SinglePageProcess] 모든 테스트 완료 - 테이블 완성 상태 확인');
     
-    
-/*    // 테스트 결과를 파일로 저장
-    try {
-      console.log('[SinglePageProcess] 📁 테스트 결과 저장 시작');
-      console.log(`[SinglePageProcess] 📁 사용 중인 디렉토리: ${currentTestDirectoryName || '새로 생성됨'}`);
-      
-      // getTableOption에서 channelVoltages 가져오기
-      const getTableOption = await getSafeGetTableOption();
-      const channelVoltages = getTableOption.channelVoltages || [5.0, 15.0, -15.0, 24.0];
-      
-      // 현재 시간을 기준으로 테스트 타입 설정
-      const testType = 'SinglePageTest';
-      
-      // 결과 저장
-      const saveResult = saveTotaReportTableToFile(
-        currentTable,
-        channelVoltages,
-        1, // cycleNumber (단일 페이지 테스트는 1)
-        testType
-      );
-      
-      if (saveResult.success) {
-        console.log(`[SinglePageProcess] ✅ 테스트 결과 저장 완료: ${saveResult.filename}`);
-        console.log(`[SinglePageProcess] 📁 저장 경로: ${saveResult.filePath}`);
-      } else {
-        console.error(`[SinglePageProcess] ❌ 테스트 결과 저장 실패: ${saveResult.error}`);
-      }
-    } catch (saveError) {
-      console.error('[SinglePageProcess] ❌ 결과 저장 중 오류 발생:', saveError);
-    }
-*/    
     return { 
       status: 'completed', 
       message: '단일 페이지 프로세스 완료',
@@ -1034,9 +995,10 @@ export async function runSinglePageProcess() {
       stoppedAtPhase: 'unknown'
     };
     
-    return await generateStopReport(stopInfo);
+    return stopInfo;
   }
 }
+
 
 // 중단 보고서 생성을 위한 통일된 함수
 async function generateStopReport(stopInfo) {
@@ -1121,10 +1083,6 @@ export async function runNextTankEnviTestProcess() {
     const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
-      //console.log(`[NextTankEnviTestProcess] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
-      //console.log(`[NextTankEnviTestProcess] 📅 디렉토리명: ${currentTestDirectoryName} (${new Date().toLocaleString('ko-KR')})`);
-      
-      // 클라이언트에게 디렉토리 생성 알림 전송
       if (globalWss) {
         const dirCreateMessage = `[DIRECTORY_CREATED] ${currentTestDirectoryName}`;
         let sentCount = 0;
@@ -1165,14 +1123,8 @@ export async function runNextTankEnviTestProcess() {
         errorType: 'no_tests_enabled'
       };
     }
-    
-    //console.log(`[NextTankEnviTestProcess] ✅ 시스템 상태 검증 완료`);
-    //console.log(`[NextTankEnviTestProcess] - 고온 테스트: ${highTempEnabled ? '활성화' : '비활성화'}`);
-    //console.log(`[NextTankEnviTestProcess] - 저온 테스트: ${lowTempEnabled ? '활성화' : '비활성화'}`);
-    
     // cycleNumber 횟수만큼 반복
     const cycleNumber = getTableOption.delaySettings.cycleNumber || 1; // 기본값 1
-    //console.log(`[NextTankEnviTestProcess] 📊 총 ${cycleNumber}회 사이클 실행 예정`);
     
     for (let cycle = 1; cycle <= cycleNumber; cycle++) {
       // 중지 요청 확인 - 사이클 시작 전
@@ -1474,9 +1426,7 @@ export async function runNextTankEnviTestProcess() {
             } catch (fileError) {
               console.error(`[NextTankEnviTestProcess] 중단된 테스트 결과 파일 생성 중 오류:`, fileError);
             }
-            
 
-            
             return { 
               status: 'error', 
               message: '챔버 온도 읽기 실패 - 장비 연결 상태를 확인하세요', 
@@ -1601,12 +1551,9 @@ export async function runNextTankEnviTestProcess() {
                 try {
                   singlePageResult = await runSinglePageProcess();
                   
-                  if (singlePageResult && singlePageResult.status === 'stopped') {
+                  if ( singlePageResult.status === 'stopped') {
                     console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
-                    
-                    // SinglePageProcess 중지 시 중단 보고서 생성
                     console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지로 인한 중단 보고서 생성`);
-                    
                     // PowerSwitch 상태를 off로 설정
                     setMachineRunningStatus(false);
                     
@@ -2096,10 +2043,8 @@ export async function runNextTankEnviTestProcess() {
                 try {
                   singlePageResult = await runSinglePageProcess();
                   
-                  if (singlePageResult && singlePageResult.status === 'stopped') {
+                  if (singlePageResult.status === 'stopped') {
                     console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
-                    
-                    // SinglePageProcess 중지 시 중단 보고서 생성
                     console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지로 인한 중단 보고서 생성`);
                     
                     // PowerSwitch 상태를 off로 설정
@@ -2299,7 +2244,7 @@ export async function runNextTankEnviTestProcess() {
     return { 
       status: 'completed', 
       message: '모든 사이클 완료 및 종합 리포트 생성 완료',
-      totalCycles: cycle,
+      totalCycles: cycleNumber,
       finalReportGenerated: true
     };
     
