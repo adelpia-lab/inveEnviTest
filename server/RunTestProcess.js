@@ -480,6 +480,7 @@ function compareVoltage(readVoltage, expectedVoltage) {
  * @param {Array} testResults - 테스트 결과 배열
  * @returns {Object} 결합된 테스트 데이터
  */
+
 function combineTestResults(testResults) {
   if (!testResults || testResults.length === 0) {
     return null;
@@ -595,35 +596,8 @@ export async function runSinglePageProcess() {
       };
       return stopInfo;
     }
-    
-    // 디렉토리 공유 확인 및 설정
-/*
-    if (!currentTestDirectoryName) {
-      // runNextTankEnviTestProcess에서 생성된 디렉토리가 없으면 새로 생성
-      currentTestDirectoryName = getDateDirectoryName();
-      console.log(`[SinglePageProcess] 📁 전역 디렉토리명이 없어 새로 생성: ${currentTestDirectoryName}`);
-      
-      // 테스트 결과 저장을 위한 디렉토리 생성
-      const dataFolderPath = path.join(process.cwd(), 'Data');
-      if (!fs.existsSync(dataFolderPath)) {
-        fs.mkdirSync(dataFolderPath, { recursive: true });
-        console.log(`[SinglePageProcess] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
-      }
-      
-      const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
-      if (!fs.existsSync(dateFolderPath)) {
-        fs.mkdirSync(dateFolderPath, { recursive: true });
-        console.log(`[SinglePageProcess] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
-        
-      } else {
-        console.log(`[SinglePageProcess] 📁 기존 테스트 결과 저장 디렉토리 사용: ${dateFolderPath}`);
-      }
-    } else {
-      console.log(`[SinglePageProcess] 📁 기존 전역 디렉토리명 사용: ${currentTestDirectoryName}`);
-    }
-*/    
+
     // 프로세스 시작 시 테이블 데이터 초기화
-    console.log(`[SinglePageProcess] 📊 테이블 데이터 초기화 시작...`);
     resetTableData();
     console.log(`[SinglePageProcess] ✅ 테이블 데이터 초기화 완료`);
     
@@ -644,7 +618,7 @@ export async function runSinglePageProcess() {
       });
       
       // 초기화 메시지 전송 후 잠시 대기 (클라이언트가 처리할 시간 확보)
-      await sleep(1000);
+      await sleep(3000);
     } else {
       console.warn(`[SinglePageProcess] 전역 WebSocket 서버가 설정되지 않음 - PowerTable 초기화 메시지 전송 불가`);
     }
@@ -669,13 +643,12 @@ export async function runSinglePageProcess() {
     };
     
     // 시스템 상태 검증
-    console.log(`[SinglePageProcess] 시스템 상태 검증 중...`);
     
     // 중지 요청 확인 - 프로세스 시작 전
     if (getProcessStopRequested()) {
       console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 프로세스 시작 전 중단`);
       stopInfo = { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtPhase: 'initialization' };
-      return await generateStopReport(stopInfo);
+      return stopInfo;
     }
     
     // 딜레이 설정 로드
@@ -684,7 +657,7 @@ export async function runSinglePageProcess() {
     
     // 프로세스 시작 전 포트 상태 초기화
     if( SIMULATION_PROC === false ){
-      await RelayAllOff();
+      await RelayAllOff();                      // jsk debug return error 에 대한 처리를 할 것
       await sleep(3000); // 포트 초기화를 위한 추가 대기
     }
 
@@ -722,10 +695,16 @@ export async function runSinglePageProcess() {
 
         try {
           if(SIMULATION_PROC === false ){
-            await SendVoltCommand(inputVolt);
+            voltSetSuccess = await SendVoltCommand(inputVolt);
+          }else {
+            voltSetSuccess = true;
           }
-          voltSetSuccess = true;
-          console.log(`[SinglePageProcess] 전압 설정 성공: ${inputVolt}V`);
+
+          if( voltSetSuccess === true ){
+            console.log(`[SinglePageProcess] 전압 설정 성공: ${inputVolt}V`);
+          } else {
+            throw new Error(selectResult?.message || selectResult?.error || '전압 설정 실패');
+          }
         } catch (error) {
           retryCount++;
           console.warn(`[SinglePageProcess] 전압 설정 실패 (${retryCount}/${maxRetries}): ${error}`);
@@ -733,11 +712,16 @@ export async function runSinglePageProcess() {
             console.log(`[SinglePageProcess] 3초 후 재시도...`);
             await sleep(3000);
           } else {
-            throw new Error(`전압 설정 실패: ${error}`);
+            //throw new Error(`전압 설정 실패: ${error}`);
             stopInfo = { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
             return stopInfo;
-            }
+          }
         }
+      }
+
+      if( voltSetSuccess === false ){
+        stopInfo = { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
+        return stopInfo;
       }
       
       for ( let i = 0; i < 10; i++) {
@@ -766,9 +750,6 @@ export async function runSinglePageProcess() {
             }
             
             try {
-              //console.log(`[SinglePageProcess] 디바이스 ${i+1} 선택 시도 (${retryCount + 1}/${maxRetries})`);
-              
-              // 디바이스 선택 전 포트 상태 확인을 위한 대기
               // 릴레이 동작 전 정지 신호 확인 - 근본적인 문제 해결
               if (getProcessStopRequested()) {
                 console.log(`[SinglePageProcess] 🛑 릴레이 동작 전 정지 신호 감지 - 디바이스 ${i+1} 선택 중단`);
@@ -795,7 +776,7 @@ export async function runSinglePageProcess() {
               console.warn(`[SinglePageProcess] 디바이스 ${i+1} 선택 실패 (${retryCount}/${maxRetries}): ${error}`);
               if (retryCount < maxRetries) {
                 console.log(`[SinglePageProcess] 10초 후 재시도...`);
-                await sleep(10000); // 10초 대기로 증가
+                await sleep(5000); // 5초 대기로 증가
               } else {
                 console.error(`[SinglePageProcess] 디바이스 ${i+1} 선택 최종 실패`);
                 stopInfo = { status: 'stopped', message: '[SinglePageProcess] 디바이스선택 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'before_relay_operation' };
@@ -806,12 +787,18 @@ export async function runSinglePageProcess() {
           
           if (deviceSelectSuccess) {
             await sleep(onDelay);
+          } else {
+            console.error(`[SinglePageProcess] 디바이스 ${i+1} 선택 최종 실패`);
+            stopInfo = { status: 'stopped', message: '[SinglePageProcess] 디바이스선택 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'before_relay_operation' };
+            return stopInfo;
           }
           
           // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
           const channelResults = [];
           
           for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
+            await sleep(1000); // 채널변경을 위한 시간 확보
+
             // 중지 요청 확인 - 채널 처리 시작 전
             if (getProcessStopRequested()) {
               console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 채널 ${j+1}/4에서 중단`);
@@ -862,7 +849,7 @@ export async function runSinglePageProcess() {
                 console.warn(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
                 if (retryCount < maxRetries) {
                   console.log(`[SinglePageProcess] 1초 후 재시도...`);
-                  await sleep(5000);
+                  await sleep(1000);
                 } else {
                   console.error(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 최종 실패`);
                   voltData = 'error';

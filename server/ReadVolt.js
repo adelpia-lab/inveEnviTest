@@ -22,7 +22,7 @@ const RESPONSE_TIMEOUT_MS = 5000; // 5초로 단축
 const CHANNEL_SELECT_DELAY_MS = 200; // 채널 선택 후 대기 시간
 const BUFFER_CLEAR_DELAY_MS = 100; // 버퍼 클리어 대기 시간
 const MAX_RETRIES = 3; // 최대 재시도 횟수
-const RETRY_DELAY_MS = 500; // 재시도 간 대기 시간
+const RETRY_DELAY_MS = 1000; // 재시도 간 대기 시간
 
 // --- 로깅 유틸리티 ---
 function log(message, level = 'INFO') {
@@ -219,7 +219,7 @@ export async function ReadVolt(channel) {
     return withRetry(async () => {
         // 포트 사용 중이면 대기
         while (portInUse) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
         portInUse = true;
