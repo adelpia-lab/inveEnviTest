@@ -28,6 +28,8 @@ let globalWss = null;
 
 // 테스트 실행별 디렉토리명을 저장하는 전역 변수
 let currentTestDirectoryName = null;
+// 테스트 실행별 전체 디렉토리 경로를 저장하는 전역 변수
+let currentTestDirectoryPath = null;
 
 // WebSocket 서버 참조를 설정하는 함수
 export function setWebSocketServer(wss) {
@@ -225,24 +227,39 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
     
     const filename = `${getFormattedDateTime()}_Cycle${cycleNumber}_${testType}.csv`;
     
-    // 절대 경로로 Data 폴더 설정
-    const dataFolderPath = path.join(process.cwd(), 'Data');
+    // ===== 전역 변수에서 테스트 디렉토리 경로 사용 (새로 생성하지 않음) =====
+    let dateFolderPath = currentTestDirectoryPath;
     
-    // Data 폴더가 없으면 생성
-    if (!fs.existsSync(dataFolderPath)) {
-      fs.mkdirSync(dataFolderPath, { recursive: true });
-      console.log(`[SaveData] Data 폴더 생성됨: ${dataFolderPath}`);
+    if (!dateFolderPath) {
+      console.log(`[SaveData] 📁 전역 디렉토리 경로가 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+      
+      // Automatically find the most recent test directory
+      try {
+        const dataFolderPath = path.join(process.cwd(), 'Data');
+        const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
+          .filter(dirent => dirent.isDirectory())
+          .map(dirent => dirent.name)
+          .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
+          .sort()
+          .reverse(); // Most recent first
+        
+        if (directories.length > 0) {
+          const dateDirectoryName = directories[0];
+          dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+          console.log(`[SaveData] 📁 자동으로 최근 테스트 디렉토리 발견: ${dateDirectoryName}`);
+        } else {
+          throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+        }
+      } catch (error) {
+        console.error(`[SaveData] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
+        throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+      }
     }
     
-    // ===== 전역 변수에서 테스트 디렉토리명 사용 (새로 생성하지 않음) =====
-    const dateDirectoryName = currentTestDirectoryName;
-    if (!dateDirectoryName) {
-      console.error(`[SaveData] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
-      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
-    }
-    console.log(`[SaveData] 📁 기존 테스트 디렉토리 사용: ${dateDirectoryName}`);
+    console.log(`[SaveData] 📁 기존 테스트 디렉토리 사용: ${dateFolderPath}`);
     
-    const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+
+
     
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
@@ -1071,6 +1088,9 @@ export async function runNextTankEnviTestProcess() {
     }
     
     const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
+    // 전역 변수에 전체 디렉토리 경로 저장
+    currentTestDirectoryPath = dateFolderPath;
+    
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
       console.log(`[NextTankEnviTestProcess] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
@@ -1294,10 +1314,30 @@ export async function runNextTankEnviTestProcess() {
               // 중단 보고서 생성 (안전한 처리)
               try {
                 // 전역 디렉토리명 확인 (새로 생성하지 않음)
-                if (!currentTestDirectoryName) {
-                  console.error(`[NextTankEnviTestProcess] ❌ 전역 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요`);
-                  throw new Error('테스트 디렉토리명이 설정되지 않음');
-                }
+                                  if (!currentTestDirectoryName) {
+                    console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명이 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+                    
+                    // Automatically find the most recent test directory
+                    try {
+                      const dataFolderPath = path.join(__dirname, 'Data');
+                      const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
+                        .filter(dirent => dirent.isDirectory())
+                        .map(dirent => dirent.name)
+                        .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
+                        .sort()
+                        .reverse(); // Most recent first
+                      
+                      if (directories.length > 0) {
+                        currentTestDirectoryName = directories[0];
+                        console.log(`[NextTankEnviTestProcess] 📁 자동으로 최근 테스트 디렉토리 발견: ${currentTestDirectoryName}`);
+                      } else {
+                        throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+                      }
+                    } catch (error) {
+                      console.error(`[NextTankEnviTestProcess] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
+                      throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+                    }
+                  }
                 
                 const testSettings = {
                   modelName: getTableOption.productInput?.modelName || 'N/A',
@@ -2382,13 +2422,23 @@ async function generateFinalDeviceReport(cycleNumber) {
   try {
     console.log(`[FinalDeviceReport] 디바이스별 종합 리포트 생성 시작 - ${cycleNumber} 사이클`);
     
-    // 절대 경로로 Data 폴더 설정
-    const dataFolderPath = path.join(process.cwd(), 'Data');
+    // ===== 전역 변수에서 테스트 디렉토리 경로 사용 (새로 생성하지 않음) =====
+    let dataFolderPath = null;
+    
+    if (currentTestDirectoryPath) {
+      // 전역 변수에서 Data 폴더 경로 추출
+      dataFolderPath = path.dirname(currentTestDirectoryPath);
+      console.log(`[FinalDeviceReport] 📁 전역 변수에서 Data 폴더 경로 사용: ${dataFolderPath}`);
+    } else {
+      // 전역 변수가 없으면 기본 경로 사용
+      dataFolderPath = path.join(process.cwd(), 'Data');
+      console.log(`[FinalDeviceReport] 📁 기본 Data 폴더 경로 사용: ${dataFolderPath}`);
+    }
     
     // Data 폴더가 없으면 생성
     if (!fs.existsSync(dataFolderPath)) {
       fs.mkdirSync(dataFolderPath, { recursive: true });
-      console.log(`[FinalDeviceReport] Data 폴더 생성됨: ${dataFolderPath}`);
+      console.log(`[FinalDeviceReport] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
     }
     
     // 모든 날짜별 하위 디렉토리에서 CSV 파일 검색
@@ -2601,10 +2651,35 @@ async function generateFinalDeviceReport(cycleNumber) {
     
     // ===== 전역 변수에서 테스트 디렉토리명 사용 (새로 생성하지 않음) =====
     const dateDirectoryName = currentTestDirectoryName;
+
+/* debug jsk 
     if (!dateDirectoryName) {
-      console.error(`[FinalDeviceReport] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
-      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
-    }
+        console.log(`[FinalDeviceReport] 📁 전역 디렉토리명이 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+        
+        // Automatically find the most recent test directory
+        try {
+          const dataFolderPath = path.join(__dirname, 'Data');
+          const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name)
+            .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
+            .sort()
+            .reverse(); // Most recent first
+          
+          if (directories.length > 0) {
+            dateDirectoryName = directories[0];
+            console.log(`[FinalDeviceReport] 📁 자동으로 최근 테스트 디렉토리 발견: ${dateDirectoryName}`);
+          } else {
+            throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+          }
+        } catch (error) {
+          console.error(`[FinalDeviceReport] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
+          throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+        }
+      }
+*/
+  
+/*
     console.log(`[FinalDeviceReport] 📁 기존 테스트 디렉토리 사용: ${dateDirectoryName}`);
     
     const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
@@ -2612,6 +2687,19 @@ async function generateFinalDeviceReport(cycleNumber) {
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
       console.log(`[FinalDeviceReport] 📁 테스트 결과 디렉토리 생성됨: ${dateFolderPath}`);
+    }
+*/    
+    // ===== 전역 변수에서 테스트 디렉토리 경로 사용 =====
+    let dateFolderPath = null;
+    
+    if (currentTestDirectoryPath) {
+      // 전역 변수에서 테스트 디렉토리 경로 사용
+      dateFolderPath = currentTestDirectoryPath;
+      console.log(`[FinalDeviceReport] 📁 전역 변수에서 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
+    } else {
+      // 전역 변수가 없으면 기본 경로 사용
+      dateFolderPath = path.join(dataFolderPath, 'default');
+      console.log(`[FinalDeviceReport] 📁 기본 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
     }
     
     const reportFilePath = path.join(dateFolderPath, reportFilename);
@@ -2694,7 +2782,19 @@ async function generateFinalDeviceReport(cycleNumber) {
  */
 function scanExistingMeasurementFiles(dateDirectoryName) {
   try {
-    const dataFolderPath = path.join(process.cwd(), 'Data');
+    // ===== 전역 변수에서 테스트 디렉토리 경로 사용 (새로 생성하지 않음) =====
+    let dataFolderPath = null;
+    
+    if (currentTestDirectoryPath) {
+      // 전역 변수에서 Data 폴더 경로 추출
+      dataFolderPath = path.dirname(currentTestDirectoryPath);
+      console.log(`[ScanFiles] 📁 전역 변수에서 Data 폴더 경로 사용: ${dataFolderPath}`);
+    } else {
+      // 전역 변수가 없으면 기본 경로 사용
+      dataFolderPath = path.join(process.cwd(), 'Data');
+      console.log(`[ScanFiles] 📁 기본 Data 폴더 경로 사용: ${dataFolderPath}`);
+    }
+    
     const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
     
     console.log(`[ScanFiles] 📁 측정파일 조사 시작: ${dateFolderPath}`);
@@ -2825,10 +2925,30 @@ export async function generateInterruptedTestResultFile(options) {
     
     // ===== 전역 변수에서 디렉토리명 가져오기 (새로 생성하지 않음) =====
     const dateDirectoryName = currentTestDirectoryName;
-    if (!dateDirectoryName) {
-      console.error(`[InterruptedTestResult] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
-      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
-    }
+          if (!dateDirectoryName) {
+        console.log(`[InterruptedTestResult] 📁 전역 디렉토리명이 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+        
+        // Automatically find the most recent test directory
+        try {
+          const dataFolderPath = path.join(__dirname, 'Data');
+          const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name)
+            .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
+            .sort()
+            .reverse(); // Most recent first
+          
+          if (directories.length > 0) {
+            dateDirectoryName = directories[0];
+            console.log(`[InterruptedTestResult] 📁 자동으로 최근 테스트 디렉토리 발견: ${dateDirectoryName}`);
+          } else {
+            throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+          }
+        } catch (error) {
+          console.error(`[InterruptedTestResult] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
+          throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+        }
+      }
     console.log(`[InterruptedTestResult] 📁 기존 테스트 디렉토리 사용: ${dateDirectoryName}`);
     
     const dataFolderPath = path.join(process.cwd(), 'Data');
@@ -2955,7 +3075,11 @@ export async function generateInterruptedTestResultFile(options) {
     
     // ===== 5. 파일 저장 =====
     try {
+      
       fs.writeFileSync(filePath, csvContent, 'utf8');
+      
+      // 2초 대기 후 파일 존재 여부 확인
+      await sleep(2000);
       
       // 파일 존재 여부 확인
       if (!fs.existsSync(filePath)) {
@@ -3237,10 +3361,30 @@ export async function processTestResultAndGenerateReport(testResult, directoryNa
     if (directoryName && !currentTestDirectoryName) {
       currentTestDirectoryName = directoryName;
       console.log(`[TestResultProcessor] 📁 외부에서 전달된 디렉토리명 설정: ${currentTestDirectoryName}`);
-    } else if (!currentTestDirectoryName) {
-      console.error(`[TestResultProcessor] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
-      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
-    } else {
+          } else if (!currentTestDirectoryName) {
+        console.log(`[TestResultProcessor] 📁 전역 디렉토리명이 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+        
+        // Automatically find the most recent test directory
+        try {
+          const dataFolderPath = path.join(__dirname, 'Data');
+          const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name)
+            .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
+            .sort()
+            .reverse(); // Most recent first
+          
+          if (directories.length > 0) {
+            currentTestDirectoryName = directories[0];
+            console.log(`[TestResultProcessor] 📁 자동으로 최근 테스트 디렉토리 발견: ${currentTestDirectoryName}`);
+          } else {
+            throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+          }
+        } catch (error) {
+          console.error(`[TestResultProcessor] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
+          throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+        }
+      } else {
       console.log(`[TestResultProcessor] 📁 기존 전역 디렉토리명 사용: ${currentTestDirectoryName}`);
     }
 
