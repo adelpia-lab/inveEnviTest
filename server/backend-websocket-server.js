@@ -35,21 +35,151 @@ let machineRunning = false;
 // 전역 변수: 프로세스 중지 플래그
 let processStopRequested = false;
 
-// 전역 프로세스 강제 종료 함수
-function forceStopAllProcesses() {
-    console.log(`🛑 [Backend WS Server] Force stopping all processes...`);
-    
-    // 프로세스 중지 플래그 설정 (강제로 true로 설정)
-    processStopRequested = true;
-    
-    // 머신 실행 상태를 false로 설정
-    setMachineRunningStatus(false);
-    
-    // 모든 클라이언트에게 강제 중지 메시지 전송
-    const forceStopMessage = `[POWER_SWITCH] OFF - Machine running: false - Force stop all processes`;
-    broadcastToClients(forceStopMessage);
-    
-    console.log(`✅ [Backend WS Server] All processes force stopped - Stop flag locked to true`);
+// 포트 사용 중인 프로세스 확인 및 종료 함수
+async function checkAndKillPortProcess(port) {
+    try {
+        console.log(`🔍 [Backend WS Server] Checking if port ${port} is in use...`);
+        
+        // Windows 환경에서 netstat을 사용하여 포트 사용 프로세스 확인
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+        
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        while (attempts < maxAttempts) {
+            attempts++;
+            console.log(`🔄 [Backend WS Server] Port check attempt ${attempts}/${maxAttempts}`);
+            
+            try {
+                // netstat으로 포트 사용 프로세스 확인
+                const { stdout } = await execAsync(`netstat -ano | findstr :${port}`);
+                
+                if (stdout.trim()) {
+                    console.log(`⚠️ [Backend WS Server] Port ${port} is in use. Found processes:`);
+                    console.log(stdout);
+                    
+                    // 각 프로세스 ID 추출 및 종료
+                    const lines = stdout.trim().split('\n');
+                    let killSuccess = false;
+                    
+                    for (const line of lines) {
+                        const match = line.match(/\s+(\d+)$/);
+                        if (match) {
+                            const pid = match[1];
+                            console.log(`🔄 [Backend WS Server] Attempting to kill process with PID: ${pid}`);
+                            
+                            try {
+                                // 먼저 정상 종료 시도
+                                await execAsync(`taskkill /PID ${pid}`);
+                                console.log(`✅ [Backend WS Server] Successfully terminated process with PID: ${pid}`);
+                                killSuccess = true;
+                            } catch (normalKillError) {
+                                console.log(`⚠️ [Backend WS Server] Normal termination failed for PID ${pid}, trying force kill...`);
+                                
+                                try {
+                                    // 강제 종료 시도
+                                    await execAsync(`taskkill /PID ${pid} /F`);
+                                    console.log(`✅ [Backend WS Server] Successfully force killed process with PID: ${pid}`);
+                                    killSuccess = true;
+                                } catch (forceKillError) {
+                                    console.warn(`❌ [Backend WS Server] Failed to force kill process with PID ${pid}: ${forceKillError.message}`);
+                                    
+                                    // wmic을 사용한 추가 종료 시도
+                                    try {
+                                        await execAsync(`wmic process where "ProcessId=${pid}" call terminate`);
+                                        console.log(`✅ [Backend WS Server] Successfully terminated process with PID ${pid} using WMIC`);
+                                        killSuccess = true;
+                                    } catch (wmicError) {
+                                        console.warn(`❌ [Backend WS Server] WMIC termination also failed for PID ${pid}: ${wmicError.message}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (killSuccess) {
+                        // 프로세스 종료 후 더 오래 대기
+                        console.log(`⏳ [Backend WS Server] Waiting for processes to fully terminate... (attempt ${attempts})`);
+                        await new Promise(resolve => setTimeout(resolve, 3000));
+                        
+                        // 다시 한번 포트 사용 상태 확인
+                        try {
+                            const { stdout: checkAgain } = await execAsync(`netstat -ano | findstr :${port}`);
+                            if (checkAgain.trim()) {
+                                console.warn(`⚠️ [Backend WS Server] Port ${port} is still in use after kill attempts`);
+                                console.log(checkAgain);
+                                
+                                if (attempts < maxAttempts) {
+                                    console.log(`🔄 [Backend WS Server] Retrying port kill process...`);
+                                    continue; // 다음 시도로 진행
+                                } else {
+                                    console.error(`❌ [Backend WS Server] Failed to free port ${port} after ${maxAttempts} attempts`);
+                                    return false;
+                                }
+                            } else {
+                                console.log(`✅ [Backend WS Server] Port ${port} is now free after attempt ${attempts}`);
+                                return true;
+                            }
+                        } catch (checkError) {
+                            console.log(`✅ [Backend WS Server] Port ${port} check completed after attempt ${attempts}`);
+                            return true;
+                        }
+                    } else {
+                        console.warn(`⚠️ [Backend WS Server] No processes were successfully killed in attempt ${attempts}`);
+                        
+                        if (attempts < maxAttempts) {
+                            console.log(`🔄 [Backend WS Server] Retrying with different approach...`);
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            continue;
+                        } else {
+                            console.error(`❌ [Backend WS Server] Failed to kill any processes after ${maxAttempts} attempts`);
+                            return false;
+                        }
+                    }
+                } else {
+                    console.log(`✅ [Backend WS Server] Port ${port} is free`);
+                    return true;
+                }
+            } catch (netstatError) {
+                // netstat 명령어가 실패한 경우 (포트가 사용되지 않는 경우)
+                console.log(`✅ [Backend WS Server] Port ${port} is free (netstat check failed)`);
+                return true;
+            }
+        }
+        
+        return false;
+    } catch (error) {
+        console.error(`❌ [Backend WS Server] Error checking/killing port process: ${error.message}`);
+        return false;
+    }
+}
+
+// WebSocket 서버 시작 함수
+async function startWebSocketServer() {
+    try {
+        // 포트 사용 중인 프로세스 확인 및 종료
+        const portFreed = await checkAndKillPortProcess(LOCAL_WS_PORT);
+        
+        if (!portFreed) {
+            throw new Error(`Failed to free port ${LOCAL_WS_PORT} after multiple attempts. Please manually check and kill processes using this port.`);
+        }
+        
+        console.log(`✅ [Backend WS Server] Port ${LOCAL_WS_PORT} is confirmed free, creating WebSocket server...`);
+        
+        // WebSocket 서버 생성
+        const wss = new WebSocketServer({ port: LOCAL_WS_PORT });
+        console.log(`🚀 [Backend WS Server] WebSocket server successfully started on port ${LOCAL_WS_PORT}`);
+        
+        // RunTestProcess에 WebSocket 서버 참조 설정
+        setWebSocketServer(wss);
+        
+        return wss;
+    } catch (error) {
+        console.error(`❌ [Backend WS Server] Failed to start WebSocket server: ${error.message}`);
+        throw error;
+    }
 }
 
 // 전역 변수: 챔버 온도 모니터링
@@ -157,10 +287,23 @@ function getCurrentChamberTemperature() {
 // 머신 실행 상태와 프로세스 중지 플래그를 외부에서 접근할 수 있도록 export
 export { getMachineRunningStatus, setMachineRunningStatus, getProcessStopRequested, setProcessStopRequested, startChamberTemperatureMonitoring, stopChamberTemperatureMonitoring, getCurrentChamberTemperature };
 
-const wss = new WebSocketServer({ port: LOCAL_WS_PORT });
+// WebSocket 서버를 비동기적으로 시작
+let wss;
 
-// RunTestProcess에 WebSocket 서버 참조 설정
-setWebSocketServer(wss);
+// 서버 시작을 위한 즉시 실행 함수
+(async () => {
+    try {
+        wss = await startWebSocketServer();
+        
+        // WebSocket 서버 이벤트 핸들러 설정
+        setupWebSocketEventHandlers(wss);
+        
+        console.log(`🔌 [Backend WS Server] WebSocket server ready for connections`);
+    } catch (error) {
+        console.error(`❌ [Backend WS Server] Failed to start server: ${error.message}`);
+        process.exit(1);
+    }
+})();
 
 // 딜레이 설정을 파일에 저장하는 함수
 async function saveDelaySettings(onDelay, offDelay, cycleNumber = 1) {
@@ -746,10 +889,9 @@ function broadcastToClients(message) {
   console.log(`[Broadcast] 브로드캐스트 완료 - 전송된 클라이언트 수: ${sentCount}`);
 }
 
-// 함수와 객체를 export하여 다른 모듈에서 사용할 수 있도록 함
-export { broadcastToClients, wss, getSafeGetTableOption };
-
-wss.on('connection', ws => {
+// WebSocket 이벤트 핸들러 설정 함수
+function setupWebSocketEventHandlers(wss) {
+    wss.on('connection', ws => {
     console.log(`[Backend WS Server] 클라이언트 연결됨 (${ws._socket.remoteAddress}:${ws._socket.remotePort})`);
 
     // 챔버 온도 모니터링 시작
@@ -2255,7 +2397,11 @@ wss.on('connection', ws => {
     ws.on('error', (error) => {
         console.error("❌ [Backend WS Server] WebSocket error:", error);
     });
-});
+    });
+}
+
+// 함수와 객체를 export하여 다른 모듈에서 사용할 수 있도록 함
+export { broadcastToClients, wss, getSafeGetTableOption };
 
 // 시뮬레이션 설정을 로드하는 함수
 async function loadSimulationConfig() {
@@ -2288,6 +2434,5 @@ loadSimulationConfig();
     }
 })();
 
-console.log(`🚀 [Backend WS Server] WebSocket server running on port ${LOCAL_WS_PORT}`);
-console.log(`🔌 [Backend WS Server] WebSocket server ready for connections`);
+console.log(`🚀 [Backend WS Server] Starting WebSocket server initialization on port ${LOCAL_WS_PORT}`);
 console.log(`🎮 [Backend WS Server] Simulation mode: ${SIMULATION_PROCESS ? 'ON' : 'OFF'}`);

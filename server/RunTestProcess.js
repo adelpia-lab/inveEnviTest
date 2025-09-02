@@ -234,12 +234,13 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
       console.log(`[SaveData] Data 폴더 생성됨: ${dataFolderPath}`);
     }
     
-    // 전역 변수에서 테스트 디렉토리명 사용 (없으면 새로 생성)
-    let dateDirectoryName = currentTestDirectoryName;
+    // ===== 전역 변수에서 테스트 디렉토리명 사용 (새로 생성하지 않음) =====
+    const dateDirectoryName = currentTestDirectoryName;
     if (!dateDirectoryName) {
-      dateDirectoryName = getDateDirectoryName();
-      console.log(`[SaveData] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${dateDirectoryName}`);
+      console.error(`[SaveData] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
+      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
     }
+    console.log(`[SaveData] 📁 기존 테스트 디렉토리 사용: ${dateDirectoryName}`);
     
     const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
     
@@ -596,6 +597,7 @@ export async function runSinglePageProcess() {
     }
     
     // 디렉토리 공유 확인 및 설정
+/*
     if (!currentTestDirectoryName) {
       // runNextTankEnviTestProcess에서 생성된 디렉토리가 없으면 새로 생성
       currentTestDirectoryName = getDateDirectoryName();
@@ -619,7 +621,7 @@ export async function runSinglePageProcess() {
     } else {
       console.log(`[SinglePageProcess] 📁 기존 전역 디렉토리명 사용: ${currentTestDirectoryName}`);
     }
-    
+*/    
     // 프로세스 시작 시 테이블 데이터 초기화
     console.log(`[SinglePageProcess] 📊 테이블 데이터 초기화 시작...`);
     resetTableData();
@@ -1070,19 +1072,22 @@ export async function runNextTankEnviTestProcess() {
       };
     }
     
-    // 테스트 시작 시 디렉토리명을 한 번만 생성하여 저장
+    // ===== 디렉토리명을 한 번만 생성하고 전역 변수에 저장 =====
     currentTestDirectoryName = getDateDirectoryName();
+    console.log(`[NextTankEnviTestProcess] 📁 테스트 디렉토리명 생성: ${currentTestDirectoryName}`);
     
     // 테스트 결과 저장을 위한 디렉토리 생성
     const dataFolderPath = path.join(process.cwd(), 'Data');
     if (!fs.existsSync(dataFolderPath)) {
       fs.mkdirSync(dataFolderPath, { recursive: true });
-      //console.log(`[NextTankEnviTestProcess] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
+      console.log(`[NextTankEnviTestProcess] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
     }
     
     const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
+      console.log(`[NextTankEnviTestProcess] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
+      
       if (globalWss) {
         const dirCreateMessage = `[DIRECTORY_CREATED] ${currentTestDirectoryName}`;
         let sentCount = 0;
@@ -1092,7 +1097,7 @@ export async function runNextTankEnviTestProcess() {
             sentCount++;
           }
         });
-        //console.log(`[NextTankEnviTestProcess] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
+        console.log(`[NextTankEnviTestProcess] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
       }
     } else {
       console.log(`[NextTankEnviTestProcess] 📁 기존 테스트 결과 저장 디렉토리 사용: ${dateFolderPath}`);
@@ -1254,8 +1259,8 @@ export async function runNextTankEnviTestProcess() {
               
               if (reportResult && reportResult.success) {
                 console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                // 보고서 생성 완료 후 전역 디렉토리명 초기화
-                currentTestDirectoryName = null;
+                // 전역 디렉토리명은 유지 (다른 함수에서도 사용)
+                console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명 유지: ${currentTestDirectoryName}`);
               } else {
                 console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
               }
@@ -1301,10 +1306,10 @@ export async function runNextTankEnviTestProcess() {
               
               // 중단 보고서 생성 (안전한 처리)
               try {
-                // 전역 디렉토리명이 있는지 확인
+                // 전역 디렉토리명 확인 (새로 생성하지 않음)
                 if (!currentTestDirectoryName) {
-                  currentTestDirectoryName = getDateDirectoryName();
-                  console.log(`[NextTankEnviTestProcess] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${currentTestDirectoryName}`);
+                  console.error(`[NextTankEnviTestProcess] ❌ 전역 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요`);
+                  throw new Error('테스트 디렉토리명이 설정되지 않음');
                 }
                 
                 const testSettings = {
@@ -1324,8 +1329,8 @@ export async function runNextTankEnviTestProcess() {
                 
                 if (reportResult && reportResult.success) {
                   console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                  // 보고서 생성 완료 후 전역 디렉토리명 초기화
-                  currentTestDirectoryName = null;
+                  // 전역 디렉토리명은 유지 (다른 함수에서도 사용)
+                  console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명 유지: ${currentTestDirectoryName}`);
                 } else {
                   console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
                 }
@@ -1875,8 +1880,8 @@ export async function runNextTankEnviTestProcess() {
                 
                 if (reportResult && reportResult.success) {
                   console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                  // 보고서 생성 완료 후 전역 디렉토리명 초기화
-                  currentTestDirectoryName = null;
+                  // 전역 디렉토리명은 유지 (다른 함수에서도 사용)
+                  console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명 유지: ${currentTestDirectoryName}`);
                 } else {
                   console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
                 }
@@ -2238,7 +2243,8 @@ export async function runNextTankEnviTestProcess() {
     console.log(`[NextTankEnviTestProcess] 🛑 프로세스 완료 - 중지 플래그 상태 유지`);
     // setProcessStopRequested(false) 호출 제거
     
-    // 전역 디렉토리명 초기화
+    // 프로세스 완료 후 전역 디렉토리명 초기화 (모든 파일 생성 완료 후)
+    console.log(`[NextTankEnviTestProcess] 📁 프로세스 완료 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
     currentTestDirectoryName = null;
     
     return { 
@@ -2349,8 +2355,8 @@ export async function runNextTankEnviTestProcess() {
         
         if (result && result.success) {
           console.log(`[NextTankEnviTestProcess] ✅ 에러로 인한 중단된 테스트 결과 파일 생성 완료: ${result.filename}`);
-          // 보고서 생성 완료 후 전역 디렉토리명 초기화
-          currentTestDirectoryName = null;
+          // 전역 디렉토리명은 유지 (다른 함수에서도 사용)
+          console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명 유지: ${currentTestDirectoryName}`);
         } else {
           console.error(`[NextTankEnviTestProcess] ❌ 에러로 인한 중단된 테스트 결과 파일 생성 실패:`, result?.error || '알 수 없는 오류');
         }
@@ -2365,8 +2371,8 @@ export async function runNextTankEnviTestProcess() {
       if (error.status !== 'stopped_by_singlepage') {
         console.log(`[NextTankEnviTestProcess] 🛑 일반 에러로 인한 프로세스 중단 - 중단 보고서 생성 완료`);
         
-        // 전역 디렉토리명 초기화
-        currentTestDirectoryName = null;
+        // 전역 디렉토리명은 유지 (다른 함수에서도 사용)
+        console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명 유지: ${currentTestDirectoryName}`);
         
         // 에러 상태로 프로세스 완료 (에러를 다시 던지지 않음)
         return {
@@ -2606,13 +2612,19 @@ async function generateFinalDeviceReport(cycleNumber) {
     // 종합 리포트 파일 생성
     const reportFilename = `${getFormattedDateTime()}_Final_Device_Report.csv`;
     
-    // 전역 변수에서 테스트 디렉토리명 사용 (없으면 새로 생성)
-    const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+    // ===== 전역 변수에서 테스트 디렉토리명 사용 (새로 생성하지 않음) =====
+    const dateDirectoryName = currentTestDirectoryName;
+    if (!dateDirectoryName) {
+      console.error(`[FinalDeviceReport] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
+      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
+    }
+    console.log(`[FinalDeviceReport] 📁 기존 테스트 디렉토리 사용: ${dateDirectoryName}`);
+    
     const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
     
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
-      console.log(`[FinalDeviceReport] 날짜별 디렉토리 생성됨: ${dateFolderPath}`);
+      console.log(`[FinalDeviceReport] 📁 테스트 결과 디렉토리 생성됨: ${dateFolderPath}`);
     }
     
     const reportFilePath = path.join(dateFolderPath, reportFilename);
@@ -2824,12 +2836,13 @@ export async function generateInterruptedTestResultFile(options) {
       existingFiles = [] // 이 값은 무시하고 실제 파일을 조사함
     } = options || {};
     
-    // 디렉토리 경로 설정 (안전한 처리)
-    let dateDirectoryName = currentTestDirectoryName;
+    // ===== 전역 변수에서 디렉토리명 가져오기 (새로 생성하지 않음) =====
+    const dateDirectoryName = currentTestDirectoryName;
     if (!dateDirectoryName) {
-      dateDirectoryName = getDateDirectoryName();
-      console.log(`[InterruptedTestResult] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${dateDirectoryName}`);
+      console.error(`[InterruptedTestResult] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
+      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
     }
+    console.log(`[InterruptedTestResult] 📁 기존 테스트 디렉토리 사용: ${dateDirectoryName}`);
     
     const dataFolderPath = path.join(process.cwd(), 'Data');
     const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
@@ -3233,13 +3246,15 @@ export async function processTestResultAndGenerateReport(testResult, directoryNa
       };
     }
 
-    // 디렉토리명 설정
-    if (directoryName) {
+    // ===== 디렉토리명 설정 (기존 전역 변수 우선 사용) =====
+    if (directoryName && !currentTestDirectoryName) {
       currentTestDirectoryName = directoryName;
-      console.log(`[TestResultProcessor] 📁 디렉토리명 설정: ${currentTestDirectoryName}`);
+      console.log(`[TestResultProcessor] 📁 외부에서 전달된 디렉토리명 설정: ${currentTestDirectoryName}`);
     } else if (!currentTestDirectoryName) {
-      currentTestDirectoryName = getDateDirectoryName();
-      console.log(`[TestResultProcessor] ⚠️ 디렉토리명이 없어 새로 생성: ${currentTestDirectoryName}`);
+      console.error(`[TestResultProcessor] ❌ 전역 디렉토리명이 설정되지 않음 - runNextTankEnviTestProcess에서 생성되어야 함`);
+      throw new Error('테스트 디렉토리명이 설정되지 않음 - 프로세스 시작 시점을 확인하세요');
+    } else {
+      console.log(`[TestResultProcessor] 📁 기존 전역 디렉토리명 사용: ${currentTestDirectoryName}`);
     }
 
     let reportResult = null;
@@ -3413,7 +3428,8 @@ export async function processTestResultAndGenerateReport(testResult, directoryNa
         break;
     }
 
-    // 전역 디렉토리명 초기화
+    // 프로세스 완료 후 전역 디렉토리명 초기화 (모든 파일 생성 완료 후)
+    console.log(`[TestResultProcessor] 📁 프로세스 완료 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
     currentTestDirectoryName = null;
     
     // 최종 결과 반환
@@ -3459,16 +3475,12 @@ export async function runTestProcessWithResultHandling(options = {}) {
   try {
     console.log(`[TestProcessOrchestrator] 🚀 테스트 프로세스 실행 시작`);
     
-    // 디렉토리명 생성
-    const directoryName = getDateDirectoryName();
-    console.log(`[TestProcessOrchestrator] 📁 테스트 디렉토리 생성: ${directoryName}`);
-    
-    // runNextTankEnviTestProcess 실행
+    // runNextTankEnviTestProcess 실행 (내부에서 디렉토리명 생성)
     const testResult = await runNextTankEnviTestProcess(options);
     console.log(`[TestProcessOrchestrator] ✅ 테스트 프로세스 실행 완료: ${testResult.status}`);
     
-    // 결과 처리 및 리포트 생성
-    const finalResult = await processTestResultAndGenerateReport(testResult, directoryName);
+    // 결과 처리 및 리포트 생성 (전역 변수의 디렉토리명 사용)
+    const finalResult = await processTestResultAndGenerateReport(testResult, null);
     
     console.log(`[TestProcessOrchestrator] 🎯 최종 처리 완료: ${finalResult.reportType}`);
     return finalResult;
@@ -3483,7 +3495,26 @@ export async function runTestProcessWithResultHandling(options = {}) {
       errorType: 'orchestrator_error'
     };
     
-    const finalResult = await processTestResultAndGenerateReport(errorResult, null);
-    return finalResult;
+    try {
+      const finalResult = await processTestResultAndGenerateReport(errorResult, null);
+      return finalResult;
+    } catch (reportError) {
+      console.error(`[TestProcessOrchestrator] ❌ 에러 리포트 생성 실패:`, reportError.message);
+      
+      // 에러 리포트 생성 실패 시에도 전역 디렉토리명 초기화
+      if (currentTestDirectoryName) {
+        console.log(`[TestProcessOrchestrator] 📁 에러 발생 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+        currentTestDirectoryName = null;
+      }
+      
+      return {
+        success: false,
+        error: error.message,
+        reportType: 'error',
+        testResult: errorResult,
+        reportResult: null,
+        directoryName: null
+      };
+    }
   }
 }
