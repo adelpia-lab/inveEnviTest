@@ -7,7 +7,12 @@ import { ReadChamber } from './ReadChamber.js';
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { InterByteTimeoutParser } from 'serialport';
+
+// ES Module 환경에서 __dirname 사용을 위한 설정
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // 시뮬레이션 모드 - backend-websocket-server.js에서 관리
 let SIMULATION_PROC = false;
@@ -1004,7 +1009,7 @@ export async function runSinglePageProcess() {
   } catch (error) {
     console.error('[SinglePageProcess] 예외 발생:', error);
     
-    // 에러 발생 시에도 중단 보고서 생성
+    // 에러 발생 시에도 중단 보고서 생성하지 않음 - 상위 함수에서 처리
     stopInfo = { 
       status: 'error', 
       message: `예외 발생: ${error.message}`,
@@ -1252,40 +1257,8 @@ export async function runNextTankEnviTestProcess() {
               });
             }
             
-            // 중단 보고서 생성 (안전한 처리)
-            try {
-              // 전역 디렉토리명이 있는지 확인
-              if (!currentTestDirectoryName) {
-                currentTestDirectoryName = getDateDirectoryName();
-                console.log(`[NextTankEnviTestProcess] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${currentTestDirectoryName}`);
-              }
-              
-              const testSettings = {
-                modelName: getTableOption.productInput?.modelName || 'N/A',
-                productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
-                totalCycles: cycleNumber
-              };
-              
-              const reportResult = await generateInterruptedTestResultFile({
-                stopReason: 'power_switch_off',
-                stoppedAtCycle: cycle,
-                stoppedAtPhase: 'high_temp_waiting',
-                errorMessage: '사용자에 의한 파워스위치 OFF',
-                testSettings: testSettings
-              });
-              
-              if (reportResult && reportResult.success) {
-                console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                // 전역 디렉토리명은 유지 (다른 함수에서도 사용)
-                console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명 유지: ${currentTestDirectoryName}`);
-              } else {
-                console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-              }
-              
-            } catch (error) {
-              console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, error.message);
-            }
+                          // 중단 보고서 생성은 최종 종료 시에만 생성하도록 수정
+              console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
             
             // 프로세스 중지 플래그 초기화 제거 - 중지 상태 유지
             console.log(`[NextTankEnviTestProcess] 🛑 프로세스 중지 상태 유지 - 고온 테스트 온도 대기 중`);
@@ -1322,60 +1295,8 @@ export async function runNextTankEnviTestProcess() {
                 });
               }
               
-              // 중단 보고서 생성 (안전한 처리)
-              try {
-                // 전역 디렉토리명 확인 (새로 생성하지 않음)
-                                  if (!currentTestDirectoryName) {
-                    console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명이 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
-                    
-                    // Automatically find the most recent test directory
-                    try {
-                      const dataFolderPath = path.join(__dirname, 'Data');
-                      const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
-                        .filter(dirent => dirent.isDirectory())
-                        .map(dirent => dirent.name)
-                        .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
-                        .sort()
-                        .reverse(); // Most recent first
-                      
-                      if (directories.length > 0) {
-                        currentTestDirectoryName = directories[0];
-                        console.log(`[NextTankEnviTestProcess] 📁 자동으로 최근 테스트 디렉토리 발견: ${currentTestDirectoryName}`);
-                      } else {
-                        throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
-                      }
-                    } catch (error) {
-                      console.error(`[NextTankEnviTestProcess] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
-                      throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
-                    }
-                  }
-                
-                const testSettings = {
-                  modelName: getTableOption.productInput?.modelName || 'N/A',
-                  productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                  temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
-                  totalCycles: cycleNumber
-                };
-                
-                const reportResult = await generateInterruptedTestResultFile({
-                  stopReason: 'power_switch_off',
-                  stoppedAtCycle: cycle,
-                  stoppedAtPhase: 'high_temp_waiting',
-                  errorMessage: '사용자에 의한 파워스위치 OFF',
-                  testSettings: testSettings
-                });
-                
-                if (reportResult && reportResult.success) {
-                  console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                  // 전역 디렉토리명은 유지 (다른 함수에서도 사용)
-                  console.log(`[NextTankEnviTestProcess] 📁 전역 디렉토리명 유지: ${currentTestDirectoryName}`);
-                } else {
-                  console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-                }
-                
-              } catch (error) {
-                console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, error.message);
-              }
+              // 중단 보고서 생성은 최종 종료 시에만 생성하도록 수정
+              console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
               
               // 프로세스 중지 플래그 초기화 제거 - 중지 상태 유지
               console.log(`[NextTankEnviTestProcess] 🛑 프로세스 중지 상태 유지 - 고온 테스트 온도 대기 중 주기적 체크`);
@@ -1512,41 +1433,8 @@ export async function runNextTankEnviTestProcess() {
                   console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 고온 테스트 실행 중단 시 파워스위치 OFF 메시지 전송 불가`);
                 }
                 
-                // 중단 보고서 생성 (안전한 처리)
-                try {
-                  // 전역 디렉토리명이 있는지 확인
-                  if (!currentTestDirectoryName) {
-                    currentTestDirectoryName = getDateDirectoryName();
-                    console.log(`[NextTankEnviTestProcess] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${currentTestDirectoryName}`);
-                  }
-                  
-                  const testSettings = {
-                    modelName: getTableOption.productInput?.modelName || 'N/A',
-                    productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                    temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
-                    totalCycles: cycleNumber
-                  };
-                  
-                  const reportResult = await generateInterruptedTestResultFile({
-                    stopReason: 'power_switch_off',
-                    stoppedAtCycle: cycle,
-                    stoppedAtPhase: 'high_temp_test',
-                    stoppedAtTest: i+1,
-                    errorMessage: '사용자에 의한 파워스위치 OFF',
-                    testSettings: testSettings
-                  });
-                  
-                  if (reportResult && reportResult.success) {
-                    console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                    // 보고서 생성 완료 후 전역 디렉토리명 초기화
-                    currentTestDirectoryName = null;
-                  } else {
-                    console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-                  }
-                  
-                } catch (error) {
-                  console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, error.message);
-                }
+                // 중단 보고서 생성은 최종 종료 시에만 생성하도록 수정
+                console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
                 
                 return { 
                   status: 'stopped', 
@@ -1613,39 +1501,8 @@ export async function runNextTankEnviTestProcess() {
                       console.log(`[NextTankEnviTestProcess] 🔌 SinglePageProcess 중지로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
                     }
                     
-                    // 중단 보고서가 이미 생성되었는지 확인
-                    if (singlePageResult.finalReportGenerated) {
-                      console.log(`[NextTankEnviTestProcess] ✅ SinglePageProcess에서 이미 중단 보고서가 생성됨: ${singlePageResult.reportFilename}`);
-                    } else {
-                      // 중단 보고서가 생성되지 않았다면 여기서 생성
-                      console.log(`[NextTankEnviTestProcess] 📄 SinglePageProcess 중단 보고서 생성 시작...`);
-                      
-                      try {
-                        // 테스트 설정 정보 수집
-                        const testSettings = {
-                          modelName: getTableOption.productInput?.modelName || 'N/A',
-                          productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                          temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
-                          totalCycles: cycleNumber
-                        };
-                        
-                        const reportResult = await generateInterruptedTestResultFile({
-                          stopReason: singlePageResult.errorType || 'SinglePageProcess_stopped',
-                          stoppedAtCycle: cycle,
-                          stoppedAtPhase: singlePageResult.stoppedAtPhase || 'high_temp_test',
-                          errorMessage: singlePageResult.message,
-                          testSettings: testSettings
-                        });
-                        
-                        if (reportResult && reportResult.success) {
-                          console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                        } else {
-                          console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-                        }
-                      } catch (reportError) {
-                        console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportError.message);
-                      }
-                    }
+                    // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+                    console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
                     
                     // 전역 디렉토리명 초기화
                     currentTestDirectoryName = null;
@@ -1682,31 +1539,8 @@ export async function runNextTankEnviTestProcess() {
                     setMachineRunningStatus(false);
                     console.log(`[NextTankEnviTestProcess] 🔌 고온 테스트 실패로 인한 PowerSwitch 상태 OFF 설정`);
                     
-                    // 최종 실패 시에도 중단 보고서 생성
-                    try {
-                      const testSettings = {
-                        modelName: getTableOption.productInput?.modelName || 'N/A',
-                        productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                        temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
-                        totalCycles: cycleNumber
-                      };
-                      
-                      const reportResult = await generateInterruptedTestResultFile({
-                        stopReason: 'high_temp_test_failed',
-                        stoppedAtCycle: cycle,
-                        stoppedAtPhase: 'high_temp_test',
-                        errorMessage: `고온 테스트 ${i+1}/${readCount} 실패 - 5회 재시도 후 최종 실패`,
-                        testSettings: testSettings
-                      });
-                      
-                      if (reportResult && reportResult.success) {
-                        console.log(`[NextTankEnviTestProcess] ✅ 최종 실패로 인한 중단 보고서 생성 성공: ${reportResult.filename}`);
-                      } else {
-                        console.error(`[NextTankEnviTestProcess] ❌ 최종 실패로 인한 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-                      }
-                    } catch (reportError) {
-                      console.error(`[NextTankEnviTestProcess] ❌ 최종 실패로 인한 중단 보고서 생성 실패:`, reportError.message);
-                    }
+                                        // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+                    console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
                     
                     // 전역 디렉토리명 초기화
                     currentTestDirectoryName = null;
@@ -2005,40 +1839,8 @@ export async function runNextTankEnviTestProcess() {
                   });
                 }
                 
-                // 중단 보고서 생성 (안전한 처리)
-                try {
-                  // 전역 디렉토리명이 있는지 확인
-                  if (!currentTestDirectoryName) {
-                    currentTestDirectoryName = getDateDirectoryName();
-                    console.log(`[NextTankEnviTestProcess] ⚠️ 전역 디렉토리명이 없어 새로 생성: ${currentTestDirectoryName}`);
-                  }
-                  
-                  const testSettings = {
-                    modelName: getTableOption.productInput?.modelName || 'N/A',
-                    productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                    temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
-                    totalCycles: cycleNumber
-                  };
-                  
-                  const reportResult = await generateInterruptedTestResultFile({
-                    stopReason: 'manual_stop',
-                    stoppedAtCycle: cycle,
-                    stoppedAtPhase: 'low_temp_test',
-                    stoppedAtTest: i+1,
-                    testSettings: testSettings
-                  });
-                  
-                  if (reportResult && reportResult.success) {
-                    console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                    // 보고서 생성 완료 후 전역 디렉토리명 초기화
-                    currentTestDirectoryName = null;
-                  } else {
-                    console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-                  }
-                  
-                } catch (error) {
-                  console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, error.message);
-                }
+                // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+                console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
                 
                 return { 
                   status: 'stopped', 
@@ -2106,39 +1908,8 @@ export async function runNextTankEnviTestProcess() {
                       console.log(`[NextTankEnviTestProcess] 🔌 SinglePageProcess 중지로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
                     }
                     
-                    // 중단 보고서가 이미 생성되었는지 확인
-                    if (singlePageResult.finalReportGenerated) {
-                      console.log(`[NextTankEnviTestProcess] ✅ SinglePageProcess에서 이미 중단 보고서가 생성됨: ${singlePageResult.reportFilename}`);
-                    } else {
-                      // 중단 보고서가 생성되지 않았다면 여기서 생성
-                      console.log(`[NextTankEnviTestProcess] 📄 SinglePageProcess 중단 보고서 생성 시작...`);
-                      
-                      try {
-                        // 테스트 설정 정보 수집
-                        const testSettings = {
-                          modelName: getTableOption.productInput?.modelName || 'N/A',
-                          productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                          temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
-                          totalCycles: cycleNumber
-                        };
-                        
-                        const reportResult = await generateInterruptedTestResultFile({
-                          stopReason: singlePageResult.errorType || 'SinglePageProcess_stopped',
-                          stoppedAtCycle: cycle,
-                          stoppedAtPhase: singlePageResult.stoppedAtPhase || 'low_temp_test',
-                          errorMessage: singlePageResult.message,
-                          testSettings: testSettings
-                        });
-                        
-                        if (reportResult && reportResult.success) {
-                          console.log(`[NextTankEnviTestProcess] ✅ 중단 보고서 생성 성공: ${reportResult.filename}`);
-                        } else {
-                          console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-                        }
-                      } catch (reportError) {
-                        console.error(`[NextTankEnviTestProcess] ❌ 중단 보고서 생성 실패:`, reportError.message);
-                      }
-                    }
+                    // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+                    console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
                     
                     // 전역 디렉토리명 초기화
                     currentTestDirectoryName = null;
@@ -2262,6 +2033,39 @@ export async function runNextTankEnviTestProcess() {
       await generateFinalDeviceReport(cycleNumber);
     } catch (error) {
       console.error(`[NextTankEnviTestProcess] ❌ 종합 리포트 생성 실패:`, error.message);
+    }
+    
+    // 모든 사이클 완료 후 최종 보고서 생성
+    console.log(`[NextTankEnviTestProcess] 📄 모든 사이클 완료 - 최종 보고서 생성`);
+    try {
+      const testSettings = {
+        modelName: getTableOption.productInput?.modelName || 'N/A',
+        productNumber: getTableOption.productInput?.productNumber || 'N/A',
+        temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+        totalCycles: cycleNumber,
+        highTempEnabled: getTableOption.highTempSettings.highTemp,
+        lowTempEnabled: getTableOption.lowTempSettings.lowTemp,
+        highTempWaitTime: getTableOption.highTempSettings.waitTime,
+        lowTempWaitTime: getTableOption.lowTempSettings.waitTime,
+        highTempReadCount: getTableOption.highTempSettings.readCount,
+        lowTempReadCount: getTableOption.lowTempSettings.readCount
+      };
+      
+      const finalReportResult = await generateInterruptedTestResultFile({
+        stopReason: 'completed_successfully',
+        stoppedAtCycle: cycleNumber,
+        stoppedAtPhase: 'all_cycles_completed',
+        errorMessage: '모든 사이클이 성공적으로 완료됨',
+        testSettings: testSettings
+      });
+      
+      if (finalReportResult && finalReportResult.success) {
+        console.log(`[NextTankEnviTestProcess] ✅ 최종 보고서 생성 성공: ${finalReportResult.filename}`);
+      } else {
+        console.error(`[NextTankEnviTestProcess] ❌ 최종 보고서 생성 실패:`, finalReportResult?.error || '알 수 없는 오류');
+      }
+    } catch (reportError) {
+      console.error(`[NextTankEnviTestProcess] ❌ 최종 보고서 생성 실패:`, reportError.message);
     }
     
     // PowerSwitch 상태 OFF 설정
@@ -2658,7 +2462,7 @@ async function generateFinalDeviceReport(cycleNumber) {
         
         // Automatically find the most recent test directory
         try {
-          const dataFolderPath = path.join(__dirname, 'Data');
+          const dataFolderPath = path.join(process.cwd(), 'Data');
           const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
             .filter(dirent => dirent.isDirectory())
             .map(dirent => dirent.name)
@@ -2930,7 +2734,7 @@ export async function generateInterruptedTestResultFile(options) {
         
         // Automatically find the most recent test directory
         try {
-          const dataFolderPath = path.join(__dirname, 'Data');
+          const dataFolderPath = path.join(process.cwd(), 'Data');
           const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
             .filter(dirent => dirent.isDirectory())
             .map(dirent => dirent.name)
@@ -2971,34 +2775,68 @@ export async function generateInterruptedTestResultFile(options) {
     const measurementFiles = scanExistingMeasurementFiles(dateDirectoryName);
     
     // ===== 2. 중단 원인 분석 =====
-    const stopAnalysis = analyzeStopReason(stopReason, errorMessage, stoppedAtPhase);
+    let stopAnalysis;
+    if (stopReason === 'completed_successfully') {
+      stopAnalysis = {
+        category: '정상 완료',
+        description: '모든 테스트가 성공적으로 완료됨',
+        severity: '정보',
+        actionRequired: '추가 조치 불필요',
+        errorMessage: '',
+        timestamp: new Date().toLocaleString('ko-KR')
+      };
+    } else {
+      stopAnalysis = analyzeStopReason(stopReason, errorMessage, stoppedAtPhase);
+    }
     
     // ===== 3. 파일명 생성 (정상 종료와 유사한 형식) =====
     const timestamp = getFormattedDateTime();
-    const filename = `중단된테스트_최종보고서_${timestamp}.csv`;
+    let filename;
+    if (stopReason === 'completed_successfully') {
+      filename = `최종보고서_${timestamp}.csv`;
+    } else {
+      filename = `중단된테스트_최종보고서_${timestamp}.csv`;
+    }
     const filePath = path.join(dateFolderPath, filename);
     
     // ===== 4. CSV 내용 생성 (정상 종료 형식과 유사하게) =====
     let csvContent = '';
     
     // 헤더 정보 (정상 종료 리포트와 유사)
-    csvContent += `=== 중단된 테스트 최종 결과 보고서 ===\n`;
-    csvContent += `생성일시,${timestamp}\n`;
-    csvContent += `테스트 상태,중단됨\n`;
-    csvContent += `완료 사이클,${stoppedAtCycle - 1}/${testSettings.totalCycles || 'N/A'}\n`;
-    csvContent += `중단 지점,사이클 ${stoppedAtCycle} - ${stoppedAtPhase}\n`;
+    if (stopReason === 'completed_successfully') {
+      csvContent += `=== 테스트 최종 결과 보고서 ===\n`;
+      csvContent += `생성일시,${timestamp}\n`;
+      csvContent += `테스트 상태,완료됨\n`;
+      csvContent += `완료 사이클,${stoppedAtCycle}/${testSettings.totalCycles || 'N/A'}\n`;
+      csvContent += `완료 지점,사이클 ${stoppedAtCycle} - ${stoppedAtPhase}\n`;
+    } else {
+      csvContent += `=== 중단된 테스트 최종 결과 보고서 ===\n`;
+      csvContent += `생성일시,${timestamp}\n`;
+      csvContent += `테스트 상태,중단됨\n`;
+      csvContent += `완료 사이클,${stoppedAtCycle - 1}/${testSettings.totalCycles || 'N/A'}\n`;
+      csvContent += `중단 지점,사이클 ${stoppedAtCycle} - ${stoppedAtPhase}\n`;
+    }
     csvContent += `\n`;
     
     // 중단 원인 상세 정보
-    csvContent += `=== 중단 원인 분석 ===\n`;
-    csvContent += `분류,${stopAnalysis.category}\n`;
-    csvContent += `원인,${stopAnalysis.description}\n`;
-    csvContent += `심각도,${stopAnalysis.severity}\n`;
-    csvContent += `조치사항,${stopAnalysis.actionRequired}\n`;
-    if (stopAnalysis.errorMessage) {
-      csvContent += `오류 메시지,${stopAnalysis.errorMessage}\n`;
+    if (stopReason === 'completed_successfully') {
+      csvContent += `=== 테스트 완료 요약 ===\n`;
+      csvContent += `분류,${stopAnalysis.category}\n`;
+      csvContent += `상태,${stopAnalysis.description}\n`;
+      csvContent += `심각도,${stopAnalysis.severity}\n`;
+      csvContent += `조치사항,${stopAnalysis.actionRequired}\n`;
+      csvContent += `완료 시간,${stopAnalysis.timestamp}\n`;
+    } else {
+      csvContent += `=== 중단 원인 분석 ===\n`;
+      csvContent += `분류,${stopAnalysis.category}\n`;
+      csvContent += `원인,${stopAnalysis.description}\n`;
+      csvContent += `심각도,${stopAnalysis.severity}\n`;
+      csvContent += `조치사항,${stopAnalysis.actionRequired}\n`;
+      if (stopAnalysis.errorMessage) {
+        csvContent += `오류 메시지,${stopAnalysis.errorMessage}\n`;
+      }
+      csvContent += `중단 시간,${stopAnalysis.timestamp}\n`;
     }
-    csvContent += `중단 시간,${stopAnalysis.timestamp}\n`;
     csvContent += `\n`;
     
     // 테스트 설정 정보 (정상 종료 리포트와 동일 형식)
@@ -3043,25 +2881,45 @@ export async function generateInterruptedTestResultFile(options) {
     // 테스트 진행 상황 분석
     csvContent += `=== 테스트 진행 상황 ===\n`;
     const totalExpectedCycles = testSettings.totalCycles || 1;
-    const completedCycles = Math.max(0, stoppedAtCycle - 1);
-    const progressPercentage = ((completedCycles / totalExpectedCycles) * 100).toFixed(1);
+    let completedCycles, progressPercentage;
+    
+    if (stopReason === 'completed_successfully') {
+      completedCycles = stoppedAtCycle;
+      progressPercentage = '100.0';
+    } else {
+      completedCycles = Math.max(0, stoppedAtCycle - 1);
+      progressPercentage = ((completedCycles / totalExpectedCycles) * 100).toFixed(1);
+    }
     
     csvContent += `전체 진행률,${progressPercentage}% (${completedCycles}/${totalExpectedCycles} 사이클)\n`;
     csvContent += `완료된 사이클,${completedCycles}개\n`;
     csvContent += `미완료 사이클,${totalExpectedCycles - completedCycles}개\n`;
-    csvContent += `마지막 완료 단계,${stoppedAtPhase}\n`;
+    if (stopReason === 'completed_successfully') {
+      csvContent += `최종 완료 단계,${stoppedAtPhase}\n`;
+    } else {
+      csvContent += `마지막 완료 단계,${stoppedAtPhase}\n`;
+    }
     csvContent += `\n`;
     
     // 권장 조치사항 (상세화)
-    csvContent += `=== 권장 조치사항 ===\n`;
-    csvContent += `1단계,시스템 상태 점검\n`;
-    csvContent += `2단계,생성된 측정파일 검증 (${measurementFiles.length}개 파일)\n`;
-    csvContent += `3단계,중단 원인 해결 (${stopAnalysis.category})\n`;
-    csvContent += `4단계,${stopAnalysis.actionRequired}\n`;
-    if (measurementFiles.length > 0) {
-      csvContent += `5단계,기존 데이터 백업 후 테스트 재시작\n`;
+    if (stopReason === 'completed_successfully') {
+      csvContent += `=== 권장 조치사항 ===\n`;
+      csvContent += `1단계,생성된 측정파일 검증 (${measurementFiles.length}개 파일)\n`;
+      csvContent += `2단계,테스트 결과 데이터 백업\n`;
+      csvContent += `3단계,시스템 상태 점검\n`;
+      csvContent += `4단계,다음 테스트 준비\n`;
+      csvContent += `5단계,테스트 완료 보고서 검토\n`;
     } else {
-      csvContent += `5단계,처음부터 테스트 재시작\n`;
+      csvContent += `=== 권장 조치사항 ===\n`;
+      csvContent += `1단계,시스템 상태 점검\n`;
+      csvContent += `2단계,생성된 측정파일 검증 (${measurementFiles.length}개 파일)\n`;
+      csvContent += `3단계,중단 원인 해결 (${stopAnalysis.category})\n`;
+      csvContent += `4단계,${stopAnalysis.actionRequired}\n`;
+      if (measurementFiles.length > 0) {
+        csvContent += `5단계,기존 데이터 백업 후 테스트 재시작\n`;
+      } else {
+        csvContent += `5단계,처음부터 테스트 재시작\n`;
+      }
     }
     csvContent += `\n`;
     
@@ -3070,7 +2928,11 @@ export async function generateInterruptedTestResultFile(options) {
     csvContent += `작성자,시스템\n`;
     csvContent += `문서버전,PS-14(Rev.1)\n`;
     csvContent += `회사명,(주)아델피아랩\n`;
-    csvContent += `보고서 유형,중단된 테스트 최종 보고서\n`;
+    if (stopReason === 'completed_successfully') {
+      csvContent += `보고서 유형,테스트 최종 보고서\n`;
+    } else {
+      csvContent += `보고서 유형,중단된 테스트 최종 보고서\n`;
+    }
     csvContent += `생성 시스템,환경 테스트 자동화 시스템\n`;
     
     // ===== 5. 파일 저장 =====
@@ -3086,10 +2948,17 @@ export async function generateInterruptedTestResultFile(options) {
         throw new Error('파일이 생성되지 않음');
       }
       
-      console.log(`[InterruptedTestResult] ✅ 중단된 테스트 최종 보고서 생성 완료: ${filename}`);
-      console.log(`[InterruptedTestResult] 📁 파일 경로: ${filePath}`);
-      console.log(`[InterruptedTestResult] 📊 조사된 측정파일: ${measurementFiles.length}개`);
-      console.log(`[InterruptedTestResult] 🔍 중단 원인: ${stopAnalysis.category} - ${stopAnalysis.description}`);
+      if (stopReason === 'completed_successfully') {
+        console.log(`[InterruptedTestResult] ✅ 테스트 최종 보고서 생성 완료: ${filename}`);
+        console.log(`[InterruptedTestResult] 📁 파일 경로: ${filePath}`);
+        console.log(`[InterruptedTestResult] 📊 조사된 측정파일: ${measurementFiles.length}개`);
+        console.log(`[InterruptedTestResult] 🎉 테스트 완료: ${stopAnalysis.category} - ${stopAnalysis.description}`);
+      } else {
+        console.log(`[InterruptedTestResult] ✅ 중단된 테스트 최종 보고서 생성 완료: ${filename}`);
+        console.log(`[InterruptedTestResult] 📁 파일 경로: ${filePath}`);
+        console.log(`[InterruptedTestResult] 📊 조사된 측정파일: ${measurementFiles.length}개`);
+        console.log(`[InterruptedTestResult] 🔍 중단 원인: ${stopAnalysis.category} - ${stopAnalysis.description}`);
+      }
       
     } catch (writeError) {
       console.error(`[InterruptedTestResult] ❌ 파일 저장 실패:`, writeError.message);
@@ -3366,7 +3235,7 @@ export async function processTestResultAndGenerateReport(testResult, directoryNa
         
         // Automatically find the most recent test directory
         try {
-          const dataFolderPath = path.join(__dirname, 'Data');
+          const dataFolderPath = path.join(process.cwd(), 'Data');
           const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
             .filter(dirent => dirent.isDirectory())
             .map(dirent => dirent.name)
