@@ -60,6 +60,15 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           setTimeout(() => {
             setErrorMessage(null);
           }, 5000);
+        } else if (message.includes('Error: Power switch failed')) {
+          // 파워스위치 에러 처리 - 더 사용자 친화적인 메시지로 변경
+          setIsOn(false);
+          setErrorMessage('파워스위치 상태 변경 중 오류가 발생했습니다');
+          
+          // 5초 후 메시지 제거
+          setTimeout(() => {
+            setErrorMessage(null);
+          }, 5000);
         }
       }
     };

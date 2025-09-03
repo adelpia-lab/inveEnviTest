@@ -828,7 +828,7 @@ export async function runSinglePageProcess() {
               return stopInfo;
             }
             
-            console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
+            //console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
              
             // 전압 읽기 재시도 로직
             let voltReadSuccess = false;
@@ -849,7 +849,7 @@ export async function runSinglePageProcess() {
                           try {
               if( SIMULATION_PROC === false ){
                 // 순차적 실행을 위한 로깅 추가
-                console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
+                // console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
                 voltData = await ReadVolt(j+1);
               } else {
                 // 시뮬레이션 모드에서는 설정된 채널 전압값을 사용하고 약간의 변동 추가
@@ -867,7 +867,7 @@ export async function runSinglePageProcess() {
                 await sleep(100); // 시뮬레이션을 위한 짧은 대기
               }
               voltReadSuccess = true;
-              console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 성공: ${voltData}V`);
+              //console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 성공: ${voltData}V`);
             } catch (error) {
                 retryCount++;
                 console.warn(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
@@ -922,11 +922,11 @@ export async function runSinglePageProcess() {
               voltageWithComparison: voltageWithComparison
             });
             
-            console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 완료: ${voltageWithComparison}`);
+            // console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 완료: ${voltageWithComparison}`);
           } // for (let j = 0; j < 4; j++) 루프 닫기
           
           // 4개 채널 전압을 모두 읽은 후 테이블에 누적
-          console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1} 전압 데이터 테이블에 누적`);
+          //console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1} 전압 데이터 테이블에 누적`);
           
           // 각 채널의 전압 데이터를 테이블에 업데이트
           channelResults.forEach((channelResult, channelIndex) => {
@@ -936,12 +936,9 @@ export async function runSinglePageProcess() {
             }
           });
           
-          // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
-          // 각 디바이스가 선정되고 4개의 전압을 읽었을 때 송신
+          // 4개 채널 전압을 모두 읽은 후 클라이언트에 실시간 전송
           console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 4개 채널 완료 - 클라이언트에 데이터 전송`);
           broadcastTableData();
-          
-          // 이제 각 디바이스의 4개 채널이 완료될 때마다 전송됨
           
           // 디바이스 해제 재시도 로직
           retryCount = 0;
@@ -997,6 +994,8 @@ export async function runSinglePageProcess() {
     
     // 모든 테스트가 완료된 후 테이블 완성 상태 확인
     console.log('[SinglePageProcess] 모든 테스트 완료 - 테이블 완성 상태 확인');
+    
+    // SinglePageProcess에서는 최종 전송하지 않음 - 상위 프로세스에서 처리
     
     return { 
       status: 'completed', 

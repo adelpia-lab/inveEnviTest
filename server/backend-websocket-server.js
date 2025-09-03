@@ -26,6 +26,9 @@ const CHANNEL_VOLTAGES_FILE = 'channel_voltages.json'; // 채널 전압 설정 �
 // 시뮬레이션 모드 설정 (기본값: false)
 let SIMULATION_PROCESS = false;
 
+// 프로세스 중복 실행 방지를 위한 전역 변수
+let globalProcessRunning = false;
+
 // RunTestProcess.js의 시뮬레이션 모드와 동기화
 import { setSimulationMode } from './RunTestProcess.js';
 
@@ -2043,6 +2046,16 @@ function setupWebSocketEventHandlers(wss) {
                         broadcastToClients(resetMessage);
                         console.log(`🔌 [Backend WS Server] 전압 데이터 초기화 메시지 브로드캐스트`);
                         
+                        // 중복 실행 방지를 위한 프로세스 상태 확인
+                        if (globalProcessRunning) {
+                            console.log(`⚠️ [Backend WS Server] 프로세스가 이미 실행 중입니다. 중복 실행을 방지합니다.`);
+                            ws.send(`[POWER_SWITCH] PROCESS_ALREADY_RUNNING - Process is already running`);
+                            return;
+                        }
+                        
+                        // 프로세스 실행 상태 설정
+                        globalProcessRunning = true;
+                        
                         // runNextTankEnviTestProcess 실행
                         try {
                             console.log(`🚀 [Backend WS Server] Starting runNextTankEnviTestProcess...`);
@@ -2057,13 +2070,19 @@ function setupWebSocketEventHandlers(wss) {
                             setMachineRunningStatus(false);
                             const statusMessage = `[POWER_SWITCH] OFF - Machine running: false`;
                             ws.send(statusMessage);
+                        } finally {
+                            // 프로세스 실행 상태 해제
+                            globalProcessRunning = false;
                         }
                     } else if (powerState === 'OFF') {
                         // 강제로 모든 프로세스 중지
                         console.log(`🛑 [Backend WS Server] Power switch OFF - Force stopping all processes`);
                         
-                        // 강제 종료 함수 호출
-                        forceStopAllProcesses();
+                        // 프로세스 중지 플래그 설정
+                        setProcessStopRequested(true);
+                        
+                        // 머신 실행 상태를 false로 설정
+                        setMachineRunningStatus(false);
                         
                         // 클라이언트에게 확인 메시지 전송
                         const responseMessage = `[POWER_SWITCH] OFF - Machine running: false - Force stopped`;

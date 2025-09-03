@@ -115,7 +115,7 @@ async function acquirePort(channel, timeoutMs = 20000) {
     const startTime = Date.now();
     const operationId = `CH${channel}_${Date.now()}`;
     
-    log(`포트 획득 시도 시작`, 'DEBUG', channel);
+    //log(`포트 획득 시도 시작`, 'DEBUG', channel);
     
     while (portInUse) {
         if (Date.now() - startTime > timeoutMs) {
@@ -134,7 +134,7 @@ async function acquirePort(channel, timeoutMs = 20000) {
     
     portInUse = true;
     portLockOwner = operationId;
-    log(`포트 획득 성공`, 'DEBUG', channel);
+    //log(`포트 획득 성공`, 'DEBUG', channel);
     
     return operationId;
 }
@@ -144,7 +144,7 @@ function releasePort(operationId, channel) {
     if (portInUse && portLockOwner === operationId) {
         portInUse = false;
         portLockOwner = null;
-        log(`포트 해제 완료`, 'DEBUG', channel);
+        //log(`포트 해제 완료`, 'DEBUG', channel);
     }
 }
 
@@ -234,7 +234,7 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
             }
             
             const command = commands[commandIndex];
-            log(`명령 전송: ${command.trim()}`, 'DEBUG', channel);
+            //log(`명령 전송: ${command.trim()}`, 'DEBUG', channel);
             
             port.write(command, (err) => {
                 if (err) {
@@ -256,7 +256,7 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
                     const isChannelSelect = command.includes('INST:SEL CH');
                     const delay = isChannelSelect ? CHANNEL_SELECT_DELAY_MS : 100;
                     
-                    log(`명령 전송 완료, ${delay}ms 후 다음 명령 실행...`, 'DEBUG', channel);
+                    //log(`명령 전송 완료, ${delay}ms 후 다음 명령 실행...`, 'DEBUG', channel);
                     setTimeout(sendNextCommand, delay);
                 }
             });
@@ -264,7 +264,7 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
         
         port.on('data', (data) => {
             dataBuffer += data.toString();
-            log(`데이터 수신: ${data.toString().trim()}`, 'DEBUG', channel);
+            // log(`데이터 수신: ${data.toString().trim()}`, 'DEBUG', channel);
             
             // 응답 패턴 확인
             if (parseVoltageResponse(dataBuffer) !== null) {
@@ -306,7 +306,7 @@ async function withRetry(operation, maxRetries = MAX_RETRIES, channel) {
 
 // --- 순차적 채널 읽기 함수 ---
 async function readChannelSequentially(channel) {
-    log(`채널 ${channel} 전압 읽기 시작`, 'INFO', channel);
+    //log(`채널 ${channel} 전압 읽기 시작`, 'INFO', channel);
     
     return withRetry(async () => {
         // 포트 획득
@@ -346,7 +346,7 @@ async function readChannelSequentially(channel) {
             // 채널 읽기 후 안정화를 위한 대기 시간 추가
             await new Promise(resolve => setTimeout(resolve, VOLTAGE_READ_DELAY_MS));
             
-            log(`채널 ${channel} 전압 읽기 성공: ${voltage}V`, 'INFO', channel);
+            // log(`채널 ${channel} 전압 읽기 성공: ${voltage}V`, 'INFO', channel);
             return voltage;
             
         } finally {
@@ -375,17 +375,17 @@ export async function ReadVolt(channel) {
  * @returns {Promise<number[]>} [volt1, volt2, volt3, volt4, volt5]
  */
 export async function ReadAllVoltages() {
-    log('모든 채널 전압 읽기 시작', 'INFO');
+    // log('모든 채널 전압 읽기 시작', 'INFO');
     
     const results = [];
     
     // 순차적으로 각 채널 읽기
     for (let channel = 1; channel <= 5; channel++) {
         try {
-            log(`채널 ${channel} 읽기 시작 (${channel}/5)`, 'INFO');
+            //log(`채널 ${channel} 읽기 시작 (${channel}/5)`, 'INFO');
             const voltage = await ReadVolt(channel);
             results.push(voltage);
-            log(`채널 ${channel} 전압: ${voltage}V (${channel}/5 완료)`, 'INFO');
+            // log(`채널 ${channel} 전압: ${voltage}V (${channel}/5 완료)`, 'INFO');
         } catch (error) {
             log(`채널 ${channel} 읽기 실패: ${error.message}`, 'ERROR');
             results.push(null);
@@ -393,12 +393,12 @@ export async function ReadAllVoltages() {
         
         // 채널 간 간격 (안정성 향상)
         if (channel < 5) {
-            log(`다음 채널 읽기 전 ${200}ms 대기...`, 'DEBUG');
+            //log(`다음 채널 읽기 전 ${200}ms 대기...`, 'DEBUG');
             await new Promise(resolve => setTimeout(resolve, 200));
         }
     }
     
-    log(`모든 채널 전압 읽기 완료: ${results}`, 'INFO');
+    // log(`모든 채널 전압 읽기 완료: ${results}`, 'INFO');
     return results;
 }
 
@@ -413,7 +413,7 @@ export async function cleanupPorts() {
     for (const [path, port] of portPool.entries()) {
         if (port && port.isOpen) {
             port.close();
-            log(`포트 닫힘: ${path}`, 'INFO');
+            // log(`포트 닫힘: ${path}`, 'INFO');
         }
     }
     portPool.clear();
