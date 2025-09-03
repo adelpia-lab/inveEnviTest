@@ -25,15 +25,70 @@ const BUFFER_CLEAR_DELAY_MS = 200; // 버퍼 클리어 대기 시간 증가
 const MAX_RETRIES = 3; // 최대 재시도 횟수
 const RETRY_DELAY_MS = 1000; // 재시도 간 대기 시간
 
-// --- 로깅 유틸리티 ---
-function log(message, level = 'INFO') {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [${level}] ReadVolt: ${message}`);
+// --- 순차적 실행을 위한 큐 시스템 ---
+let operationQueue = [];
+let isProcessing = false;
+let currentOperation = null;
+
+// 큐에 작업 추가
+function addToQueue(operation) {
+    return new Promise((resolve, reject) => {
+        operationQueue.push({
+            operation,
+            resolve,
+            reject,
+            timestamp: Date.now()
+        });
+        
+        // 큐가 비어있으면 즉시 처리 시작
+        if (!isProcessing) {
+            processQueue();
+        }
+    });
 }
 
-// --- 포트 풀 관리 ---
+// 큐 처리
+async function processQueue() {
+    if (isProcessing || operationQueue.length === 0) {
+        return;
+    }
+    
+    isProcessing = true;
+    
+    while (operationQueue.length > 0) {
+        const { operation, resolve, reject } = operationQueue.shift();
+        currentOperation = operation;
+        
+        try {
+            const result = await operation();
+            resolve(result);
+        } catch (error) {
+            reject(error);
+        } finally {
+            currentOperation = null;
+        }
+        
+        // 작업 간 간격 추가 (안정성 향상)
+        if (operationQueue.length > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+    
+    isProcessing = false;
+}
+
+// --- 로깅 유틸리티 개선 ---
+function log(message, level = 'INFO', channel = null) {
+    const timestamp = new Date().toISOString();
+    const channelInfo = channel ? `[CH${channel}]` : '';
+    const queueInfo = currentOperation ? `[Q:${operationQueue.length}]` : '';
+    console.log(`[${timestamp}] [${level}] ReadVolt${channelInfo}${queueInfo}: ${message}`);
+}
+
+// --- 포트 풀 관리 개선 ---
 let portPool = new Map();
 let portInUse = false;
+let portLockOwner = null;
 
 async function getOrCreatePort() {
     const portPath = await getPortPath();
@@ -53,6 +108,44 @@ async function getOrCreatePort() {
     
     portPool.set(portPath, port);
     return port;
+}
+
+// 포트 획득 (순차적 보장)
+async function acquirePort(channel, timeoutMs = 20000) {
+    const startTime = Date.now();
+    const operationId = `CH${channel}_${Date.now()}`;
+    
+    log(`포트 획득 시도 시작`, 'DEBUG', channel);
+    
+    while (portInUse) {
+        if (Date.now() - startTime > timeoutMs) {
+            throw new Error(`포트 획득 타임아웃 - 채널 ${channel} (${timeoutMs}ms)`);
+        }
+        
+        // 현재 포트 사용자 정보 로깅
+        if (portLockOwner) {
+            log(`포트 사용 중 - ${portLockOwner}가 사용 중, 대기 중...`, 'INFO', channel);
+        } else {
+            log(`포트 사용 중, 대기 중...`, 'INFO', channel);
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    portInUse = true;
+    portLockOwner = operationId;
+    log(`포트 획득 성공`, 'DEBUG', channel);
+    
+    return operationId;
+}
+
+// 포트 해제
+function releasePort(operationId, channel) {
+    if (portInUse && portLockOwner === operationId) {
+        portInUse = false;
+        portLockOwner = null;
+        log(`포트 해제 완료`, 'DEBUG', channel);
+    }
 }
 
 // --- 버퍼 클리어 함수 개선 ---
@@ -120,8 +213,8 @@ function parseVoltageResponse(dataBuffer) {
     return null;
 }
 
-// --- 포트 연결 및 통신 함수 ---
-async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOUT_MS) {
+// --- 포트 연결 및 통신 함수 개선 ---
+async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOUT_MS, channel) {
     return new Promise((resolve, reject) => {
         let dataBuffer = '';
         let timeoutId;
@@ -141,12 +234,12 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
             }
             
             const command = commands[commandIndex];
-            log(`Sending command: ${command.trim()}`, 'DEBUG');
+            log(`명령 전송: ${command.trim()}`, 'DEBUG', channel);
             
             port.write(command, (err) => {
                 if (err) {
                     cleanup();
-                    reject(new Error(`Command send error: ${err.message}`));
+                    reject(new Error(`명령 전송 오류: ${err.message}`));
                     return;
                 }
                 
@@ -156,14 +249,14 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
                 if (commandIndex >= commands.length) {
                     timeoutId = setTimeout(() => {
                         cleanup();
-                        reject(new Error('Response timeout'));
+                        reject(new Error('응답 타임아웃'));
                     }, timeoutMs);
                 } else {
                     // 채널 선택 명령 후에는 더 긴 대기 시간 적용
                     const isChannelSelect = command.includes('INST:SEL CH');
                     const delay = isChannelSelect ? CHANNEL_SELECT_DELAY_MS : 100;
                     
-                    log(`Command sent, waiting ${delay}ms before next command...`, 'DEBUG');
+                    log(`명령 전송 완료, ${delay}ms 후 다음 명령 실행...`, 'DEBUG', channel);
                     setTimeout(sendNextCommand, delay);
                 }
             });
@@ -171,7 +264,7 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
         
         port.on('data', (data) => {
             dataBuffer += data.toString();
-            log(`Received data: ${data.toString().trim()}`, 'DEBUG');
+            log(`데이터 수신: ${data.toString().trim()}`, 'DEBUG', channel);
             
             // 응답 패턴 확인
             if (parseVoltageResponse(dataBuffer) !== null) {
@@ -182,15 +275,15 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
         
         port.on('error', (err) => {
             cleanup();
-            reject(new Error(`Port error: ${err.message}`));
+            reject(new Error(`포트 오류: ${err.message}`));
         });
         
         sendNextCommand();
     });
 }
 
-// --- 재시도 로직 ---
-async function withRetry(operation, maxRetries = MAX_RETRIES) {
+// --- 재시도 로직 개선 ---
+async function withRetry(operation, maxRetries = MAX_RETRIES, channel) {
     let lastError;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -198,10 +291,12 @@ async function withRetry(operation, maxRetries = MAX_RETRIES) {
             return await operation();
         } catch (error) {
             lastError = error;
-            log(`Attempt ${attempt} failed: ${error.message}`, 'WARN');
+            log(`시도 ${attempt} 실패: ${error.message}`, 'WARN', channel);
             
             if (attempt < maxRetries) {
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+                const delay = RETRY_DELAY_MS * attempt;
+                log(`${delay}ms 후 재시도...`, 'INFO', channel);
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
     }
@@ -209,32 +304,13 @@ async function withRetry(operation, maxRetries = MAX_RETRIES) {
     throw lastError;
 }
 
-/**
- * 지정한 채널의 전압을 읽어 반환합니다.
- * @param {number} channel 1~5 사이의 채널 번호
- * @returns {Promise<number>} 전압값(float)
- */
-export async function ReadVolt(channel) {
-    if (channel < 1 || channel > 5) {
-        return Promise.reject('채널 번호는 1~5 사이여야 합니다.');
-    }
-    
-    log(`Starting voltage read for channel ${channel}`, 'INFO');
+// --- 순차적 채널 읽기 함수 ---
+async function readChannelSequentially(channel) {
+    log(`채널 ${channel} 전압 읽기 시작`, 'INFO', channel);
     
     return withRetry(async () => {
-        // 포트 사용 중이면 대기 (타임아웃 추가)
-        const startWaitTime = Date.now();
-        const maxWaitTime = 20000; // 20초 최대 대기
-        
-        while (portInUse) {
-            if (Date.now() - startWaitTime > maxWaitTime) {
-                throw new Error('포트 획득 타임아웃 - 다른 프로세스가 포트를 사용 중입니다');
-            }
-            log('포트 사용 중, 대기 중...', 'INFO');
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        
-        portInUse = true;
+        // 포트 획득
+        const operationId = await acquirePort(channel);
         let port = null;
         
         try {
@@ -259,64 +335,103 @@ export async function ReadVolt(channel) {
             ];
             
             // 통신 실행
-            const response = await communicateWithDevice(port, commands);
+            const response = await communicateWithDevice(port, commands, RESPONSE_TIMEOUT_MS, channel);
             
             // 응답 파싱
             const voltage = parseVoltageResponse(response);
             if (voltage === null) {
-                throw new Error('Invalid voltage response format');
+                throw new Error('잘못된 전압 응답 형식');
             }
             
             // 채널 읽기 후 안정화를 위한 대기 시간 추가
             await new Promise(resolve => setTimeout(resolve, VOLTAGE_READ_DELAY_MS));
             
-            log(`Successfully read voltage ${voltage}V for channel ${channel}`, 'INFO');
+            log(`채널 ${channel} 전압 읽기 성공: ${voltage}V`, 'INFO', channel);
             return voltage;
             
         } finally {
-            portInUse = false;
+            // 포트 해제
+            releasePort(operationId, channel);
         }
-    });
+    }, MAX_RETRIES, channel);
 }
 
 /**
- * 5개 채널의 전압을 순차적으로 읽어 배열로 반환합니다.
+ * 지정한 채널의 전압을 읽어 반환합니다. (순차적 실행 보장)
+ * @param {number} channel 1~5 사이의 채널 번호
+ * @returns {Promise<number>} 전압값(float)
+ */
+export async function ReadVolt(channel) {
+    if (channel < 1 || channel > 5) {
+        return Promise.reject('채널 번호는 1~5 사이여야 합니다.');
+    }
+    
+    // 큐에 작업 추가하여 순차적 실행 보장
+    return addToQueue(() => readChannelSequentially(channel));
+}
+
+/**
+ * 5개 채널의 전압을 순차적으로 읽어 배열로 반환합니다. (순차적 실행 보장)
  * @returns {Promise<number[]>} [volt1, volt2, volt3, volt4, volt5]
  */
 export async function ReadAllVoltages() {
-    log('Starting to read all channel voltages', 'INFO');
+    log('모든 채널 전압 읽기 시작', 'INFO');
     
     const results = [];
     
+    // 순차적으로 각 채널 읽기
     for (let channel = 1; channel <= 5; channel++) {
         try {
+            log(`채널 ${channel} 읽기 시작 (${channel}/5)`, 'INFO');
             const voltage = await ReadVolt(channel);
             results.push(voltage);
-            log(`Channel ${channel} voltage: ${voltage}V`, 'INFO');
+            log(`채널 ${channel} 전압: ${voltage}V (${channel}/5 완료)`, 'INFO');
         } catch (error) {
-            log(`Failed to read channel ${channel}: ${error.message}`, 'ERROR');
+            log(`채널 ${channel} 읽기 실패: ${error.message}`, 'ERROR');
             results.push(null);
         }
         
-        // 채널 간 간격
+        // 채널 간 간격 (안정성 향상)
         if (channel < 5) {
+            log(`다음 채널 읽기 전 ${200}ms 대기...`, 'DEBUG');
             await new Promise(resolve => setTimeout(resolve, 200));
         }
     }
     
-    log(`Completed reading all voltages: ${results}`, 'INFO');
+    log(`모든 채널 전압 읽기 완료: ${results}`, 'INFO');
     return results;
 }
 
 // --- 포트 정리 함수 ---
 export async function cleanupPorts() {
+    // 큐 처리 중단
+    operationQueue = [];
+    isProcessing = false;
+    currentOperation = null;
+    
+    // 포트 정리
     for (const [path, port] of portPool.entries()) {
         if (port && port.isOpen) {
             port.close();
-            log(`Closed port: ${path}`, 'INFO');
+            log(`포트 닫힘: ${path}`, 'INFO');
         }
     }
     portPool.clear();
+    
+    // 포트 상태 초기화
+    portInUse = false;
+    portLockOwner = null;
+}
+
+// --- 큐 상태 확인 함수 ---
+export function getQueueStatus() {
+    return {
+        queueLength: operationQueue.length,
+        isProcessing: isProcessing,
+        currentOperation: currentOperation,
+        portInUse: portInUse,
+        portLockOwner: portLockOwner
+    };
 }
 
 // --- 에러 타입 정의 ---

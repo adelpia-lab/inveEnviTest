@@ -678,10 +678,6 @@ export async function runSinglePageProcess() {
     const offDelay = getTableOption.delaySettings.offDelay;
     
     // 프로세스 시작 전 포트 상태 초기화
-    if( SIMULATION_PROC === false ){
-      await RelayAllOff();                      // jsk debug return error 에 대한 처리를 할 것
-      await sleep(3000); // 포트 초기화를 위한 추가 대기
-    }
 
     for(let k=0; k<3; k++) {
       // 강력한 중지 확인 - 전압 테스트 시작 전
@@ -850,27 +846,29 @@ export async function runSinglePageProcess() {
                 return stopInfo;
               }
               
-              try {
-                if( SIMULATION_PROC === false ){
-                  voltData = await ReadVolt(j+1);
+                          try {
+              if( SIMULATION_PROC === false ){
+                // 순차적 실행을 위한 로깅 추가
+                console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
+                voltData = await ReadVolt(j+1);
+              } else {
+                // 시뮬레이션 모드에서는 설정된 채널 전압값을 사용하고 약간의 변동 추가
+                const baseVoltage = getTableOption.channelVoltages[j];
+                let variation = (Math.random() - 0.5) * 0.2; // ±0.1V 변동
+                
+                // 채널 3 (-15)의 경우 음수 값이 올바르게 생성되도록 보장
+                if (j === 2 && baseVoltage < 0) {
+                  // -15 채널의 경우 음수 값 유지
+                  voltData = baseVoltage + variation;
                 } else {
-                  // 시뮬레이션 모드에서는 설정된 채널 전압값을 사용하고 약간의 변동 추가
-                  const baseVoltage = getTableOption.channelVoltages[j];
-                  let variation = (Math.random() - 0.5) * 0.2; // ±0.1V 변동
-                  
-                  // 채널 3 (-15)의 경우 음수 값이 올바르게 생성되도록 보장
-                  if (j === 2 && baseVoltage < 0) {
-                    // -15 채널의 경우 음수 값 유지
-                    voltData = baseVoltage + variation;
-                  } else {
-                    voltData = baseVoltage + variation;
-                  }
-                  
-                  await sleep(100); // 시뮬레이션을 위한 짧은 대기
+                  voltData = baseVoltage + variation;
                 }
-                voltReadSuccess = true;
-                console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 성공: ${voltData}V`);
-              } catch (error) {
+                
+                await sleep(100); // 시뮬레이션을 위한 짧은 대기
+              }
+              voltReadSuccess = true;
+              console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 성공: ${voltData}V`);
+            } catch (error) {
                 retryCount++;
                 console.warn(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
                 if (retryCount < maxRetries) {
@@ -1153,7 +1151,15 @@ export async function runNextTankEnviTestProcess() {
     }
     // cycleNumber 횟수만큼 반복
     const cycleNumber = getTableOption.delaySettings.cycleNumber || 1; // 기본값 1
-    
+
+    if( SIMULATION_PROC === false ){
+      await RelayAllOff();                      // jsk debug return error 에 대한 처리를 할 것
+      await sleep(3000); // 포트 초기화를 위한 추가 대기
+    } else {
+      // 시뮬레이션 모드일 경우 패스
+      console.log('시뮬레이션 모드: RelayAllOff 및 포트 초기화 대기 패스');
+    }
+
     for (let cycle = 1; cycle <= cycleNumber; cycle++) {
       // 중지 요청 확인 - 사이클 시작 전
       // 단순한 중지 확인 - 사이클 시작 전
@@ -2245,7 +2251,7 @@ async function generateFinalDeviceReport(cycleNumber) {
     
     const csvFiles = allCsvFiles;
     
-    console.log(`[FinalDeviceReport] 발견된 CSV 파일 수: ${csvFiles.length}`);
+    //console.log(`[FinalDeviceReport] 발견된 CSV 파일 수: ${csvFiles.length}`);
     
     if (csvFiles.length === 0) {
       console.warn(`[FinalDeviceReport] 분석할 CSV 파일이 없음`);
@@ -2305,7 +2311,7 @@ async function generateFinalDeviceReport(cycleNumber) {
           deviceResults[deviceName].channels[channelName].failed++;
         }
         
-        console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: ${result} (총: ${deviceResults[deviceName].channels[channelName].total})`);
+        // console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: ${result} (총: ${deviceResults[deviceName].channels[channelName].total})`);
       } catch (error) {
         console.error(`[FinalDeviceReport] safeUpdateChannel 오류 - ${deviceName} ${channelName}:`, error);
       }
@@ -2333,7 +2339,7 @@ async function generateFinalDeviceReport(cycleNumber) {
         const cycle = parseInt(cycleMatch[1]);
         const testType = testTypeMatch[1];
         
-        console.log(`[FinalDeviceReport] 분석 중: ${filename} (사이클 ${cycle}, ${testType})`);
+        //console.log(`[FinalDeviceReport] 분석 중: ${filename} (사이클 ${cycle}, ${testType})`);
         
         // CSV 내용에서 G/N 결과 추출
         const lines = fileContent.split('\n');
@@ -2341,14 +2347,14 @@ async function generateFinalDeviceReport(cycleNumber) {
         let channelIndex = 0;
         let sectionCount = 0;
         
-        console.log(`[FinalDeviceReport] ${filename} 분석 시작 - 총 ${lines.length}줄`);
+        //console.log(`[FinalDeviceReport] ${filename} 분석 시작 - 총 ${lines.length}줄`);
         
         for (const line of lines) {
           if (line.includes('비교결과 (G=Good, N=Not Good)')) {
             inComparisonSection = true;
             channelIndex = 0;
             sectionCount++;
-            console.log(`[FinalDeviceReport] 비교결과 섹션 ${sectionCount} 발견: ${filename}`);
+            //console.log(`[FinalDeviceReport] 비교결과 섹션 ${sectionCount} 발견: ${filename}`);
             continue;
           }
           
@@ -2356,7 +2362,7 @@ async function generateFinalDeviceReport(cycleNumber) {
             const channelName = getChannelName(channelIndex);
             const results = line.split(',').slice(1); // Device 1~10 결과
             
-            console.log(`[FinalDeviceReport] 섹션 ${sectionCount} 채널 ${channelIndex + 1} 분석: ${channelName}, 결과 수: ${results.length}`);
+            //console.log(`[FinalDeviceReport] 섹션 ${sectionCount} 채널 ${channelIndex + 1} 분석: ${channelName}, 결과 수: ${results.length}`);
             
             for (let deviceIndex = 0; deviceIndex < Math.min(10, results.length); deviceIndex++) {
               const deviceName = `Device ${deviceIndex + 1}`;
@@ -2372,7 +2378,7 @@ async function generateFinalDeviceReport(cycleNumber) {
             
             if (channelIndex >= 4) {
               inComparisonSection = false;
-              console.log(`[FinalDeviceReport] 섹션 ${sectionCount} 완료: ${filename}`);
+              //console.log(`[FinalDeviceReport] 섹션 ${sectionCount} 완료: ${filename}`);
             }
           }
         }
@@ -2400,7 +2406,7 @@ async function generateFinalDeviceReport(cycleNumber) {
         console.log(`[FinalDeviceReport] ${deviceName}: 총 ${results.totalTests}회, 통과 ${results.passedTests}회, 실패 ${results.failedTests}회`);
         for (const [channelName, channelResult] of Object.entries(results.channels)) {
           if (channelResult.total > 0) {
-            console.log(`[FinalDeviceReport]   ${channelName}: ${channelResult.passed}/${channelResult.total} (${((channelResult.passed / channelResult.total) * 100).toFixed(1)}%)`);
+            //console.log(`[FinalDeviceReport]   ${channelName}: ${channelResult.passed}/${channelResult.total} (${((channelResult.passed / channelResult.total) * 100).toFixed(1)}%)`);
           }
         }
       }
@@ -2429,43 +2435,6 @@ async function generateFinalDeviceReport(cycleNumber) {
     // ===== 전역 변수에서 테스트 디렉토리명 사용 (새로 생성하지 않음) =====
     let dateDirectoryName = currentTestDirectoryName;
 
-/* debug jsk 
-    if (!dateDirectoryName) {
-        console.log(`[FinalDeviceReport] 📁 전역 디렉토리명이 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
-        
-        // Automatically find the most recent test directory
-        try {
-          const dataFolderPath = path.join(process.cwd(), 'Data');
-          const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory())
-            .map(dirent => dirent.name)
-            .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
-            .sort()
-            .reverse(); // Most recent first
-          
-          if (directories.length > 0) {
-            dateDirectoryName = directories[0];
-            console.log(`[FinalDeviceReport] 📁 자동으로 최근 테스트 디렉토리 발견: ${dateDirectoryName}`);
-          } else {
-            throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
-          }
-        } catch (error) {
-          console.error(`[FinalDeviceReport] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
-          throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
-        }
-      }
-*/
-  
-/*
-    console.log(`[FinalDeviceReport] 📁 기존 테스트 디렉토리 사용: ${dateDirectoryName}`);
-    
-    const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
-    
-    if (!fs.existsSync(dateFolderPath)) {
-      fs.mkdirSync(dateFolderPath, { recursive: true });
-      console.log(`[FinalDeviceReport] 📁 테스트 결과 디렉토리 생성됨: ${dateFolderPath}`);
-    }
-*/    
     // ===== 전역 변수에서 테스트 디렉토리 경로 사용 =====
     let dateFolderPath = null;
     
