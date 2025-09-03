@@ -7,6 +7,7 @@ interface PowerSwitchProps {
 function PowerSwitch({ wsConnection }: PowerSwitchProps) {
   const [isOn, setIsOn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isStopping, setIsStopping] = useState(false);
 
   // WebSocket 메시지 수신 처리
   useEffect(() => {
@@ -19,9 +20,16 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
       if (typeof message === 'string' && message.includes('[POWER_SWITCH]')) {
         if (message.includes('ON - Machine running: true')) {
           setIsOn(true);
+          setIsStopping(false);
           setErrorMessage(null); // 에러 메시지 초기화
+        } else if (message.includes('STOPPING - Processing stop request')) {
+          // 중지 처리 중 상태
+          setIsStopping(true);
+          setErrorMessage('중지 처리중...');
+          console.log('🔌 PowerSwitch: 중지 처리 중 상태 감지');
         } else if (message.includes('OFF - Machine running: false')) {
           setIsOn(false);
+          setIsStopping(false);
           setErrorMessage(null); // 에러 메시지 초기화
           
           // 파워스위치 OFF 시 즉시 UI 업데이트
@@ -82,8 +90,16 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
 
   const handleClick = () => {
     const newState = !isOn;
-    setIsOn(newState);
-    setErrorMessage(null); // 클릭 시 에러 메시지 초기화
+    
+    // OFF로 변경할 때 중지 처리 중 상태로 설정
+    if (!newState && isOn) {
+      setIsStopping(true);
+      setErrorMessage('중지 처리중...');
+    } else {
+      setIsOn(newState);
+      setIsStopping(false);
+      setErrorMessage(null); // 클릭 시 에러 메시지 초기화
+    }
     
     // WebSocket 메시지 전송
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
@@ -121,19 +137,21 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           style={{ 
             width: '100%', 
             height: '100%',
-            objectFit: 'contain'
+            objectFit: 'contain',
+            opacity: isStopping ? 0.5 : 1,
+            transition: 'opacity 0.3s ease'
           }}
         />
       </button>
       
-      {/* 에러 메시지 표시 */}
+      {/* 에러 메시지 및 중지 처리 중 메시지 표시 */}
       {errorMessage && (
         <div style={{
           position: 'absolute',
           top: '-60px',
           left: '50%',
           transform: 'translateX(-50%)',
-          backgroundColor: '#ff4444',
+          backgroundColor: isStopping ? '#ffa500' : '#ff4444',
           color: 'white',
           padding: '8px 12px',
           borderRadius: '6px',
@@ -141,11 +159,19 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           maxWidth: '200px',
           textAlign: 'center',
           zIndex: 1000,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          animation: isStopping ? 'blink 1s infinite' : 'none'
         }}>
-          ⚠️ {errorMessage}
+          {isStopping ? '⏳' : '⚠️'} {errorMessage}
         </div>
       )}
+      
+      <style jsx>{`
+        @keyframes blink {
+          0%, 50% { opacity: 1; }
+          51%, 100% { opacity: 0.3; }
+        }
+      `}</style>
     </div>
   );
 }

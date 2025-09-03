@@ -680,7 +680,29 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 5. 기타 메시지는 무시 (PowerTable에서 처리하지 않음)
+      // 5. 파워스위치 메시지 처리
+      if (typeof message === 'string' && message.includes('[POWER_SWITCH]')) {
+        if (message.includes('STOPPING - Processing stop request')) {
+          // 중지 처리 중 메시지 표시
+          setTestProgressMessage('중지 처리중...');
+          setIsTestProgressActive(true);
+          console.log('🔌 PowerTable: 파워스위치 중지 처리 중 상태 감지');
+        } else if (message.includes('OFF - Machine running: false')) {
+          // 파워스위치 OFF 시 테스트 진행상황 메시지 초기화
+          if (message.includes('Test completed')) {
+            // 테스트 완료 시
+            setTestProgressMessage('테스트 완료 - 중단 시작 대기중');
+          } else {
+            // 일반 중지 시
+            setTestProgressMessage('중단 시작 대기중');
+          }
+          setIsTestProgressActive(true);
+          console.log('🔌 PowerTable: 파워스위치 OFF 상태 감지 - 중단 시작 대기중 메시지 표시');
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 6. 기타 메시지는 무시 (PowerTable에서 처리하지 않음)
     };
 
     wsConnection.addEventListener('message', handleMessage);

@@ -156,6 +156,53 @@ function sleepMinutes(minutes) {
   });
 }
 
+/**
+ * 중지 요청을 확인할 수 있는 분 단위 대기 함수
+ * @param {number} minutes - 대기할 분 (1-999)
+ * @param {string} context - 대기 중인 컨텍스트 (로그용)
+ * @returns {Promise} 대기 완료 후 resolve되는 Promise, 중지 요청 시 reject
+ */
+function sleepMinutesWithStopCheck(minutes, context = '') {
+  // 입력값 검증
+  if (typeof minutes !== 'number' || minutes < 1 || minutes > 999) {
+    console.warn(`[sleepMinutesWithStopCheck] 잘못된 분 값: ${minutes}. 1-999 범위의 값이어야 합니다.`);
+    return Promise.resolve();
+  }
+  
+  const milliseconds = minutes * 60 * 1000; // 분을 밀리초로 변환
+  const checkInterval = 5000; // 5초마다 중지 요청 확인
+  const contextStr = context ? ` [${context}]` : '';
+  
+  console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 시작 (${milliseconds}ms) - 중지 요청 확인 간격: ${checkInterval}ms`);
+  
+  return new Promise((resolve, reject) => {
+    let elapsed = 0;
+    const startTime = Date.now();
+    
+    const checkStop = () => {
+      // 중지 요청 확인
+      if (getProcessStopRequested()) {
+        console.log(`[sleepMinutesWithStopCheck]${contextStr} 🛑 중지 요청 감지 - 대기 중단 (경과: ${Math.round(elapsed/1000)}초/${minutes}분)`);
+        reject(new Error('PROCESS_STOP_REQUESTED'));
+        return;
+      }
+      
+      elapsed = Date.now() - startTime;
+      
+      if (elapsed >= milliseconds) {
+        console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 완료`);
+        resolve();
+      } else {
+        // 다음 체크까지 대기
+        setTimeout(checkStop, Math.min(checkInterval, milliseconds - elapsed));
+      }
+    };
+    
+    // 첫 번째 체크 시작
+    setTimeout(checkStop, Math.min(checkInterval, milliseconds));
+  });
+}
+
 function Now() {
   const now = new Date();
   return now.toISOString();
@@ -1407,10 +1454,45 @@ export async function runNextTankEnviTestProcess() {
           if(chamberTemp >= highTemp) {
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 시작 (${chamberTemp}°C)`);
             
-            // waitTime 분 만큼 대기
+            // waitTime 분 만큼 대기 (중지 요청 확인 가능)
             if(SIMULATION_PROC === false){
               console.log(`[NextTankEnviTestProcess] 고온 도달 후 ${waitTime}분 대기 시작...`);
-              await sleepMinutes(waitTime);
+              try {
+                await sleepMinutesWithStopCheck(waitTime, `사이클 ${cycle} 고온 대기`);
+              } catch (error) {
+                if (error.message === 'PROCESS_STOP_REQUESTED') {
+                  console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 고온 대기 중 중단`);
+                  
+                  // 중지 시에도 PowerSwitch 상태를 off로 설정
+                  setMachineRunningStatus(false);
+                  console.log(`[NextTankEnviTestProcess] 🔌 중지로 인한 PowerSwitch 상태 OFF 설정`);
+                  
+                  // 클라이언트에게 파워스위치 OFF 상태 전송
+                  if (globalWss) {
+                    const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - High temp waiting stopped`;
+                    let sentCount = 0;
+                    globalWss.clients.forEach(client => {
+                      if (client.readyState === 1) { // WebSocket.OPEN
+                        client.send(powerOffMessage);
+                        sentCount++;
+                      }
+                    });
+                    console.log(`[NextTankEnviTestProcess] 🔌 고온 대기 중단으로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                  } else {
+                    console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 고온 대기 중단 시 파워스위치 OFF 메시지 전송 불가`);
+                  }
+                  
+                  return { 
+                    status: 'stopped', 
+                    message: '사용자에 의해 중지됨', 
+                    stoppedAtCycle: cycle, 
+                    stoppedAtPhase: 'high_temp_waiting',
+                    totalCycles: cycle
+                  };
+                } else {
+                  throw error; // 다른 에러는 다시 던짐
+                }
+              }
             }
             
             // runSinglePageProcess 를 readCount 만큼 실행
@@ -1822,8 +1904,43 @@ export async function runNextTankEnviTestProcess() {
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 시작 (${chamberTemp}°C)`);
             console.log(`[NextTankEnviTestProcess] 저온테스트 전 ${lowWaitTime}분 대기`);
             
-            // lowWaitTime 분 만큼 대기
-            await sleepMinutes(lowWaitTime);
+            // lowWaitTime 분 만큼 대기 (중지 요청 확인 가능)
+            try {
+              await sleepMinutesWithStopCheck(lowWaitTime, `사이클 ${cycle} 저온 대기`);
+            } catch (error) {
+              if (error.message === 'PROCESS_STOP_REQUESTED') {
+                console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 저온 대기 중 중단`);
+                
+                // 중지 시에도 PowerSwitch 상태를 off로 설정
+                setMachineRunningStatus(false);
+                console.log(`[NextTankEnviTestProcess] 🔌 중지로 인한 PowerSwitch 상태 OFF 설정`);
+                
+                // 클라이언트에게 파워스위치 OFF 상태 전송
+                if (globalWss) {
+                  const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Low temp waiting stopped`;
+                  let sentCount = 0;
+                  globalWss.clients.forEach(client => {
+                    if (client.readyState === 1) { // WebSocket.OPEN
+                      client.send(powerOffMessage);
+                      sentCount++;
+                    }
+                  });
+                  console.log(`[NextTankEnviTestProcess] 🔌 저온 대기 중단으로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                } else {
+                  console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 저온 대기 중단 시 파워스위치 OFF 메시지 전송 불가`);
+                }
+                
+                return { 
+                  status: 'stopped', 
+                  message: '사용자에 의해 중지됨', 
+                  stoppedAtCycle: cycle, 
+                  stoppedAtPhase: 'low_temp_waiting',
+                  totalCycles: cycle
+                };
+              } else {
+                throw error; // 다른 에러는 다시 던짐
+              }
+            }
             
             // runSinglePageProcess 를 readCount 만큼 실행
             for(let i = 0; i < lowReadCount; i++) {

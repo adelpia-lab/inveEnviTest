@@ -2078,6 +2078,11 @@ function setupWebSocketEventHandlers(wss) {
                         // 강제로 모든 프로세스 중지
                         console.log(`🛑 [Backend WS Server] Power switch OFF - Force stopping all processes`);
                         
+                        // 먼저 중지 처리 중 메시지 전송
+                        const stoppingMessage = `[POWER_SWITCH] STOPPING - Processing stop request`;
+                        broadcastToClients(stoppingMessage);
+                        console.log(`🛑 [Backend WS Server] 중지 처리 중 메시지 전송`);
+                        
                         // 프로세스 중지 플래그 설정
                         setProcessStopRequested(true);
                         
