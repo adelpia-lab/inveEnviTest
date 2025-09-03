@@ -720,7 +720,7 @@ export async function runSinglePageProcess() {
           if( voltSetSuccess === true ){
             console.log(`[SinglePageProcess] 전압 설정 성공: ${inputVolt}V`);
           } else {
-            throw new Error(selectResult?.message || selectResult?.error || '전압 설정 실패');
+            throw new Error('전압 설정 실패: 응답 없음');
           }
         } catch (error) {
           retryCount++;
@@ -814,8 +814,9 @@ export async function runSinglePageProcess() {
           const channelResults = [];
           
           for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
-            await sleep(1000); // 채널변경을 위한 시간 확보
-
+            // 채널 변경을 위한 충분한 시간 확보 (기존 1초에서 2초로 증가)
+            await sleep(2000);
+            
             // 중지 요청 확인 - 채널 처리 시작 전
             if (getProcessStopRequested()) {
               console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 채널 ${j+1}/4에서 중단`);
@@ -825,6 +826,8 @@ export async function runSinglePageProcess() {
               stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'channel_start' };
               return stopInfo;
             }
+            
+            console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
              
             // 전압 읽기 재시도 로직
             let voltReadSuccess = false;
@@ -861,12 +864,13 @@ export async function runSinglePageProcess() {
                   await sleep(100); // 시뮬레이션을 위한 짧은 대기
                 }
                 voltReadSuccess = true;
+                console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 성공: ${voltData}V`);
               } catch (error) {
                 retryCount++;
                 console.warn(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
                 if (retryCount < maxRetries) {
-                  console.log(`[SinglePageProcess] 1초 후 재시도...`);
-                  await sleep(1000);
+                  console.log(`[SinglePageProcess] 2초 후 재시도...`);
+                  await sleep(2000); // 재시도 대기 시간을 2초로 증가
                 } else {
                   console.error(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 최종 실패`);
                   voltData = 'error';
@@ -874,6 +878,11 @@ export async function runSinglePageProcess() {
                   return stopInfo;
                 }
               }
+            }
+            
+            // 채널 읽기 완료 후 안정화를 위한 추가 대기 시간
+            if (voltReadSuccess && voltData !== 'error') {
+              await sleep(1000); // 채널 읽기 완료 후 1초 대기
             }
              
             // 채널 3 (j=2)의 경우 읽은 전압에 -1.0을 곱함
@@ -909,6 +918,8 @@ export async function runSinglePageProcess() {
               result: comparisonResult,
               voltageWithComparison: voltageWithComparison
             });
+            
+            console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 완료: ${voltageWithComparison}`);
           } // for (let j = 0; j < 4; j++) 루프 닫기
           
           // 4개 채널 전압을 모두 읽은 후 테이블에 누적
@@ -2422,48 +2433,37 @@ async function generateFinalDeviceReport(cycleNumber) {
   try {
     console.log(`[FinalDeviceReport] 디바이스별 종합 리포트 생성 시작 - ${cycleNumber} 사이클`);
     
-    // ===== 전역 변수에서 테스트 디렉토리 경로 사용 (새로 생성하지 않음) =====
-    let dataFolderPath = null;
+    // ===== 현재 테스트 디렉토리에서만 CSV 파일 검색 =====
+    let testDirectoryPath = null;
     
     if (currentTestDirectoryPath) {
-      // 전역 변수에서 Data 폴더 경로 추출
-      dataFolderPath = path.dirname(currentTestDirectoryPath);
-      console.log(`[FinalDeviceReport] 📁 전역 변수에서 Data 폴더 경로 사용: ${dataFolderPath}`);
+      // 전역 변수에서 현재 테스트 디렉토리 경로 사용
+      testDirectoryPath = currentTestDirectoryPath;
+      console.log(`[FinalDeviceReport] 📁 현재 테스트 디렉토리에서만 파일 검색: ${testDirectoryPath}`);
     } else {
-      // 전역 변수가 없으면 기본 경로 사용
-      dataFolderPath = path.join(process.cwd(), 'Data');
-      console.log(`[FinalDeviceReport] 📁 기본 Data 폴더 경로 사용: ${dataFolderPath}`);
+      // 전역 변수가 없으면 오류 발생
+      console.error(`[FinalDeviceReport] ❌ 현재 테스트 디렉토리 경로가 설정되지 않음`);
+      return { success: false, error: '현재 테스트 디렉토리 경로가 설정되지 않음' };
     }
     
-    // Data 폴더가 없으면 생성
-    if (!fs.existsSync(dataFolderPath)) {
-      fs.mkdirSync(dataFolderPath, { recursive: true });
-      console.log(`[FinalDeviceReport] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
+    // 테스트 디렉토리가 존재하는지 확인
+    if (!fs.existsSync(testDirectoryPath)) {
+      console.error(`[FinalDeviceReport] ❌ 테스트 디렉토리가 존재하지 않음: ${testDirectoryPath}`);
+      return { success: false, error: '테스트 디렉토리가 존재하지 않음' };
     }
     
-    // 모든 날짜별 하위 디렉토리에서 CSV 파일 검색
+    // 현재 테스트 디렉토리에서만 CSV 파일 검색
     const allCsvFiles = [];
     
-    // Data 폴더의 모든 하위 디렉토리 검색
-    const subDirectories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
-      .filter(dirent => dirent.isDirectory())
-      .map(dirent => dirent.name);
-    
-    // Data 폴더 자체에서도 CSV 파일 검색
-    const rootFiles = fs.readdirSync(dataFolderPath);
-    const rootCsvFiles = rootFiles.filter(file => file.endsWith('.csv') && file.includes('Cycle'));
-    allCsvFiles.push(...rootCsvFiles.map(file => ({ file, directory: '' })));
-    
-    // 각 하위 디렉토리에서 CSV 파일 검색
-    for (const subDir of subDirectories) {
-      try {
-        const subDirPath = path.join(dataFolderPath, subDir);
-        const subDirFiles = fs.readdirSync(subDirPath);
-        const subDirCsvFiles = subDirFiles.filter(file => file.endsWith('.csv') && file.includes('Cycle'));
-        allCsvFiles.push(...subDirCsvFiles.map(file => ({ file, directory: subDir })));
-      } catch (error) {
-        console.warn(`[FinalDeviceReport] 하위 디렉토리 ${subDir} 읽기 실패:`, error.message);
-      }
+    try {
+      const testDirFiles = fs.readdirSync(testDirectoryPath);
+      const testDirCsvFiles = testDirFiles.filter(file => file.endsWith('.csv') && file.includes('Cycle'));
+      allCsvFiles.push(...testDirCsvFiles.map(file => ({ file, directory: '' })));
+      
+      console.log(`[FinalDeviceReport] 📁 현재 테스트 디렉토리에서 발견된 CSV 파일: ${testDirCsvFiles.length}개`);
+    } catch (error) {
+      console.error(`[FinalDeviceReport] ❌ 테스트 디렉토리 읽기 실패:`, error.message);
+      return { success: false, error: `테스트 디렉토리 읽기 실패: ${error.message}` };
     }
     
     const csvFiles = allCsvFiles;
@@ -2475,7 +2475,7 @@ async function generateFinalDeviceReport(cycleNumber) {
       return { success: false, error: '분석할 CSV 파일이 없음' };
     }
     
-    console.log(`[FinalDeviceReport] 검색된 디렉토리: ${csvFiles.map(f => f.directory || 'root').join(', ')}`);
+    console.log(`[FinalDeviceReport] 검색된 디렉토리: ${csvFiles.map(f => f.directory || 'current_test_dir').join(', ')}`);
     
     // 디바이스별 G/N 카운트 초기화 (10개 디바이스, 4개 채널)
     const deviceResults = {};
@@ -2540,8 +2540,8 @@ async function generateFinalDeviceReport(cycleNumber) {
       try {
         const { file: filename, directory } = fileInfo;
         const filePath = directory 
-          ? path.join(dataFolderPath, directory, filename)
-          : path.join(dataFolderPath, filename);
+          ? path.join(testDirectoryPath, directory, filename)
+          : path.join(testDirectoryPath, filename);
         const fileContent = fs.readFileSync(filePath, 'utf8');
         
         // 파일명에서 사이클 번호와 테스트 유형 추출
@@ -2698,7 +2698,7 @@ async function generateFinalDeviceReport(cycleNumber) {
       console.log(`[FinalDeviceReport] 📁 전역 변수에서 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
     } else {
       // 전역 변수가 없으면 기본 경로 사용
-      dateFolderPath = path.join(dataFolderPath, 'default');
+      dateFolderPath = path.join(process.cwd(), 'Data', 'default');
       console.log(`[FinalDeviceReport] 📁 기본 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
     }
     

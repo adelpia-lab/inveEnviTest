@@ -18,9 +18,10 @@ const READ_VOLT = 'MEAS:VOLT?';
 
 // --- 설정 상수 ---
 const BAUD_RATE = 19200;
-const RESPONSE_TIMEOUT_MS = 5000; // 5초로 단축
-const CHANNEL_SELECT_DELAY_MS = 200; // 채널 선택 후 대기 시간
-const BUFFER_CLEAR_DELAY_MS = 100; // 버퍼 클리어 대기 시간
+const RESPONSE_TIMEOUT_MS = 8000; // 8초로 증가하여 안정성 향상
+const CHANNEL_SELECT_DELAY_MS = 500; // 채널 선택 후 대기 시간 증가
+const VOLTAGE_READ_DELAY_MS = 300; // 전압 읽기 후 안정화를 위한 대기 시간
+const BUFFER_CLEAR_DELAY_MS = 200; // 버퍼 클리어 대기 시간 증가
 const MAX_RETRIES = 3; // 최대 재시도 횟수
 const RETRY_DELAY_MS = 1000; // 재시도 간 대기 시간
 
@@ -158,8 +159,12 @@ async function communicateWithDevice(port, commands, timeoutMs = RESPONSE_TIMEOU
                         reject(new Error('Response timeout'));
                     }, timeoutMs);
                 } else {
-                    // 다음 명령으로 즉시 진행
-                    setTimeout(sendNextCommand, 50);
+                    // 채널 선택 명령 후에는 더 긴 대기 시간 적용
+                    const isChannelSelect = command.includes('INST:SEL CH');
+                    const delay = isChannelSelect ? CHANNEL_SELECT_DELAY_MS : 100;
+                    
+                    log(`Command sent, waiting ${delay}ms before next command...`, 'DEBUG');
+                    setTimeout(sendNextCommand, delay);
                 }
             });
         };
@@ -217,9 +222,16 @@ export async function ReadVolt(channel) {
     log(`Starting voltage read for channel ${channel}`, 'INFO');
     
     return withRetry(async () => {
-        // 포트 사용 중이면 대기
+        // 포트 사용 중이면 대기 (타임아웃 추가)
+        const startWaitTime = Date.now();
+        const maxWaitTime = 20000; // 20초 최대 대기
+        
         while (portInUse) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            if (Date.now() - startWaitTime > maxWaitTime) {
+                throw new Error('포트 획득 타임아웃 - 다른 프로세스가 포트를 사용 중입니다');
+            }
+            log('포트 사용 중, 대기 중...', 'INFO');
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
         
         portInUse = true;
@@ -254,6 +266,9 @@ export async function ReadVolt(channel) {
             if (voltage === null) {
                 throw new Error('Invalid voltage response format');
             }
+            
+            // 채널 읽기 후 안정화를 위한 대기 시간 추가
+            await new Promise(resolve => setTimeout(resolve, VOLTAGE_READ_DELAY_MS));
             
             log(`Successfully read voltage ${voltage}V for channel ${channel}`, 'INFO');
             return voltage;
