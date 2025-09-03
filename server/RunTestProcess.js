@@ -1348,7 +1348,7 @@ export async function runNextTankEnviTestProcess() {
               // 생성된 파일들을 찾기 위해 Data 폴더 스캔
               const dataFolderPath = path.join(process.cwd(), 'Data');
               // 전역 변수에서 테스트 디렉토리명 사용
-              const dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
+              let dateDirectoryName = currentTestDirectoryName || getDateDirectoryName();
               const dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
               
               let existingFiles = [];
@@ -2028,44 +2028,17 @@ export async function runNextTankEnviTestProcess() {
     
     console.log(`[NextTankEnviTestProcess] 모든 사이클(${cycleNumber}회) 완료`);
     
-    // 모든 사이클 완료 후 종합 리포트 생성 (단순화)
+    // 모든 사이클 완료 후 종합 리포트 생성
+    console.log(`[NextTankEnviTestProcess] 📄 모든 사이클 완료 - 종합 리포트 생성`);
     try {
-      await generateFinalDeviceReport(cycleNumber);
+      const finalReportResult = await generateFinalDeviceReport(cycleNumber);
+      if (finalReportResult && finalReportResult.success) {
+        console.log(`[NextTankEnviTestProcess] ✅ 종합 리포트 생성 성공: ${finalReportResult.filename}`);
+      } else {
+        console.error(`[NextTankEnviTestProcess] ❌ 종합 리포트 생성 실패:`, finalReportResult?.error || '알 수 없는 오류');
+      }
     } catch (error) {
       console.error(`[NextTankEnviTestProcess] ❌ 종합 리포트 생성 실패:`, error.message);
-    }
-    
-    // 모든 사이클 완료 후 최종 보고서 생성
-    console.log(`[NextTankEnviTestProcess] 📄 모든 사이클 완료 - 최종 보고서 생성`);
-    try {
-      const testSettings = {
-        modelName: getTableOption.productInput?.modelName || 'N/A',
-        productNumber: getTableOption.productInput?.productNumber || 'N/A',
-        temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
-        totalCycles: cycleNumber,
-        highTempEnabled: getTableOption.highTempSettings.highTemp,
-        lowTempEnabled: getTableOption.lowTempSettings.lowTemp,
-        highTempWaitTime: getTableOption.highTempSettings.waitTime,
-        lowTempWaitTime: getTableOption.lowTempSettings.waitTime,
-        highTempReadCount: getTableOption.highTempSettings.readCount,
-        lowTempReadCount: getTableOption.lowTempSettings.readCount
-      };
-      
-      const finalReportResult = await generateInterruptedTestResultFile({
-        stopReason: 'completed_successfully',
-        stoppedAtCycle: cycleNumber,
-        stoppedAtPhase: 'all_cycles_completed',
-        errorMessage: '모든 사이클이 성공적으로 완료됨',
-        testSettings: testSettings
-      });
-      
-      if (finalReportResult && finalReportResult.success) {
-        console.log(`[NextTankEnviTestProcess] ✅ 최종 보고서 생성 성공: ${finalReportResult.filename}`);
-      } else {
-        console.error(`[NextTankEnviTestProcess] ❌ 최종 보고서 생성 실패:`, finalReportResult?.error || '알 수 없는 오류');
-      }
-    } catch (reportError) {
-      console.error(`[NextTankEnviTestProcess] ❌ 최종 보고서 생성 실패:`, reportError.message);
     }
     
     // PowerSwitch 상태 OFF 설정
@@ -2454,7 +2427,7 @@ async function generateFinalDeviceReport(cycleNumber) {
     const reportFilename = `${getFormattedDateTime()}_Final_Device_Report.csv`;
     
     // ===== 전역 변수에서 테스트 디렉토리명 사용 (새로 생성하지 않음) =====
-    const dateDirectoryName = currentTestDirectoryName;
+    let dateDirectoryName = currentTestDirectoryName;
 
 /* debug jsk 
     if (!dateDirectoryName) {
@@ -2728,7 +2701,7 @@ export async function generateInterruptedTestResultFile(options) {
     } = options || {};
     
     // ===== 전역 변수에서 디렉토리명 가져오기 (새로 생성하지 않음) =====
-    const dateDirectoryName = currentTestDirectoryName;
+    let dateDirectoryName = currentTestDirectoryName;
           if (!dateDirectoryName) {
         console.log(`[InterruptedTestResult] 📁 전역 디렉토리명이 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
         
