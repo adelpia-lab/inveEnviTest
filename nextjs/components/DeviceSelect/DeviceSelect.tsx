@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import { useIsClient } from '../../lib/useIsClient';
 
-export default function DeviceSelect({initialValue, onSelectionChange, wsConnection}) {
+export default function DeviceSelect({initialValue, onSelectionChange, wsConnection, onTimeModeClick}) {
   const devices = [
     { value: "#1 Device", label: "#1", index: 0 },
     { value: "#2 Device", label: "#2", index: 1 },
@@ -192,12 +192,12 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
       console.log("📤 Sent device selection to server:", message);
     }
     
-    // 4. 상위 컴포넌트 콜백 호출
+    // 4. 상위 컴포넌트 콜백 호출 - 선택된 디바이스 인덱스 배열 전달
     if (onSelectionChange) {
-      const selectedDevices = tempDeviceStates
-        .map((isSelected, index) => isSelected ? devices[index].value : null)
-        .filter(device => device !== null);
-      onSelectionChange(selectedDevices);
+      const selectedDeviceIndices = tempDeviceStates
+        .map((isSelected, index) => isSelected ? index : null)
+        .filter(index => index !== null);
+      onSelectionChange(selectedDeviceIndices);
     }
     
     // 5. 저장 상태 표시 (3초 후 자동 해제)
@@ -348,10 +348,11 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
         })}
       </Box>
       
-      {/* 시뮬레이션 토글 버튼 */}
+      {/* 시뮬레이션 토글 버튼과 TimeMode 버튼을 inner grid로 배치 */}
       <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr', // 2열 그리드
+        gap: 1,
         mt: 1,
         mb: 1
       }}>
@@ -363,12 +364,33 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           disabled={!wsConnection || wsConnection.readyState !== WebSocket.OPEN}
           sx={{ 
             py: 0.5,
-            px: 2,
-            fontSize: '0.75rem',
+            px: 1,
+            fontSize: '0.7rem',
             fontWeight: 'bold'
           }}
         >
           {isSimulationEnabled ? '시뮬레이션 ON' : '시뮬레이션 OFF'}
+        </Button>
+        <Button 
+          variant="outlined"
+          color="primary"
+          onClick={() => {
+            console.log('TimeMode button clicked in DeviceSelect');
+            if (onTimeModeClick) {
+              onTimeModeClick();
+            } else {
+              console.error('onTimeModeClick prop is not provided');
+            }
+          }}
+          size="small"
+          sx={{ 
+            py: 0.5,
+            px: 1,
+            fontSize: '0.7rem',
+            fontWeight: 'bold'
+          }}
+        >
+          TimeMode
         </Button>
       </Box>
 

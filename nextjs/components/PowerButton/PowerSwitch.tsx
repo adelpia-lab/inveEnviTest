@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import MeasurementStopConfirm from '../MeasurementStopConfirm/MeasurementStopConfirm';
 
 interface PowerSwitchProps {
   wsConnection?: WebSocket | null;
@@ -8,6 +9,8 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
   const [isOn, setIsOn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [isMeasurementActive, setIsMeasurementActive] = useState(false);
 
   // WebSocket 메시지 수신 처리
   useEffect(() => {
@@ -22,6 +25,7 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           setIsOn(true);
           setIsStopping(false);
           setErrorMessage(null); // 에러 메시지 초기화
+          setIsMeasurementActive(true); // 측정 시작
         } else if (message.includes('STOPPING - Processing stop request')) {
           // 중지 처리 중 상태
           setIsStopping(true);
@@ -31,15 +35,18 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           setIsOn(false);
           setIsStopping(false);
           setErrorMessage(null); // 에러 메시지 초기화
+          setIsMeasurementActive(false); // 측정 중단
           
           // 파워스위치 OFF 시 즉시 UI 업데이트
           console.log('🔌 PowerSwitch: 파워스위치 OFF 상태 감지 - UI 즉시 업데이트');
         } else if (message.includes('STATUS - Machine running: true')) {
           setIsOn(true);
           setErrorMessage(null); // 에러 메시지 초기화
+          setIsMeasurementActive(true); // 측정 시작
         } else if (message.includes('STATUS - Machine running: false')) {
           setIsOn(false);
           setErrorMessage(null); // 에러 메시지 초기화
+          setIsMeasurementActive(false); // 측정 중단
         } else if (message.includes('PROCESS_ERROR:')) {
           // 프로세스 에러 처리
           const errorMatch = message.match(/PROCESS_ERROR: (.+)/);
@@ -56,13 +63,16 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
         } else if (message.includes('PROCESS_COMPLETED')) {
           setIsOn(false);
           setErrorMessage(null);
+          setIsMeasurementActive(false); // 측정 완료
         } else if (message.includes('PROCESS_STOPPED:')) {
           setIsOn(false);
           setErrorMessage(null);
+          setIsMeasurementActive(false); // 측정 중단
         } else if (message.includes('Process stop requested')) {
           // 프로세스 중지 요청 감지
           setIsOn(false);
           setErrorMessage('프로세스 중지 요청됨 - 안전하게 종료 중...');
+          setIsMeasurementActive(false); // 측정 중단
           
           // 5초 후 메시지 제거
           setTimeout(() => {
@@ -72,11 +82,23 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           // 파워스위치 에러 처리 - 더 사용자 친화적인 메시지로 변경
           setIsOn(false);
           setErrorMessage('파워스위치 상태 변경 중 오류가 발생했습니다');
+          setIsMeasurementActive(false); // 측정 중단
           
           // 5초 후 메시지 제거
           setTimeout(() => {
             setErrorMessage(null);
           }, 5000);
+        }
+      }
+      
+      // 측정 중단 확인을 위한 추가 메시지 처리
+      if (typeof message === 'string' && message.includes('[MEASUREMENT_STATUS]')) {
+        if (message.includes('STARTED')) {
+          setIsMeasurementActive(true);
+          console.log('🔌 PowerSwitch: 측정 시작 감지');
+        } else if (message.includes('STOPPED') || message.includes('COMPLETED')) {
+          setIsMeasurementActive(false);
+          console.log('🔌 PowerSwitch: 측정 중단/완료 감지');
         }
       }
     };
@@ -91,14 +113,25 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
   const handleClick = () => {
     const newState = !isOn;
     
-    // OFF로 변경할 때 중지 처리 중 상태로 설정
+    // OFF로 변경할 때 측정이 진행 중이면 확인 팝업 표시
     if (!newState && isOn) {
-      setIsStopping(true);
-      setErrorMessage('중지 처리중...');
-    } else {
+      // 임시로 항상 팝업 표시 (테스트용)
+      console.log('🔌 PowerSwitch: 측정 중단 확인 팝업 표시');
+      setShowStopConfirm(true);
+      return;
+    }
+    
+    // ON으로 변경하거나 측정이 진행 중이 아닐 때는 바로 처리
+    if (newState) {
       setIsOn(newState);
       setIsStopping(false);
-      setErrorMessage(null); // 클릭 시 에러 메시지 초기화
+      setErrorMessage(null);
+      setIsMeasurementActive(true);
+    } else {
+      // OFF로 변경할 때 중지 처리 중 상태로 설정
+      setIsStopping(true);
+      setErrorMessage('중지 처리중...');
+      setIsMeasurementActive(false);
     }
     
     // WebSocket 메시지 전송
@@ -113,6 +146,34 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
       }
     }
   };
+
+  // 측정 중단 확인 팝업의 YES 버튼 핸들러
+  const handleConfirmStop = () => {
+    console.log('🔌 PowerSwitch: YES (중단) 선택');
+    setShowStopConfirm(false);
+    
+    // 측정 중단 처리
+    setIsOn(false);
+    setIsStopping(true);
+    setErrorMessage('중지 처리중...');
+    setIsMeasurementActive(false);
+    
+    // WebSocket 메시지 전송
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      const message = `[POWER_SWITCH] OFF`;
+      wsConnection.send(message);
+    }
+  };
+
+  // 측정 중단 확인 팝업의 NO 버튼 핸들러
+  const handleCancelStop = () => {
+    console.log('🔌 PowerSwitch: NO (계속) 선택');
+    setShowStopConfirm(false);
+    // 팝업만 닫고 측정은 계속 진행
+  };
+
+  // 디버깅을 위한 상태 로그
+  console.log('🔌 PowerSwitch: 렌더링 상태 - isOn:', isOn, 'showStopConfirm:', showStopConfirm, 'isMeasurementActive:', isMeasurementActive);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -172,6 +233,15 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           51%, 100% { opacity: 0.3; }
         }
       `}</style>
+      
+      {/* 측정 중단 확인 팝업 */}
+      {showStopConfirm && (
+        <MeasurementStopConfirm
+          isVisible={showStopConfirm}
+          onConfirm={handleConfirmStop}
+          onCancel={handleCancelStop}
+        />
+      )}
     </div>
   );
 }

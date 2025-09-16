@@ -1,12 +1,13 @@
 // components/power-table/PowerTable.tsx
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { PowerDataGroup } from '../../lib/parsePowerData';
 
 interface PowerTableProps {
   groups: PowerDataGroup[];
   wsConnection?: WebSocket | null;
   channelVoltages?: number[]; // 채널 전압 설정 추가
+  selectedDevices?: number[]; // 선택된 디바이스 인덱스 배열
 }
 
 interface VoltageData {
@@ -34,7 +35,10 @@ interface AccumulatedTableData {
   };
 }
 
-export default function PowerTable({ groups, wsConnection, channelVoltages = [5, 15, -15, 24] }: PowerTableProps) {
+export default function PowerTable({ groups, wsConnection, channelVoltages = [5, 15, -15, 24], selectedDevices = [0] }: PowerTableProps) {
+  // 디버깅을 위한 로그
+  console.log('🔌 PowerTable: 컴포넌트 렌더링, channelVoltages:', channelVoltages);
+  console.log('🔌 PowerTable: 선택된 디바이스:', selectedDevices);
   // 누적 전압 데이터 상태
   const [accumulatedVoltageData, setAccumulatedVoltageData] = useState<AccumulatedTableData>({});
   
@@ -44,6 +48,8 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     filledCells: number;
     completionPercentage: number;
     isComplete: boolean;
+    lastUpdate?: number;
+    lastForceUpdate?: number;
   }>({
     totalCells: 0,
     filledCells: 0,
@@ -265,10 +271,41 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     }
   }, [accumulatedVoltageData, isTableStable]);
 
-  // channelVoltages 변경 추적
+  // channelVoltages 변경 추적 및 테이블 강제 업데이트
   useEffect(() => {
-    //console.log('🔌 PowerTable: channelVoltages 변경됨:', channelVoltages);
-  }, [channelVoltages]);
+    console.log('🔌 PowerTable: channelVoltages 변경됨:', channelVoltages);
+    // 채널 전압이 변경되면 테이블을 강제로 다시 렌더링하여 GOOD/NO GOOD 판단 업데이트
+    setLastTableUpdate(Date.now());
+    
+    // 채널 전압이 변경되면 기존 테이블 데이터를 새로운 전압 기준으로 재계산
+    if (Object.keys(accumulatedVoltageData).length > 0) {
+      console.log('🔄 PowerTable: 채널 전압 변경으로 인한 테이블 데이터 재계산');
+      // 테이블 상태를 강제로 업데이트하여 GOOD/NO GOOD 판단을 새로 수행
+      setTableCompletionStatus(prev => ({
+        ...prev,
+        // 강제 리렌더링을 위해 상태 업데이트
+        lastUpdate: Date.now()
+      }));
+    }
+  }, [channelVoltages, accumulatedVoltageData]);
+
+  // selectedDevices 변경 추적 및 테이블 강제 업데이트
+  useEffect(() => {
+    console.log('🔌 PowerTable: selectedDevices 변경됨:', selectedDevices);
+    // 선택된 디바이스가 변경되면 테이블을 강제로 다시 렌더링하여 GOOD/NO GOOD 판단 업데이트
+    setLastTableUpdate(Date.now());
+    
+    // 선택된 디바이스가 변경되면 기존 테이블 데이터를 새로운 선택 기준으로 재계산
+    if (Object.keys(accumulatedVoltageData).length > 0) {
+      console.log('🔄 PowerTable: 선택된 디바이스 변경으로 인한 테이블 데이터 재계산');
+      // 테이블 상태를 강제로 업데이트하여 GOOD/NO GOOD 판단을 새로 수행
+      setTableCompletionStatus(prev => ({
+        ...prev,
+        // 강제 리렌더링을 위해 상태 업데이트
+        lastUpdate: Date.now()
+      }));
+    }
+  }, [selectedDevices, accumulatedVoltageData]);
   
   // 컴포넌트 마운트 시 초기 상태 강제 설정
   useEffect(() => {
@@ -294,53 +331,112 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   if (!group) return <div className="text-red-400">데이터 없음</div>;
 
   // 출력 전압 표시 함수
-  const getOutputVoltageDisplay = (outputValue: string) => {
+  const getOutputVoltageDisplay = useCallback((outputValue: string) => {
     //console.log(`🔌 PowerTable: getOutputVoltageDisplay 호출 - outputValue: ${outputValue}, channelVoltages:`, channelVoltages);
     
     // 기존 출력값을 channelVoltages 인덱스로 매핑
-    let channelIndex = 0;
+    let channelIndex = -1;
+    
+    // 기존 하드코딩된 값들과의 매핑
     if (outputValue === '+5') channelIndex = 0;
     else if (outputValue === '+15') channelIndex = 1;
     else if (outputValue === '-15') channelIndex = 2;
     else if (outputValue === '+24') channelIndex = 3;
     
     // channelVoltages에서 해당 인덱스의 값을 가져와서 표시
-    const voltage = channelVoltages[channelIndex];
-    //console.log(`🔌 PowerTable: channelIndex: ${channelIndex}, voltage: ${voltage}`);
-    
-    if (voltage !== undefined) {
-      // 음수 값 처리 개선
-      let result;
-      if (voltage === 0) {
-        result = '0';
-      } else if (voltage > 0) {
-        result = `+${voltage}`;
-      } else {
-        result = `${voltage}`; // 음수는 그대로 표시 (예: -15)
+    if (channelIndex >= 0 && channelIndex < channelVoltages.length) {
+      const voltage = channelVoltages[channelIndex];
+      //console.log(`🔌 PowerTable: channelIndex: ${channelIndex}, voltage: ${voltage}`);
+      
+      if (voltage !== undefined) {
+        // 음수 값 처리 개선
+        let result;
+        if (voltage === 0) {
+          result = '0';
+        } else if (voltage > 0) {
+          result = `+${voltage}`;
+        } else {
+          result = `${voltage}`; // 음수는 그대로 표시 (예: -15)
+        }
+        // console.log(`🔌 PowerTable: 변환 결과: ${outputValue} -> ${result}`);
+        return result;
       }
-      // console.log(`🔌 PowerTable: 변환 결과: ${outputValue} -> ${result}`);
-      return result;
     }
     
     // fallback: 기존 값 사용
     //console.log(`🔌 PowerTable: fallback 사용: ${outputValue}`);
     return outputValue;
-  };
+  }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
 
   // 출력값으로부터 채널 번호를 결정하는 함수
-  const getChannelNumberFromOutput = (outputValue: string) => {
-    // 기존 출력값과 새로운 출력값 모두 처리
-    // channelVoltages 배열: [5, 15, -15, 24]
-    if (outputValue === '+5' || outputValue === `+${channelVoltages[0]}` || outputValue === '5') return 1;
-    else if (outputValue === '+15' || outputValue === `+${channelVoltages[1]}` || outputValue === '15') return 2;
-    else if (outputValue === '-15' || outputValue === `${channelVoltages[2]}` || outputValue === '-15') return 3;  // -15 처리 개선
-    else if (outputValue === '+24' || outputValue === `+${channelVoltages[3]}` || outputValue === '24') return 4;
+  const getChannelNumberFromOutput = useCallback((outputValue: string) => {
+    // 현재 설정된 channelVoltages 값과 매칭하여 채널 번호 결정
+    for (let i = 0; i < channelVoltages.length; i++) {
+      const voltage = channelVoltages[i];
+      const expectedOutput = voltage > 0 ? `+${voltage}` : `${voltage}`;
+      
+      // 다양한 형식의 출력값과 매칭
+      if (outputValue === expectedOutput || 
+          outputValue === `+${voltage}` || 
+          outputValue === `${voltage}` ||
+          outputValue === voltage.toString()) {
+        return i + 1; // 채널 번호는 1부터 시작
+      }
+    }
+    
+    // 기존 하드코딩된 값들과의 호환성 유지
+    if (outputValue === '+5' || outputValue === '5') return 1;
+    else if (outputValue === '+15' || outputValue === '15') return 2;
+    else if (outputValue === '-15') return 3;
+    else if (outputValue === '+24' || outputValue === '24') return 4;
     else {
       // 디버깅을 위한 로그 추가
       console.warn(`PowerTable: 알 수 없는 출력값: ${outputValue}, channelVoltages:`, channelVoltages);
       return 1; // 기본값
     }
-  };
+  }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
+
+  // GOOD/NO GOOD 판단 함수
+  const determineGoodNoGood = useCallback((deviceNumber: number, testNumber: number, channelNumber: number, measuredVoltage: string) => {
+    try {
+      // 측정된 전압값이 유효하지 않으면 NO GOOD
+      if (!measuredVoltage || measuredVoltage === '-.-' || measuredVoltage === '') {
+        return 'NO GOOD';
+      }
+
+      // 측정된 전압값에서 숫자 부분 추출
+      const voltageMatch = measuredVoltage.match(/^([\d.-]+)V$/);
+      if (!voltageMatch) {
+        return 'NO GOOD';
+      }
+
+      const measuredValue = parseFloat(voltageMatch[1]);
+      if (isNaN(measuredValue)) {
+        return 'NO GOOD';
+      }
+
+      // 해당 채널의 설정된 전압값 가져오기
+      const expectedVoltage = channelVoltages[channelNumber - 1];
+      if (expectedVoltage === undefined || expectedVoltage === null) {
+        return 'NO GOOD';
+      }
+
+      // 허용 오차 범위 (±0.5V)
+      const tolerance = 0.5;
+      const minVoltage = expectedVoltage - tolerance;
+      const maxVoltage = expectedVoltage + tolerance;
+
+      // 측정값이 허용 범위 내에 있는지 확인
+      if (measuredValue >= minVoltage && measuredValue <= maxVoltage) {
+        return 'GOOD';
+      } else {
+        return 'NO GOOD';
+      }
+    } catch (error) {
+      console.error(`PowerTable: GOOD/NO GOOD 판단 오류 - device: ${deviceNumber}, test: ${testNumber}, channel: ${channelNumber}`, error);
+      return 'NO GOOD';
+    }
+  }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
 
   // 누적된 전압 데이터 표시 함수 개선
   const getAccumulatedVoltageDisplay = (device: number, test: number, channel: number) => {
@@ -470,6 +566,13 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                 setTotalTestCount(resetData.totalTestCount || 0);
                 setTestStatus(resetData.testStatus || 'none');
                 setCycleMessage(resetData.message || '');
+                
+                // PowerSwitch에 측정 시작 알림
+                if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+                  const measurementMessage = `[MEASUREMENT_STATUS] STARTED`;
+                  wsConnection.send(measurementMessage);
+                  console.log('🔌 PowerTable: 측정 시작 메시지 전송');
+                }
                 break;
                 
               case 'test_progress':
@@ -692,9 +795,23 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
           if (message.includes('Test completed')) {
             // 테스트 완료 시
             setTestProgressMessage('테스트 완료 - 중단 시작 대기중');
+            
+            // PowerSwitch에 측정 완료 알림
+            if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+              const measurementMessage = `[MEASUREMENT_STATUS] COMPLETED`;
+              wsConnection.send(measurementMessage);
+              console.log('🔌 PowerTable: 측정 완료 메시지 전송');
+            }
           } else {
             // 일반 중지 시
             setTestProgressMessage('중단 시작 대기중');
+            
+            // PowerSwitch에 측정 중단 알림
+            if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+              const measurementMessage = `[MEASUREMENT_STATUS] STOPPED`;
+              wsConnection.send(measurementMessage);
+              console.log('🔌 PowerTable: 측정 중단 메시지 전송');
+            }
           }
           setIsTestProgressActive(true);
           console.log('🔌 PowerTable: 파워스위치 OFF 상태 감지 - 중단 시작 대기중 메시지 표시');
@@ -702,7 +819,42 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 6. 기타 메시지는 무시 (PowerTable에서 처리하지 않음)
+      // 5-1. 측정 상태 메시지 처리 - PowerSwitch에 전달
+      if (typeof message === 'string' && message.includes('[MEASUREMENT_STATUS]')) {
+        // PowerSwitch 컴포넌트에서 처리하므로 여기서는 로그만 출력
+        console.log('🔌 PowerTable: 측정 상태 메시지 수신:', message);
+        return; // 처리 완료 후 종료
+      }
+      
+      // 6. 파워 테이블 강제 업데이트 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[POWER_TABLE_FORCE_UPDATE]')) {
+        try {
+          const match = message.match(/\[POWER_TABLE_FORCE_UPDATE\] (\[.*\])/);
+          if (match && match[1]) {
+            const newVoltages = JSON.parse(match[1]);
+            if (Array.isArray(newVoltages) && newVoltages.length === 4) {
+              console.log('🔄 PowerTable: 강제 업데이트 메시지 수신, 채널 전압 변경:', newVoltages);
+              // 채널 전압이 변경되었으므로 테이블을 강제로 다시 렌더링
+              setLastTableUpdate(Date.now());
+              
+              // 기존 테이블 데이터가 있다면 GOOD/NO GOOD 판단을 새로 수행
+              if (Object.keys(accumulatedVoltageData).length > 0) {
+                console.log('🔄 PowerTable: 기존 테이블 데이터 재계산 시작');
+                // 테이블 완성도 상태를 강제로 업데이트하여 리렌더링 유발
+                setTableCompletionStatus(prev => ({
+                  ...prev,
+                  lastForceUpdate: Date.now()
+                }));
+              }
+            }
+          }
+        } catch (error) {
+          console.error('PowerTable: 강제 업데이트 메시지 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 7. 기타 메시지는 무시 (PowerTable에서 처리하지 않음)
     };
 
     wsConnection.addEventListener('message', handleMessage);
@@ -748,7 +900,19 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   };
 
   // 데모 테이블 완성 데이터 생성 함수
-  const generateDemoCompleteTable = () => {
+  const generateDemoCompleteTable = useCallback(() => {
+    console.log('🧪 PowerTable: 데모 테이블 생성 시작');
+    console.log('🧪 PowerTable: 현재 channelVoltages prop:', channelVoltages);
+    console.log('🧪 PowerTable: channelVoltages 타입:', typeof channelVoltages);
+    console.log('🧪 PowerTable: channelVoltages 길이:', channelVoltages?.length);
+    
+    // channelVoltages가 유효한지 확인
+    if (!channelVoltages || !Array.isArray(channelVoltages) || channelVoltages.length !== 4) {
+      console.error('🧪 PowerTable: channelVoltages가 유효하지 않음, 기본값 사용');
+      const defaultVoltages = [5, 15, -15, 24];
+      channelVoltages = defaultVoltages;
+    }
+    
     // 새로운 테이블 업데이트 방식으로 데모 데이터 생성
     const demoTableData = {
       timestamp: new Date().toISOString(),
@@ -761,9 +925,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       tableData: Array.from({ length: 10 }, (_, deviceIndex) =>
         Array.from({ length: 3 }, (_, testIndex) =>
           Array.from({ length: 4 }, (_, channelIndex) => {
-            // 각 채널에 대해 랜덤한 전압값 생성
-            const baseVoltages = [5, 15, -15, 24];
-            const voltage = baseVoltages[channelIndex] + (Math.random() - 0.5) * 0.2;
+            // 현재 설정된 channelVoltages 값을 사용하여 랜덤한 전압값 생성
+            const baseVoltage = channelVoltages[channelIndex] || 0;
+            const voltage = baseVoltage + (Math.random() - 0.5) * 0.2;
+            console.log(`🧪 PowerTable: 채널 ${channelIndex + 1} - 기본값: ${baseVoltage}, 생성값: ${voltage.toFixed(2)}V`);
             return `${voltage.toFixed(2)}V`;
           })
         )
@@ -812,8 +977,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       isComplete: true
     });
     
-    console.log('🧪 PowerTable: 데모 테이블 데이터 생성 완료');
-  };
+    console.log('🧪 PowerTable: 데모 테이블 데이터 생성 완료, 사용된 channelVoltages:', channelVoltages);
+    console.log('🧪 PowerTable: 생성된 누적 데이터 샘플:', Object.keys(newAccumulatedData).slice(0, 2));
+  }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
 
   return (
     <div className="w-full h-full bg-[#181A20] rounded-lg shadow-md p-2" style={{ 
@@ -1082,7 +1248,54 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                     );
                   }
                 })}
-                <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '18px' }}>{row.good}</td>
+                <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '18px' }}>
+                  {(() => {
+                    // 현재 행의 출력값을 기반으로 채널 번호 결정
+                    const channelNumber = getChannelNumberFromOutput(row.output);
+                    
+                    // 현재 행의 입력값을 기반으로 테스트 번호 결정
+                    let testNumber = 1;
+                    if (row.input === '+24') testNumber = 1;
+                    else if (row.input === '+18') testNumber = 2;
+                    else if (row.input === '+30') testNumber = 3;
+                    
+                    // 선택된 디바이스들의 측정 상태 확인
+                    const selectedDeviceData = selectedDevices.map(deviceIndex => {
+                      const deviceNumber = deviceIndex + 1; // 디바이스 번호는 1부터 시작
+                      const measuredVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, channelNumber);
+                      return {
+                        deviceNumber,
+                        measuredVoltage,
+                        hasData: measuredVoltage !== '-.-' && measuredVoltage !== ''
+                      };
+                    });
+                    
+                    // 모든 선택된 디바이스가 측정되었는지 확인
+                    const allDevicesMeasured = selectedDeviceData.every(device => device.hasData);
+                    const hasAnyData = selectedDeviceData.some(device => device.hasData);
+                    
+                    // 데이터가 전혀 없으면 -.- 표시
+                    if (!hasAnyData) {
+                      return <span style={{ color: '#9CA3AF' }}>-.-</span>;
+                    }
+                    
+                    // 모든 선택된 디바이스가 측정되지 않았으면 WAIT 표시
+                    if (!allDevicesMeasured) {
+                      return <span style={{ color: '#F59E0B', fontWeight: 'bold' }}>WAIT</span>;
+                    }
+                    
+                    // 모든 디바이스가 측정되었으면 GOOD/NO GOOD 판단
+                    const deviceResults = selectedDeviceData.map(device => 
+                      determineGoodNoGood(device.deviceNumber, testNumber, channelNumber, device.measuredVoltage)
+                    );
+                    
+                    const allGood = deviceResults.length > 0 && deviceResults.every(result => result === 'GOOD');
+                    const result = allGood ? 'GOOD' : 'NO GOOD';
+                    const color = allGood ? '#10B981' : '#EF4444'; // GOOD: 초록색, NO GOOD: 빨간색
+                    
+                    return <span style={{ color, fontWeight: 'bold' }}>{result}</span>;
+                  })()}
+                </td>
               </tr>
             ))}
           </tbody>

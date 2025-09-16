@@ -55,6 +55,17 @@ const ChannelVoltageSettings: React.FC<ChannelVoltageSettingsProps> = ({ wsConne
         setIsLoading(false);
         setIsOpen(false);
         if (onClose) onClose();
+        
+        // 저장된 채널 전압값을 부모 컴포넌트에 전달하여 파워 테이블 업데이트
+        try {
+          const match = message.match(/\[CHANNEL_VOLTAGES_SAVED\] (\[.*\])/);
+          if (match && match[1]) {
+            const savedVoltages = JSON.parse(match[1]);
+            console.log('✅ ChannelVoltageSettings: 채널 전압 저장 완료, 파워 테이블 업데이트:', savedVoltages);
+          }
+        } catch (error) {
+          console.error('ChannelVoltageSettings: 저장된 전압값 파싱 오류:', error);
+        }
       }
     };
 

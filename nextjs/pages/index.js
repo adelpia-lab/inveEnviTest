@@ -67,6 +67,7 @@ import DebugLogoImage from "/components/LogoImage/DebugLogoImage";
 import DelaySettingsPanel from "/components/delay-settings-panel/DelaySettingsPanel";
 import TestSystemButton from "/components/TestSystem/TestSystemButton";
 import ChannelVoltageSettings from "/components/ChannelVoltageSettings/ChannelVoltageSettings";
+import TimeModePopup from "/components/TimeModePopup/TimeModePopup";
 const PowerTable = dynamic(() => import('../components/power-table/PowerTable'), { ssr: false });
 // import WebSocketClient from "/components/WebSocketClient/WebSocketClient";
 
@@ -91,6 +92,14 @@ const [voltages, setVoltages] = useState([0, 0, 0, 0, 0]);
 const [temperature, setTemperature] = useState(null);
 const [isWaitingChamberResponse, setIsWaitingChamberResponse] = useState(false);
 const [channelVoltages, setChannelVoltages] = useState([5, 15, -15, 24]); // 기본값 설정
+const [isTimeModePopupOpen, setIsTimeModePopupOpen] = useState(false);
+const [isMeasurementActive, setIsMeasurementActive] = useState(false);
+const [hasUserInteracted, setHasUserInteracted] = useState(false);
+const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
+const [pendingExit, setPendingExit] = useState(false);
+
+// 디버깅을 위한 로그
+console.log('🔌 Main: channelVoltages 상태:', channelVoltages);
 
   // WebSocket 연결 상태 확인 함수
   const isWebSocketReady = () => {
@@ -150,7 +159,15 @@ useEffect(() => {
     // [POWER_SWITCH] 메시지 처리
     if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
       console.log('🔌 Power switch message received:', event.data);
-      // PowerSwitch 컴포넌트에서 처리하므로 여기서는 로그만 출력
+      // 측정 상태 추적
+      if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
+        console.log('🔌 Main: 측정 시작 - isMeasurementActive: true');
+        setIsMeasurementActive(true);
+      } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
+                 event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
+        console.log('🔌 Main: 측정 중단 - isMeasurementActive: false');
+        setIsMeasurementActive(false);
+      }
     }
     // [SAVE_PRODUCT_INPUT] 메시지 처리
     else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
@@ -173,6 +190,45 @@ useEffect(() => {
         }
       } catch (err) {
         console.error('Failed to parse product input data:', err);
+      }
+    }
+    // [TIME_MODE_SAVED] 메시지 처리
+    else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
+      try {
+        const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
+        if (match && match[1]) {
+          const timeModeData = JSON.parse(match[1]);
+          console.log('📥 TimeMode settings saved successfully:', timeModeData);
+          
+          // localStorage에 저장
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+            console.log('💾 TimeMode settings saved to localStorage:', timeModeData);
+          }
+          
+          // 팝업 닫기
+          handleTimeModeClose();
+        }
+      } catch (err) {
+        console.error('Failed to parse TimeMode saved data:', err);
+      }
+    }
+    // [TIME_MODE_DATA] 메시지 처리 - 서버에서 읽어온 TimeMode 데이터
+    else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_DATA]')) {
+      try {
+        const match = event.data.match(/\[TIME_MODE_DATA\] (.*)/);
+        if (match && match[1]) {
+          const timeModeData = JSON.parse(match[1]);
+          console.log('📥 TimeMode data received from server:', timeModeData);
+          
+          // localStorage에 저장
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+            console.log('💾 TimeMode settings saved to localStorage:', timeModeData);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to parse TimeMode data:', err);
       }
     }
     // [Voltage data: ...] 메시지 파싱
@@ -235,6 +291,28 @@ useEffect(() => {
         console.error('Failed to parse channel voltages:', err);
       }
     }
+    // 채널 전압 저장 완료 메시지 처리
+    else if (typeof event.data === 'string' && event.data.startsWith('[CHANNEL_VOLTAGES_SAVED]')) {
+      try {
+        const match = event.data.match(/\[CHANNEL_VOLTAGES_SAVED\] (\[.*\])/);
+        if (match && match[1]) {
+          const voltages = JSON.parse(match[1]);
+          if (Array.isArray(voltages) && voltages.length === 4) {
+            console.log('📥 Main: 채널 전압 저장 완료, 파워 테이블 업데이트:', voltages);
+            setChannelVoltages(voltages);
+            
+            // 채널 전압 변경 시 파워 테이블 강제 업데이트를 위한 메시지 전송
+            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+              const updateMessage = `[POWER_TABLE_FORCE_UPDATE] ${JSON.stringify(voltages)}`;
+              ws.current.send(updateMessage);
+              console.log('📤 Main: 파워 테이블 강제 업데이트 메시지 전송:', updateMessage);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to parse saved channel voltages:', err);
+      }
+    }
     //setReceivedMessages(prev => [...prev, event.data]);
   };
 
@@ -275,7 +353,13 @@ useEffect(() => {
             // [POWER_SWITCH] 메시지 처리
             if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
               console.log('🔌 Power switch message received (reconnection):', event.data);
-              // PowerSwitch 컴포넌트에서 처리하므로 여기서는 로그만 출력
+              // 측정 상태 추적
+              if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
+                setIsMeasurementActive(true);
+              } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
+                         event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
+                setIsMeasurementActive(false);
+              }
             }
             // [SAVE_PRODUCT_INPUT] 메시지 처리
             else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
@@ -298,6 +382,27 @@ useEffect(() => {
                 }
               } catch (err) {
                 console.error('Failed to parse product input data (reconnection):', err);
+              }
+            }
+            // [TIME_MODE_SAVED] 메시지 처리
+            else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
+              try {
+                const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
+                if (match && match[1]) {
+                  const timeModeData = JSON.parse(match[1]);
+                  console.log('📥 TimeMode settings saved successfully (reconnection):', timeModeData);
+                  
+                  // localStorage에 저장
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+                    console.log('💾 TimeMode settings saved to localStorage (reconnection):', timeModeData);
+                  }
+                  
+                  // 팝업 닫기
+                  handleTimeModeClose();
+                }
+              } catch (err) {
+                console.error('Failed to parse TimeMode saved data (reconnection):', err);
               }
             }
             // [Voltage data: ...] 메시지 파싱
@@ -331,11 +436,33 @@ useEffect(() => {
               console.log('📥 Main: 전압 업데이트 메시지 수신 (재연결):', event.data);
               // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
             }
-            // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
-            else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
-              console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신 (재연결):', event.data);
-              // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+          // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
+          else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
+            console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신 (재연결):', event.data);
+            // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
+          }
+          // 채널 전압 저장 완료 메시지 처리 (재연결)
+          else if (typeof event.data === 'string' && event.data.startsWith('[CHANNEL_VOLTAGES_SAVED]')) {
+            try {
+              const match = event.data.match(/\[CHANNEL_VOLTAGES_SAVED\] (\[.*\])/);
+              if (match && match[1]) {
+                const voltages = JSON.parse(match[1]);
+                if (Array.isArray(voltages) && voltages.length === 4) {
+                  console.log('📥 Main: 채널 전압 저장 완료, 파워 테이블 업데이트 (재연결):', voltages);
+                  setChannelVoltages(voltages);
+                  
+                  // 채널 전압 변경 시 파워 테이블 강제 업데이트를 위한 메시지 전송
+                  if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+                    const updateMessage = `[POWER_TABLE_FORCE_UPDATE] ${JSON.stringify(voltages)}`;
+                    ws.current.send(updateMessage);
+                    console.log('📤 Main: 파워 테이블 강제 업데이트 메시지 전송 (재연결):', updateMessage);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Failed to parse saved channel voltages (reconnection):', err);
             }
+          }
           };
           
           ws.current.onclose = (event) => {
@@ -376,7 +503,13 @@ useEffect(() => {
           // [POWER_SWITCH] 메시지 처리
           if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
             console.log('🔌 Power switch message received (auto-reconnection):', event.data);
-            // PowerSwitch 컴포넌트에서 처리하므로 여기서는 로그만 출력
+            // 측정 상태 추적
+            if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
+              setIsMeasurementActive(true);
+            } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
+                       event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
+              setIsMeasurementActive(false);
+            }
           }
           // [SAVE_PRODUCT_INPUT] 메시지 처리
           else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
@@ -397,6 +530,26 @@ useEffect(() => {
               }
             } catch (err) {
               console.error('Failed to parse product input data (auto-reconnection):', err);
+            }
+          }
+          // [TIME_MODE_SAVED] 메시지 처리
+          else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
+            try {
+              const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
+              if (match && match[1]) {
+                const timeModeData = JSON.parse(match[1]);
+                console.log('📥 TimeMode settings saved successfully (auto-reconnection):', timeModeData);
+                
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+                  console.log('💾 TimeMode settings saved to localStorage (auto-reconnection):', timeModeData);
+                }
+                
+                // 팝업 닫기
+                handleTimeModeClose();
+              }
+            } catch (err) {
+              console.error('Failed to parse TimeMode saved data (auto-reconnection):', err);
             }
           }
           else if (typeof event.data === 'string' && event.data.startsWith('Voltage data:')) {
@@ -434,6 +587,28 @@ useEffect(() => {
             console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신 (자동재연결):', event.data);
             // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
           }
+          // 채널 전압 저장 완료 메시지 처리 (자동재연결)
+          else if (typeof event.data === 'string' && event.data.startsWith('[CHANNEL_VOLTAGES_SAVED]')) {
+            try {
+              const match = event.data.match(/\[CHANNEL_VOLTAGES_SAVED\] (\[.*\])/);
+              if (match && match[1]) {
+                const voltages = JSON.parse(match[1]);
+                if (Array.isArray(voltages) && voltages.length === 4) {
+                  console.log('📥 Main: 채널 전압 저장 완료, 파워 테이블 업데이트 (자동재연결):', voltages);
+                  setChannelVoltages(voltages);
+                  
+                  // 채널 전압 변경 시 파워 테이블 강제 업데이트를 위한 메시지 전송
+                  if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+                    const updateMessage = `[POWER_TABLE_FORCE_UPDATE] ${JSON.stringify(voltages)}`;
+                    ws.current.send(updateMessage);
+                    console.log('📤 Main: 파워 테이블 강제 업데이트 메시지 전송 (자동재연결):', updateMessage);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Failed to parse saved channel voltages (auto-reconnection):', err);
+            }
+          }
         };
         
         ws.current.onclose = (event) => {
@@ -463,6 +638,190 @@ useEffect(() => {
     }
   };
 }, []); // 빈 배열은 컴포넌트 마운트 시 한 번만 실행되도록 합니다.
+
+// 사용자 상호작용 감지를 위한 useEffect (강화된 버전)
+useEffect(() => {
+  const handleUserInteraction = () => {
+    setHasUserInteracted(true);
+    console.log('🔌 Main: 사용자 상호작용 감지됨 - beforeunload 이벤트 활성화');
+  };
+
+  if (typeof window !== 'undefined') {
+    // 다양한 사용자 상호작용 이벤트 감지
+    window.addEventListener('click', handleUserInteraction, { once: true });
+    window.addEventListener('keydown', handleUserInteraction, { once: true });
+    window.addEventListener('mousemove', handleUserInteraction, { once: true });
+    window.addEventListener('touchstart', handleUserInteraction, { once: true });
+    
+    // 페이지 로드 후 1초 뒤에 자동으로 상호작용 활성화 (테스트용)
+    const autoActivate = setTimeout(() => {
+      if (!hasUserInteracted) {
+        console.log('🔌 Main: 자동으로 사용자 상호작용 활성화 (테스트용)');
+        setHasUserInteracted(true);
+      }
+    }, 1000);
+
+    return () => {
+      clearTimeout(autoActivate);
+    };
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('click', handleUserInteraction);
+      window.removeEventListener('keydown', handleUserInteraction);
+      window.removeEventListener('mousemove', handleUserInteraction);
+      window.removeEventListener('touchstart', handleUserInteraction);
+    }
+  };
+}, [hasUserInteracted]);
+
+// 강력한 페이지 닫기 방지 시스템 (최신 브라우저 대응)
+useEffect(() => {
+  const handleBeforeUnload = (event) => {
+    console.log('🔌 Main: beforeunload 이벤트 발생');
+    
+    if (!hasUserInteracted) {
+      console.log('🔌 Main: 사용자 상호작용이 없어서 팝업을 표시하지 않음');
+      return;
+    }
+    
+    // 커스텀 모달 즉시 표시
+    setShowExitConfirmModal(true);
+    setPendingExit(true);
+    
+    // 브라우저 기본 팝업도 시도
+    const message = isMeasurementActive 
+      ? '현재 측정이 진행 중입니다. 정말로 페이지를 닫으시겠습니까?'
+      : '정말로 페이지를 닫으시겠습니까?';
+    
+    event.preventDefault();
+    event.returnValue = message;
+    return message;
+  };
+
+  const handleKeyDown = (event) => {
+    // 페이지 닫기 단축키 감지
+    if ((event.altKey && event.key === 'F4') || 
+        (event.ctrlKey && (event.key === 'w' || event.key === 'q'))) {
+      if (hasUserInteracted) {
+        event.preventDefault();
+        setShowExitConfirmModal(true);
+        setPendingExit(true);
+      }
+    }
+  };
+
+  // 페이지 숨김 감지
+  const handleVisibilityChange = () => {
+    if (document.hidden && hasUserInteracted && !showExitConfirmModal) {
+      console.log('🔌 Main: 페이지가 숨겨짐 - 확인 모달 표시');
+      setShowExitConfirmModal(true);
+      setPendingExit(true);
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    // 기본 이벤트들
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // 레거시 방식
+    window.onbeforeunload = handleBeforeUnload;
+  }
+  
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.onbeforeunload = null;
+    }
+  };
+}, [isMeasurementActive, hasUserInteracted, showExitConfirmModal]);
+
+// 사용자 상호작용 기반 경고 시스템 (최신 브라우저 대응)
+useEffect(() => {
+  console.log('🔌 Main: 경고 시스템 초기화 - hasUserInteracted:', hasUserInteracted);
+  
+  // 사용자가 페이지를 떠나려고 할 때 즉시 감지
+  const handleBeforeUnload = (event) => {
+    console.log('🔌 Main: beforeunload 이벤트 발생!');
+    console.log('🔌 Main: hasUserInteracted:', hasUserInteracted);
+    console.log('🔌 Main: isMeasurementActive:', isMeasurementActive);
+    
+    if (!hasUserInteracted) {
+      console.log('🔌 Main: 사용자 상호작용이 없어서 경고를 표시하지 않음');
+      return;
+    }
+    
+    console.log('🔌 Main: 경고 모달 표시 시도');
+    
+    // 즉시 커스텀 모달 표시
+    setShowExitConfirmModal(true);
+    setPendingExit(true);
+    
+    // 브라우저 기본 팝업도 시도
+    const message = isMeasurementActive 
+      ? '현재 측정이 진행 중입니다. 정말로 페이지를 닫으시겠습니까?'
+      : '정말로 페이지를 닫으시겠습니까?';
+    
+    console.log('🔌 Main: 브라우저 기본 팝업 메시지:', message);
+    
+    event.preventDefault();
+    event.returnValue = message;
+    return message;
+  };
+
+  // 키보드 단축키 감지
+  const handleKeyDown = (event) => {
+    if ((event.altKey && event.key === 'F4') || 
+        (event.ctrlKey && (event.key === 'w' || event.key === 'q'))) {
+      console.log('🔌 Main: 페이지 닫기 단축키 감지:', event.key);
+      if (hasUserInteracted) {
+        event.preventDefault();
+        setShowExitConfirmModal(true);
+        setPendingExit(true);
+      }
+    }
+  };
+
+  // 페이지 숨김 감지 (탭 전환 등)
+  const handleVisibilityChange = () => {
+    console.log('🔌 Main: visibilitychange 이벤트 - document.hidden:', document.hidden);
+    if (document.hidden && hasUserInteracted && !showExitConfirmModal) {
+      console.log('🔌 Main: 페이지가 숨겨짐 - 확인 모달 표시');
+      setShowExitConfirmModal(true);
+      setPendingExit(true);
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    console.log('🔌 Main: 이벤트 리스너 등록 중...');
+    
+    // 이벤트 리스너 등록
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // 레거시 방식
+    window.onbeforeunload = handleBeforeUnload;
+    
+    console.log('🔌 Main: 이벤트 리스너 등록 완료');
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      console.log('🔌 Main: 이벤트 리스너 정리 중...');
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.onbeforeunload = null;
+    }
+  };
+}, [isMeasurementActive, hasUserInteracted, showExitConfirmModal]);
+
 // 메시지 전송 핸들러
 const sendMessage = () => {
   if (ws.current && ws.current.readyState === WebSocket.OPEN && messageInput.trim() !== '') {
@@ -476,13 +835,11 @@ const sendMessage = () => {
 
 	const [deviceSelectedValue, setDeviceSelectedValue] = useState('#1 Device');
 	const [voltSelectValue, setVoltSelectedValue] = useState('PowerOff');
+	const [selectedDevices, setSelectedDevices] = useState([0]); // 선택된 디바이스 인덱스 배열 (기본값: #1 Device)
 
-  const handleSelectionFromDeviceSelect = (newValue) => {
-    // console.log("DeviceSelect: 하위 컴포넌트로부터 전달받은 값:", newValue);
-    
-    // DeviceSelect 컴포넌트는 이제 내부에서 직접 WebSocket을 통해 서버와 통신하므로
-    // 이 콜백은 더 이상 사용되지 않습니다.
-    // DeviceSelect 컴포넌트가 직접 [DEVICE_SELECT] 메시지를 전송합니다.
+  const handleSelectionFromDeviceSelect = (selectedDeviceIndices) => {
+    console.log("DeviceSelect: 선택된 디바이스 인덱스:", selectedDeviceIndices);
+    setSelectedDevices(selectedDeviceIndices);
   };
 
   const handleSelectionFromVoltSelect = (newValue) => {
@@ -522,6 +879,40 @@ const sendMessage = () => {
     // USB 포트 설정은 이제 컴포넌트 내부에서 WebSocket을 통해 직접 처리됩니다.
   };
 
+  // TimeModePopup handlers
+  const handleTimeModeButtonClick = () => {
+    console.log('TimeMode button clicked, opening popup');
+    setIsTimeModePopupOpen(true);
+  };
+
+  const handleTimeModeSave = (timeValues) => {
+    console.log('TimeMode: 저장된 시간 값들:', timeValues);
+    // 여기에 시간 값들을 서버로 전송하는 로직을 추가할 수 있습니다
+    const messageWithIdentifier = `[TIME_MODE] ${JSON.stringify(timeValues)}`;
+    sendWebSocketMessage(messageWithIdentifier);
+  };
+
+  const handleTimeModeClose = () => {
+    setIsTimeModePopupOpen(false);
+  };
+
+  // 페이지 닫기 확인 모달 핸들러
+  const handleExitConfirm = () => {
+    console.log('🔌 Main: 사용자가 페이지 닫기를 확인함');
+    setShowExitConfirmModal(false);
+    setPendingExit(false);
+    // 실제로 페이지를 닫기
+    if (typeof window !== 'undefined') {
+      window.close();
+    }
+  };
+
+  const handleExitCancel = () => {
+    console.log('🔌 Main: 사용자가 페이지 닫기를 취소함');
+    setShowExitConfirmModal(false);
+    setPendingExit(false);
+  };
+
 
 
   return (
@@ -551,14 +942,34 @@ const sendMessage = () => {
 
         <main className={styles.bodyContent}>
           <div className={styles.bodyItem}>
-            <DeviceSelect initialValue="#1 Device" onSelectionChange={handleSelectionFromDeviceSelect} wsConnection={ws.current} />
+            <DeviceSelect 
+              initialValue="#1 Device" 
+              onSelectionChange={handleSelectionFromDeviceSelect} 
+              wsConnection={ws.current}
+              onTimeModeClick={handleTimeModeButtonClick}
+            />
           </div>
           <div className={styles.bodyItem}>
             <PowerTable 
               groups={props.powerGroups || []} 
               wsConnection={ws.current} 
               channelVoltages={channelVoltages} // 동적으로 받은 channelVoltages 설정값
+              selectedDevices={selectedDevices} // 선택된 디바이스 인덱스 배열
             />
+            {/* 디버깅용 정보 표시 - 숨김 처리 */}
+            {/* <div style={{ 
+              position: 'absolute', 
+              top: '10px', 
+              left: '10px', 
+              backgroundColor: 'rgba(0,0,0,0.8)', 
+              color: 'white', 
+              padding: '5px', 
+              fontSize: '10px',
+              borderRadius: '4px'
+            }}>
+              ChannelVoltages: {JSON.stringify(channelVoltages)}<br/>
+              SelectedDevices: {JSON.stringify(selectedDevices)}
+            </div> */}
             {/* 디버깅용 정보 표시 */}
             <div style={{ 
               position: 'absolute', 
@@ -596,6 +1007,82 @@ const sendMessage = () => {
               <UsbPortSelect wsConnection={ws.current} onSelectionChange={handleUsbPortSelection} />
             </div>
         </footer>
+
+        {/* TimeModePopup Modal */}
+        <TimeModePopup
+          isOpen={isTimeModePopupOpen}
+          onClose={handleTimeModeClose}
+          onSave={handleTimeModeSave}
+          wsConnection={ws.current}
+        />
+
+        {/* 페이지 닫기 확인 모달 */}
+        {showExitConfirmModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999
+          }}>
+            <div style={{
+              backgroundColor: '#1D1D1D',
+              padding: '30px',
+              borderRadius: '10px',
+              border: '2px solid #90CAF9',
+              maxWidth: '400px',
+              textAlign: 'center',
+              color: '#E0E0E0'
+            }}>
+              <h3 style={{ marginBottom: '20px', color: '#90CAF9' }}>
+                {isMeasurementActive ? '⚠️ 측정 진행 중 - 브라우저 닫기' : '⚠️ 브라우저 닫기'}
+              </h3>
+              <p style={{ marginBottom: '30px', fontSize: '16px' }}>
+                {isMeasurementActive 
+                  ? '현재 측정이 진행 중입니다.\n정말로 브라우저를 닫으시겠습니까?'
+                  : '정말로 브라우저를 닫으시겠습니까?'
+                }
+              </p>
+              <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+                <button
+                  onClick={handleExitConfirm}
+                  style={{
+                    backgroundColor: '#f44336',
+                    color: 'white',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  닫기
+                </button>
+                <button
+                  onClick={handleExitCancel}
+                  style={{
+                    backgroundColor: '#4CAF50',
+                    color: 'white',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
   );
 }

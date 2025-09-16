@@ -22,6 +22,7 @@ const PRODUCT_INPUT_FILE = 'product_input.json'; // 제품 입력 저장 파일
 const USB_PORT_SETTINGS_FILE = 'usb_port_settings.json'; // USB 포트 설정 저장 파일
 const OUT_VOLT_SETTINGS_FILE = 'out_volt_settings.json'; // 입력 전압 설정 저장 파일
 const CHANNEL_VOLTAGES_FILE = 'channel_voltages.json'; // 채널 전압 설정 저장 파일
+const TIME_MODE_SETTINGS_FILE = 'time_mode_settings.json'; // TimeMode 설정 저장 파일
 
 // 시뮬레이션 모드 설정 (기본값: false)
 let SIMULATION_PROCESS = false;
@@ -668,6 +669,62 @@ async function saveChannelVoltages(channelVoltages) {
   }
 }
 
+// TimeMode 설정 저장 함수
+async function saveTimeModeSettings(timeValues) {
+  try {
+    // 입력값 검증
+    if (!timeValues || typeof timeValues !== 'object') {
+      throw new Error('TimeMode 설정이 유효한 객체가 아닙니다.');
+    }
+    
+    // T1~T8 필드 확인
+    const requiredFields = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8'];
+    for (const field of requiredFields) {
+      if (!(field in timeValues)) {
+        throw new Error(`필수 필드가 누락되었습니다: ${field}`);
+      }
+    }
+    
+    // 모든 값이 숫자이거나 빈 문자열인지 확인
+    for (const [key, value] of Object.entries(timeValues)) {
+      if (value !== '' && (isNaN(Number(value)) || Number(value) < 0)) {
+        throw new Error(`${key} 값이 유효하지 않습니다: ${value}`);
+      }
+    }
+    
+    const jsonString = JSON.stringify(timeValues, null, 2);
+    await fs.writeFile(TIME_MODE_SETTINGS_FILE, jsonString);
+    console.log(`✅ [Backend WS Server] TimeMode settings saved: ${JSON.stringify(timeValues)}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to save TimeMode settings: ${error.message}`);
+    return false;
+  }
+}
+
+// TimeMode 설정을 파일에서 읽어오는 함수
+async function loadTimeModeSettings() {
+  try {
+    const data = await fs.readFile(TIME_MODE_SETTINGS_FILE, 'utf8');
+    const timeModeSettings = JSON.parse(data);
+    console.log(`✅ [Backend WS Server] TimeMode settings loaded: ${JSON.stringify(timeModeSettings)}`);
+    return timeModeSettings;
+  } catch (error) {
+    console.error(`❌ [Backend WS Server] Failed to load TimeMode settings: ${error.message}`);
+    // 기본값 반환
+    return {
+      T1: "10",
+      T2: "105", 
+      T3: "240",
+      T4: "110",
+      T5: "240",
+      T6: "110",
+      T7: "50",
+      T8: "20"
+    };
+  }
+}
+
 // 채널 전압 설정을 파일에서 읽어오는 함수
 async function loadChannelVoltages() {
   try {
@@ -1262,6 +1319,45 @@ function setupWebSocketEventHandlers(wss) {
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Failed to load channel voltages: ${error.message}`);
                     ws.send(`Initial channel voltages: ${JSON.stringify([5.0, 15.0, -15.0, 24.0])}`);
+                }
+            } else if(decodeWebSocket[0] === '[TIME_MODE]') {
+                console.log("=== TimeMode Settings Process: OK ===");
+                try {
+                    const timeModeData = decodedMessage.replace('[TIME_MODE] ', '');
+                    const timeValues = JSON.parse(timeModeData);
+                    
+                    const saveSuccess = await saveTimeModeSettings(timeValues);
+                    if (saveSuccess) {
+                        console.log(`✅ [Backend WS Server] TimeMode settings saved successfully`);
+                        ws.send(`[TIME_MODE_SAVED] ${JSON.stringify(timeValues)}`);
+                    } else {
+                        console.error(`❌ [Backend WS Server] Failed to save TimeMode settings`);
+                        ws.send(`Error: Failed to save TimeMode settings`);
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] TimeMode settings error: ${error.message}`);
+                    ws.send(`Error: TimeMode settings failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[READ_TIME_MODE]') {
+                console.log("=== TimeMode Settings Read Process: OK ===");
+                try {
+                    const timeModeSettings = await loadTimeModeSettings();
+                    console.log(`📤 [Backend WS Server] Sending TimeMode settings to client:`, timeModeSettings);
+                    ws.send(`[TIME_MODE_DATA] ${JSON.stringify(timeModeSettings)}`);
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Failed to load TimeMode settings: ${error.message}`);
+                    // 기본값으로 응답
+                    const defaultSettings = {
+                        T1: "10",
+                        T2: "105", 
+                        T3: "240",
+                        T4: "110",
+                        T5: "240",
+                        T6: "110",
+                        T7: "50",
+                        T8: "20"
+                    };
+                    ws.send(`[TIME_MODE_DATA] ${JSON.stringify(defaultSettings)}`);
                 }
             } else if(decodeWebSocket[0] === '[GET_TABLE_OPTION]') {
                 console.log("=== Get Table Option Read Process: OK ===");

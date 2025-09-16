@@ -21,6 +21,7 @@ timeout /t 3 /nobreak > nul
 
 REM Chrome 브라우저로 localhost:3000 열기
 echo Opening Chrome browser...
+REM start chrome --kiosk --app="http://localhost:3000"
 start chrome "http://localhost:3000"
 
 echo.

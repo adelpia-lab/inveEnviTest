@@ -24,7 +24,7 @@ body {
 }
 
 html {
-  overflow: hidden; /* 전체 페이지 스크롤 방지 */
+  overflow-x: hidden; /* 가로 스크롤만 방지 */
 }
 
 body {
@@ -33,7 +33,7 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden; /* body 스크롤 방지 */
+  overflow-x: hidden; /* 가로 스크롤만 방지 */
 }
 
 * {
