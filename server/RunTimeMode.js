@@ -328,50 +328,50 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
     let csvContent = '';
     const reportData = data.reportTable[0];
     
-    // 문서 헤더 정보 (이미지와 유사한 형태)
-    csvContent += `문서번호,K2-AD-110-A241023-001\n`;
-    csvContent += `제품명,${data.modelName || ''}\n`;
-    csvContent += `제품번호,${data.ProductNumber.join(';') || ''}\n`;
-    csvContent += `검사날짜,${reportData.TestDate || ''}\n`;
-    csvContent += `검사시간,${reportData.TestTime || ''}\n`;
-    csvContent += `테스트온도,${reportData.TestTemperature || ''}℃\n`;
-    csvContent += `사이클번호,${cycleNumber}\n`;
-    csvContent += `테스트유형,${testType}\n`;
+     // Document header information (similar to image format)
+     csvContent += `Document No.,K2-AD-110-A241023-001\n`;
+     csvContent += `Product Name,${data.modelName || ''}\n`;
+     csvContent += `Product Number,${data.ProductNumber.join(';') || ''}\n`;
+     csvContent += `Test Date,${reportData.TestDate || ''}\n`;
+     csvContent += `Test Time,${reportData.TestTime || ''}\n`;
+     csvContent += `Test Temperature,${reportData.TestTemperature || ''}℃\n`;
+     csvContent += `Cycle Number,${cycleNumber}\n`;
+     csvContent += `Test Type,${testType}\n`;
     csvContent += '\n';
     
-    // 테이블 헤더 (이미지와 동일한 구조)
-    csvContent += `순,검사항목,검사방법,규격,시료번호(S/N),A.Q.L\n`;
-    csvContent += `,,,입력전압,부하조건,출력전압,1,2,3,4,5,6,7,\n`;
+     // Table header (same structure as image)
+     csvContent += `No,Test Item,Test Method,Specification,Sample No.(S/N),A.Q.L\n`;
+     csvContent += `,,,Input Voltage,Load Condition,Output Voltage,1,2,3,4,5,6,7,\n`;
     csvContent += '\n';
     
-    // 전기적 성능 시험 데이터 (이미지의 101번 항목과 유사)
-    let rowNumber = 101;
-    
-    // 각 입력 전압별로 테이블 생성
-    for (let k = 0; k < 3; k++) {
-      const inputVoltage = data.inputVolt[k] || 24;
-      const voltageName = k === 0 ? '18Vdc [최소]' : k === 1 ? '24Vdc [정격]' : '30Vdc [최대]';
+     // Electrical performance test data (similar to item 101 in image)
+     let rowNumber = 101;
+     
+     // Generate table for each input voltage
+     for (let k = 0; k < 3; k++) {
+       const inputVoltage = data.inputVolt[k] || 24;
+       const voltageName = k === 0 ? '18Vdc [Min]' : k === 1 ? '24Vdc [Rated]' : '30Vdc [Max]';
+       
+       // Test item: Electrical performance test - Line/Load Regulation
+       csvContent += `${rowNumber},Electrical Performance Test,Power Supply,${voltageName},Max Load,5V (4.75V~5.25V),,,,,,,,A\n`;
+       csvContent += `,Line/Load Regulation,O.S.C,${voltageName},Max Load,15V (14.25V~15.75V),,,,,,,,A\n`;
+       csvContent += `,,Electronic Load,${voltageName},Max Load,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
+       csvContent += `,,DVM,${voltageName},Max Load,24V (22.80V~25.20V),,,,,,,,A\n`;
+       csvContent += `,,<SPEC>,${voltageName},Min Load,5V (4.75V~5.25V),,,,,,,,A\n`;
+       csvContent += `,,Line R.: ±1%,${voltageName},Min Load,15V (14.25V~15.75V),,,,,,,,A\n`;
+       csvContent += `,,Load R.: ±5%,${voltageName},Min Load,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
+       csvContent += `,,,${voltageName},Min Load,24V (22.80V~25.20V),,,,,,,,A\n`;
+       csvContent += `,,,${voltageName},Rated Load,5V (4.75V~5.25V),,,,,,,,A\n`;
+       csvContent += `,,,${voltageName},Rated Load,15V (14.25V~15.75V),,,,,,,,A\n`;
+       csvContent += `,,,${voltageName},Rated Load,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
+       csvContent += `,,,${voltageName},Rated Load,24V (22.80V~25.20V),,,,,,,,A\n`;
       
-      // 검사항목: 전기적 성능 시험 - Line/Load Regulation
-      csvContent += `${rowNumber},전기적 성능 시험,Power Supply,${voltageName},최대부하,5V (4.75V~5.25V),,,,,,,,A\n`;
-      csvContent += `,Line/Load Regulation,O.S.C,${voltageName},최대부하,15V (14.25V~15.75V),,,,,,,,A\n`;
-      csvContent += `,,전자부하기,${voltageName},최대부하,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
-      csvContent += `,,DVM,${voltageName},최대부하,24V (22.80V~25.20V),,,,,,,,A\n`;
-      csvContent += `,,<SPEC>,${voltageName},최소부하,5V (4.75V~5.25V),,,,,,,,A\n`;
-      csvContent += `,,Line R.: ±1%,${voltageName},최소부하,15V (14.25V~15.75V),,,,,,,,A\n`;
-      csvContent += `,,Load R.: ±5%,${voltageName},최소부하,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
-      csvContent += `,,,${voltageName},최소부하,24V (22.80V~25.20V),,,,,,,,A\n`;
-      csvContent += `,,,${voltageName},정격부하,5V (4.75V~5.25V),,,,,,,,A\n`;
-      csvContent += `,,,${voltageName},정격부하,15V (14.25V~15.75V),,,,,,,,A\n`;
-      csvContent += `,,,${voltageName},정격부하,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
-      csvContent += `,,,${voltageName},정격부하,24V (22.80V~25.20V),,,,,,,,A\n`;
+       // Actual measurement data input
+       csvContent += '\n';
+       csvContent += `Measurement Results (${voltageName})\n`;
+       csvContent += `Channel,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
       
-      // 실제 측정 데이터 입력
-      csvContent += '\n';
-      csvContent += `측정결과 (${voltageName})\n`;
-      csvContent += `채널,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
-      
-      // 4개 채널의 측정 결과
+       // Measurement results for 4 channels
       for (let j = 0; j < 4; j++) {
         const channelName = `Channel ${j+1}`;
         const expectedVoltage = channelVoltages[j];
@@ -478,17 +478,17 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
       }
     }
     
-    // 검사결과 요약 (이미지 하단과 유사)
-    csvContent += '\n';
-    csvContent += `=== 검사결과 요약 ===\n`;
-    csvContent += `총 테스트 수,${totalTests}\n`;
-    csvContent += `통과 테스트 수,${passedTests}\n`;
-    csvContent += `실패 테스트 수,${failedTests}\n`;
-    csvContent += `통과율,${totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : 0}%\n`;
-    csvContent += `검사결과,${passedTests > failedTests ? '양품' : '불량'}\n`;
-    csvContent += `작업자,시스템\n`;
-    csvContent += `문서버전,PS-14(Rev.1)\n`;
-    csvContent += `회사명,(주)아델피아랩\n`;
+     // Test results summary (similar to image bottom)
+     csvContent += '\n';
+     csvContent += `=== Test Results Summary ===\n`;
+     csvContent += `Total Tests,${totalTests}\n`;
+     csvContent += `Passed Tests,${passedTests}\n`;
+     csvContent += `Failed Tests,${failedTests}\n`;
+     csvContent += `Pass Rate,${totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : 0}%\n`;
+     csvContent += `Test Result,${passedTests > failedTests ? 'PASS' : 'FAIL'}\n`;
+     csvContent += `Operator,System\n`;
+     csvContent += `Document Version,PS-14(Rev.1)\n`;
+     csvContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
     
     // 파일에 저장
     fs.writeFileSync(filePath, csvContent, 'utf8');
@@ -2839,18 +2839,18 @@ async function generateFinalDeviceReport(cycleNumber) {
     const reportFilePath = path.join(dateFolderPath, reportFilename);
     
     let reportContent = '';
-    reportContent += `=== 디바이스별 종합 테스트 리포트 ===\n`;
-    reportContent += `생성일시,${new Date().toLocaleString('ko-KR')}\n`;
-    reportContent += `총 사이클 수,${cycleNumber}\n`;
-    reportContent += `분석된 파일 수,${processedFiles}\n`;
+     reportContent += `=== Device Comprehensive Test Report ===\n`;
+     reportContent += `Generated Date,${new Date().toLocaleString('ko-KR')}\n`;
+     reportContent += `Total Cycles,${cycleNumber}\n`;
+     reportContent += `Analyzed Files,${processedFiles}\n`;
     reportContent += `\n`;
     
-    // 디바이스별 요약
-    reportContent += `디바이스,최종결론,총테스트수,통과수,실패수,통과율,상세결과\n`;
+     // Device summary
+     reportContent += `Device,Final Result,Total Tests,Passed,Failed,Pass Rate,Detailed Results\n`;
     for (const [deviceName, conclusion] of Object.entries(finalConclusions)) {
       reportContent += `${deviceName},${conclusion.conclusion},${conclusion.totalTests},${conclusion.passedTests},${conclusion.failedTests},${conclusion.passRate}%,`;
       
-      // 채널별 상세 결과
+       // Channel detailed results
       const channelDetails = [];
       for (const [channelName, channelResult] of Object.entries(conclusion.channels)) {
         if (channelResult.total > 0) {
@@ -2861,30 +2861,53 @@ async function generateFinalDeviceReport(cycleNumber) {
       reportContent += channelDetails.join('; ') + '\n';
     }
     
-    // 전체 통계
-    const totalDevices = Object.keys(finalConclusions).length;
-    const goodDevices = Object.values(finalConclusions).filter(c => c.conclusion === 'G').length;
-    const notGoodDevices = Object.values(finalConclusions).filter(c => c.conclusion === 'N').length;
-    
-    reportContent += `\n`;
-    reportContent += `=== 전체 요약 ===\n`;
-    reportContent += `총 디바이스 수,${totalDevices}\n`;
-    reportContent += `양품(G) 디바이스 수,${goodDevices}\n`;
-    reportContent += `불량(N) 디바이스 수,${notGoodDevices}\n`;
-    reportContent += `전체 양품률,${totalDevices > 0 ? ((goodDevices / totalDevices) * 100).toFixed(2) : 0}%\n`;
-    reportContent += `\n`;
-    reportContent += `=== 테스트 조건 ===\n`;
-    reportContent += `고온 테스트,10회 (각 사이클당)\n`;
-    reportContent += `저온 테스트,10회 (각 사이클당)\n`;
-    reportContent += `총 테스트 수,${cycleNumber * 20}회\n`;
-    reportContent += `\n`;
-    reportContent += `=== 결론 ===\n`;
-    reportContent += `모든 디바이스가 G인 경우: 전체 양품\n`;
-    reportContent += `하나라도 N인 경우: 해당 디바이스 불량\n`;
-    reportContent += `\n`;
-    reportContent += `작성자,시스템\n`;
-    reportContent += `문서버전,PS-14(Rev.1)\n`;
-    reportContent += `회사명,(주)아델피아랩\n`;
+     // Overall statistics
+     const totalDevices = Object.keys(finalConclusions).length;
+     const goodDevices = Object.values(finalConclusions).filter(c => c.conclusion === 'G').length;
+     const notGoodDevices = Object.values(finalConclusions).filter(c => c.conclusion === 'N').length;
+     
+     reportContent += `\n`;
+     reportContent += `=== Overall Summary ===\n`;
+     reportContent += `Total Devices,${totalDevices}\n`;
+     reportContent += `Good(G) Devices,${goodDevices}\n`;
+     reportContent += `Bad(N) Devices,${notGoodDevices}\n`;
+     reportContent += `Overall Pass Rate,${totalDevices > 0 ? ((goodDevices / totalDevices) * 100).toFixed(2) : 0}%\n`;
+     reportContent += `\n`;
+     
+     // Include all test files sequentially
+     reportContent += `=== Test Files Details ===\n`;
+     reportContent += `File Name,Cycle,Test Type,Status,Processed\n`;
+     
+     for (let i = 0; i < csvFiles.length; i++) {
+       const file = csvFiles[i];
+       const filePath = file.directory 
+         ? path.join(file.directory, file.file)
+         : path.join(testDirectoryPath, file.file);
+       
+       // Extract cycle and test type from filename
+       const cycleMatch = file.file.match(/Cycle(\d+)/);
+       const testTypeMatch = file.file.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
+       
+       const cycle = cycleMatch ? cycleMatch[1] : 'Unknown';
+       const testType = testTypeMatch ? testTypeMatch[1] : 'Unknown';
+       const status = i < processedFiles ? 'Processed' : 'Skipped';
+       
+       reportContent += `${file.file},${cycle},${testType},${status},${i < processedFiles ? 'Yes' : 'No'}\n`;
+     }
+     
+     reportContent += `\n`;
+     reportContent += `=== Test Conditions ===\n`;
+     reportContent += `High Temperature Test,10 times (per cycle)\n`;
+     reportContent += `Low Temperature Test,10 times (per cycle)\n`;
+     reportContent += `Total Tests,${cycleNumber * 20} times\n`;
+     reportContent += `\n`;
+     reportContent += `=== Conclusion ===\n`;
+     reportContent += `All devices G: Overall Pass\n`;
+     reportContent += `Any device N: That device is defective\n`;
+     reportContent += `\n`;
+     reportContent += `Author,System\n`;
+     reportContent += `Document Version,PS-14(Rev.1)\n`;
+     reportContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
     
     // 파일 저장
     fs.writeFileSync(reportFilePath, reportContent, 'utf8');
