@@ -1376,38 +1376,97 @@ export async function runTimeModeTestProcess() {
             console.log(`[TimeModeTestProcess] ❌ globalWss가 null입니다.`);
           }
           
-          // runSinglePageProcess() 실행
-        const result = await runSinglePageProcess();
-        
-        // 성공 여부 확인
-        if (!result || result.status !== 'completed') {
-          console.log(`[TimeModeTestProcess] ❌ runSinglePageProcess() 실패 - generateStopReport() 실행`);
-          return await generateStopReport(result);
-        }
-        
-        // 측정 데이터 저장 (runNextTankEnviTestProcess 패턴과 동일)
-        if (result && result.status === 'completed' && result.data) {
-          console.log(`[TimeModeTestProcess] T_elapsed[${i}] 측정 결과 저장 시작`);
-          try {
-            const getTableOption = await getSafeGetTableOption();
-            const saveResult = saveTotaReportTableToFile(
-              result.data, 
-              getTableOption.outVoltSettings || [18, 24, 30], 
-              i + 1, // T_elapsed 단계 번호를 사이클 번호로 사용
-              `TimeMode_Test${i + 1}`
-            );
-            
-            if (saveResult && saveResult.success) {
-              console.log(`[TimeModeTestProcess] ✅ T_elapsed[${i}] 측정 데이터 저장 성공: ${saveResult.filename}`);
-            } else {
-              console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] 측정 데이터 저장 실패:`, saveResult?.error || '알 수 없는 오류');
-            }
-          } catch (saveError) {
-            console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] 측정 데이터 저장 중 오류:`, saveError.message);
+          // i 값에 따라 고온/저온 설정의 readCount만큼 runSinglePageProcess() 반복 실행
+          const getTableOption = await getSafeGetTableOption();
+          let readCount;
+          let testType;
+          
+          if (i === 0 || i === 2) {
+            // i가 0 또는 2일 때: 고온 테스트
+            readCount = getTableOption.highTempSettings?.readCount || 10;
+            testType = 'high_temp';
+            console.log(`[TimeModeTestProcess] 🔥 T_elapsed[${i}] 고온 테스트 시작 - readCount: ${readCount}`);
+          } else if (i === 1 || i === 3) {
+            // i가 1 또는 3일 때: 저온 테스트
+            readCount = getTableOption.lowTempSettings?.readCount || 10;
+            testType = 'low_temp';
+            console.log(`[TimeModeTestProcess] ❄️ T_elapsed[${i}] 저온 테스트 시작 - readCount: ${readCount}`);
+          } else {
+            // 기본값 (i가 4 이상일 때)
+            readCount = 1;
+            testType = 'normal';
+            console.log(`[TimeModeTestProcess] 📊 T_elapsed[${i}] 일반 테스트 시작 - readCount: ${readCount}`);
           }
-        }
-        
-        console.log(`[TimeModeTestProcess] ✅ runSinglePageProcess() 성공 - 다음 단계로 진행`);
+          
+          // readCount만큼 runSinglePageProcess() 반복 실행
+          for (let j = 0; j < readCount; j++) {
+            // 중지 요청 확인
+            if (getProcessStopRequested()) {
+              console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - ${testType} 테스트 실행 중 중단 (${j+1}/${readCount})`);
+              
+              // 중지 시에도 PowerSwitch 상태를 off로 설정
+              setMachineRunningStatus(false);
+              console.log(`[TimeModeTestProcess] 🔌 중지로 인한 PowerSwitch 상태 OFF 설정`);
+              
+              // 클라이언트에게 파워스위치 OFF 상태 전송
+              if (globalWss) {
+                const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - ${testType} test execution stopped`;
+                let sentCount = 0;
+                globalWss.clients.forEach(client => {
+                  if (client.readyState === 1) { // WebSocket.OPEN
+                    client.send(powerOffMessage);
+                    sentCount++;
+                  }
+                });
+                console.log(`[TimeModeTestProcess] 🔌 ${testType} 테스트 실행 중단으로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+              } else {
+                console.warn(`[TimeModeTestProcess] 전역 WebSocket 서버가 설정되지 않음 - ${testType} 테스트 실행 중단 시 파워스위치 OFF 메시지 전송 불가`);
+              }
+              
+              return { 
+                status: 'stopped', 
+                message: '사용자에 의해 중지됨', 
+                stoppedAtPhase: `${testType}_test_execution_${j+1}_${readCount}`,
+                stopReason: 'power_switch_off'
+              };
+            }
+            
+            console.log(`[TimeModeTestProcess] ${testType} 테스트 실행 중 (${j+1}/${readCount})`);
+            
+            // runSinglePageProcess() 실행
+            const result = await runSinglePageProcess();
+            
+            // 성공 여부 확인
+            if (!result || result.status !== 'completed') {
+              console.log(`[TimeModeTestProcess] ❌ runSinglePageProcess() 실패 (${j+1}/${readCount}) - generateStopReport() 실행`);
+              return await generateStopReport(result);
+            }
+            
+            // 측정 데이터 저장 (runNextTankEnviTestProcess 패턴과 동일)
+            if (result && result.status === 'completed' && result.data) {
+              console.log(`[TimeModeTestProcess] T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 결과 저장 시작`);
+              try {
+                const saveResult = saveTotaReportTableToFile(
+                  result.data, 
+                  getTableOption.outVoltSettings || [18, 24, 30], 
+                  i + 1, // T_elapsed 단계 번호를 사이클 번호로 사용
+                  `TimeMode_${testType}_Test${i + 1}_${j + 1}`
+                );
+                
+                if (saveResult && saveResult.success) {
+                  console.log(`[TimeModeTestProcess] ✅ T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 데이터 저장 성공: ${saveResult.filename}`);
+                } else {
+                  console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 데이터 저장 실패:`, saveResult?.error || '알 수 없는 오류');
+                }
+              } catch (saveError) {
+                console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 데이터 저장 중 오류:`, saveError.message);
+              }
+            }
+            
+            console.log(`[TimeModeTestProcess] ✅ ${testType} 테스트 ${j+1}/${readCount} 완료`);
+          }
+          
+          console.log(`[TimeModeTestProcess] ✅ T_elapsed[${i}] ${testType} 테스트 전체 완료 (${readCount}회 실행)`);
         i++; // 다음 T_elapsed로 진행
         
         // 다음 단계 대기 시간이 있다면 시간 진행 상황 업데이트 재시작
