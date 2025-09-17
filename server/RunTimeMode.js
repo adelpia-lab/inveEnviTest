@@ -45,6 +45,53 @@ function sendProcessLog(message) {
     // console.log(`[ProcessLog] 전송 완료 - 클라이언트 수: ${sentCount}, 메시지: ${message}`);
   }
 }
+
+// 시간 진행 상황을 클라이언트에게 전송하는 함수
+function sendTimeProgress(data) {
+  if (globalWss) {
+    const timeProgressMessage = `[TIME_PROGRESS] ${JSON.stringify(data)}`;
+    let sentCount = 0;
+    globalWss.clients.forEach(client => {
+      if (client.readyState === 1) { // WebSocket.OPEN
+        client.send(timeProgressMessage);
+        sentCount++;
+      }
+    });
+    console.log(`[TimeProgress] 전송 완료 - 클라이언트 수: ${sentCount}, 데이터:`, data);
+  }
+}
+
+// 1분 간격으로 시간 진행 상황을 업데이트하는 함수
+function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'waiting') {
+  const intervalId = setInterval(() => {
+    const currentTime = Date.now();
+    const elapsedTime = currentTime - startTime;
+    const remainingTime = Math.max(0, totalDuration - elapsedTime);
+    
+    const timeProgressData = {
+      phase: currentPhase,
+      startTime: startTime,
+      currentTime: currentTime,
+      elapsedTime: elapsedTime,
+      totalDuration: totalDuration,
+      remainingTime: remainingTime,
+      elapsedMinutes: Math.round(elapsedTime / 60000),
+      remainingMinutes: Math.round(remainingTime / 60000),
+      totalMinutes: Math.round(totalDuration / 60000),
+      progressPercentage: Math.min(100, Math.round((elapsedTime / totalDuration) * 100)),
+      timestamp: new Date().toISOString()
+    };
+    
+    sendTimeProgress(timeProgressData);
+    
+    // 시간이 다 되었으면 인터벌 정리
+    if (remainingTime <= 0) {
+      clearInterval(intervalId);
+    }
+  }, 60000); // 1분 간격
+  
+  return intervalId;
+}
 // import { listenerCount } from 'ws';
 
 /**
@@ -164,14 +211,23 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
   
   console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 시작 (${milliseconds}ms) - 중지 요청 확인 간격: ${checkInterval}ms`);
   
+  // 시간 진행 상황 업데이트 시작
+  const startTime = Date.now();
+  const timeProgressInterval = startTimeProgressUpdates(startTime, milliseconds, 'waiting');
+  
   return new Promise((resolve, reject) => {
     let elapsed = 0;
-    const startTime = Date.now();
     
     const checkStop = () => {
       // 중지 요청 확인
       if (getProcessStopRequested()) {
         console.log(`[sleepMinutesWithStopCheck]${contextStr} 🛑 중지 요청 감지 - 대기 중단 (경과: ${Math.round(elapsed/1000)}초/${minutes}분)`);
+        
+        // 시간 진행 상황 인터벌 정리
+        if (timeProgressInterval) {
+          clearInterval(timeProgressInterval);
+        }
+        
         reject(new Error('PROCESS_STOP_REQUESTED'));
         return;
       }
@@ -180,6 +236,12 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
       
       if (elapsed >= milliseconds) {
         console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 완료`);
+        
+        // 시간 진행 상황 인터벌 정리
+        if (timeProgressInterval) {
+          clearInterval(timeProgressInterval);
+        }
+        
         resolve();
       } else {
         // 다음 체크까지 대기
@@ -407,8 +469,8 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
       
       // 비교 결과 (G/N)
       csvContent += '\n';
-      csvContent += `비교결과 (G=Good, N=Not Good)\n`;
-      csvContent += `채널,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
+      csvContent += `Result (G=Good, N=Not Good)\n`;
+      csvContent += `Channel,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
       
       for (let j = 0; j < 4; j++) {
         const channelName = `Channel ${j+1}`;
@@ -974,7 +1036,7 @@ export async function runSinglePageProcess() {
           
           // 4개 채널 전압을 모두 읽은 후 클라이언트에 실시간 전송
           console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 4개 채널 완료 - 클라이언트에 데이터 전송`);
-          broadcastTableData();
+          await broadcastTableData();
           
           // 디바이스 해제 재시도 로직
           retryCount = 0;
@@ -1254,12 +1316,20 @@ export async function runTimeModeTestProcess() {
     
     console.log(`[TimeModeTestProcess] ⏰ CtrlTimer 시작 - T_end: ${Math.round(T_end/60000)}분`);
     
+    // 시간 진행 상황 업데이트 시작
+    let timeProgressInterval = startTimeProgressUpdates(startTime, T_end, 'waiting');
+    
     // 메인 루프: T_elapsed[i] 시간이 경과할 때까지 대기
     while (i < T_elapsed.length) {
       // 중지 요청 확인
       if (getProcessStopRequested()) {
         console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - T_elapsed[${i}] 대기 중 중단`);
         setMachineRunningStatus(false);
+        
+        // 시간 진행 상황 인터벌 정리
+        if (timeProgressInterval) {
+          clearInterval(timeProgressInterval);
+        }
         
         if (globalWss) {
           const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Process stopped during time waiting`;
@@ -1284,6 +1354,11 @@ export async function runTimeModeTestProcess() {
       // T_elapsed[i] 시간이 경과했는지 확인
         if (CtrlTimer > T_elapsed[i]) {
           console.log(`[TimeModeTestProcess] ⏰ T_elapsed[${i}] 시간 경과 (${Math.round(T_elapsed[i]/60000)}분) - runSinglePageProcess() 실행`);
+          
+          // 시간 진행 상황 인터벌 정리 (테스트 실행 중에는 1분 간격 업데이트 중단)
+          if (timeProgressInterval) {
+            clearInterval(timeProgressInterval);
+          }
           
           // 단계별 진행상황 알림
           if (globalWss) {
@@ -1334,6 +1409,20 @@ export async function runTimeModeTestProcess() {
         
         console.log(`[TimeModeTestProcess] ✅ runSinglePageProcess() 성공 - 다음 단계로 진행`);
         i++; // 다음 T_elapsed로 진행
+        
+        // 다음 단계 대기 시간이 있다면 시간 진행 상황 업데이트 재시작
+        if (i < T_elapsed.length) {
+          const nextWaitTime = T_elapsed[i] - T_elapsed[i-1];
+          const nextStartTime = Date.now();
+          const remainingTime = T_end - (Date.now() - startTime);
+          
+          if (remainingTime > 0) {
+            console.log(`[TimeModeTestProcess] ⏰ 다음 단계 대기 시작 - ${Math.round(nextWaitTime/60000)}분 후 실행`);
+            const nextTimeProgressInterval = startTimeProgressUpdates(nextStartTime, remainingTime, 'waiting');
+            // 다음 루프에서 사용할 수 있도록 변수 업데이트
+            timeProgressInterval = nextTimeProgressInterval;
+          }
+        }
       } else {
         // 아직 시간이 경과하지 않았으면 잠시 대기 (중지 요청 확인을 위해)
         await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
@@ -1616,10 +1705,20 @@ export async function runNextTankEnviTestProcess() {
         const tempCheckInterval = 1000; // 1초마다 중지 요청 확인
         let lastTempCheck = Date.now();
         
+        // 온도 대기 시작 시간 기록 및 시간 진행 상황 업데이트 시작
+        const tempWaitStartTime = Date.now();
+        const estimatedTempWaitTime = 30 * 60 * 1000; // 30분 예상 대기 시간
+        let tempWaitProgressInterval = startTimeProgressUpdates(tempWaitStartTime, estimatedTempWaitTime, 'temperature_waiting');
+        
         while(true) {
           // 중지 요청 확인 - 온도 대기 중
           if (getProcessStopRequested()) {
             console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 고온 테스트 온도 대기 중 중단`);
+            
+            // 온도 대기 진행 상황 인터벌 정리
+            if (tempWaitProgressInterval) {
+              clearInterval(tempWaitProgressInterval);
+            }
             
             // PowerSwitch 상태 OFF 설정
             setMachineRunningStatus(false);
@@ -1658,6 +1757,11 @@ export async function runNextTankEnviTestProcess() {
             // 중지 요청 확인 - 온도 대기 중 주기적 체크
             if (getProcessStopRequested()) {
               console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 고온 테스트 온도 대기 중 주기적 체크에서 중단`);
+              
+              // 온도 대기 진행 상황 인터벌 정리
+              if (tempWaitProgressInterval) {
+                clearInterval(tempWaitProgressInterval);
+              }
               
               // PowerSwitch 상태 OFF 설정
               setMachineRunningStatus(false);
@@ -1778,6 +1882,11 @@ export async function runNextTankEnviTestProcess() {
           
           if(chamberTemp >= highTemp) {
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 시작 (${chamberTemp}°C)`);
+            
+            // 온도 대기 진행 상황 인터벌 정리
+            if (tempWaitProgressInterval) {
+              clearInterval(tempWaitProgressInterval);
+            }
             
             // waitTime 분 만큼 대기 (중지 요청 확인 가능)
             if(getSimulationMode() === false){
@@ -2948,6 +3057,39 @@ async function generateFinalDeviceReport(cycleNumber) {
        reportContent += `${file.file},${cycle},${testType},${status},${i < processedFiles ? 'Yes' : 'No'}\n`;
      }
      
+     // Include CSV file contents
+     reportContent += `\n`;
+     reportContent += `=== CSV File Contents ===\n`;
+     
+     for (let i = 0; i < csvFiles.length; i++) {
+       const file = csvFiles[i];
+       const filePath = file.directory 
+         ? path.join(file.directory, file.file)
+         : path.join(testDirectoryPath, file.file);
+       
+       try {
+         if (fs.existsSync(filePath)) {
+           const csvContent = fs.readFileSync(filePath, 'utf8');
+           
+           // Extract cycle and test type from filename
+           const cycleMatch = file.file.match(/Cycle(\d+)/);
+           const testTypeMatch = file.file.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
+           
+           const cycle = cycleMatch ? cycleMatch[1] : 'Unknown';
+           const testType = testTypeMatch ? testTypeMatch[1] : 'Unknown';
+           
+           reportContent += `\n--- File: ${file.file} (Cycle ${cycle}, ${testType}) ---\n`;
+           reportContent += csvContent;
+           reportContent += `\n--- End of File: ${file.file} ---\n`;
+         } else {
+           reportContent += `\n--- File: ${file.file} (File not found) ---\n`;
+         }
+       } catch (error) {
+         console.error(`[FinalDeviceReport] CSV 파일 읽기 실패: ${file.file}`, error);
+         reportContent += `\n--- File: ${file.file} (Error reading file: ${error.message}) ---\n`;
+       }
+     }
+     
      reportContent += `\n`;
      reportContent += `=== Test Conditions ===\n`;
      reportContent += `High Temperature Test,10 times (per cycle)\n`;
@@ -3455,7 +3597,7 @@ export function getCurrentTableData() {
 }
 
 // 테이블 데이터를 클라이언트에 전송하는 함수
-export function broadcastTableData() {
+export async function broadcastTableData() {
   if (!globalWss) {
     console.warn(`[TableData] 전역 WebSocket 서버가 설정되지 않음`);
     return;
@@ -3464,19 +3606,26 @@ export function broadcastTableData() {
   try {
     // 시간 기반 디바운싱 제거 - 이벤트 기반 전송으로 변경
     
-    // 테이블 완성도 계산
+    // 선택된 디바이스 상태 가져오기
+    const getTableOption = await getSafeGetTableOption();
+    const deviceStates = getTableOption.deviceStates || [];
+    
+    // 선택된 디바이스만 필터링하여 테이블 완성도 계산
     let totalCells = 0;
     let completedCells = 0;
     
-    globalTableData.devices.forEach(device => {
-      device.tests.forEach(test => {
-        test.channels.forEach(channel => {
-          totalCells++;
-          if (channel.status === 'completed' && channel.voltage !== null) {
-            completedCells++;
-          }
+    globalTableData.devices.forEach((device, deviceIndex) => {
+      // 선택된 디바이스만 처리
+      if (deviceStates[deviceIndex]) {
+        device.tests.forEach(test => {
+          test.channels.forEach(channel => {
+            totalCells++;
+            if (channel.status === 'completed' && channel.voltage !== null) {
+              completedCells++;
+            }
+          });
         });
-      });
+      }
     });
     
     const completionPercentage = totalCells > 0 ? (completedCells / totalCells) * 100 : 0;

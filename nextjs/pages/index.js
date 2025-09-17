@@ -97,6 +97,7 @@ const [isMeasurementActive, setIsMeasurementActive] = useState(false);
 const [hasUserInteracted, setHasUserInteracted] = useState(false);
 const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
 const [pendingExit, setPendingExit] = useState(false);
+const [timeProgress, setTimeProgress] = useState(null);
 
 // 디버깅을 위한 로그
 console.log('🔌 Main: channelVoltages 상태:', channelVoltages);
@@ -163,10 +164,29 @@ useEffect(() => {
       if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
         console.log('🔌 Main: 측정 시작 - isMeasurementActive: true');
         setIsMeasurementActive(true);
+        // 시간 모드 테스트가 아닌 경우에만 기본 상황창 표시 (시간 모드 테스트는 TEST_PROGRESS에서 처리)
+        if (!event.data.includes('시간 모드 테스트 프로세스')) {
+          const currentTime = Date.now();
+          setTimeProgress({
+            phase: 'starting',
+            startTime: currentTime,
+            currentTime: currentTime,
+            elapsedTime: 0,
+            totalDuration: 0,
+            remainingTime: 0,
+            elapsedMinutes: 0,
+            remainingMinutes: 0,
+            totalMinutes: 0,
+            progressPercentage: 0,
+            timestamp: new Date().toISOString()
+          });
+        }
       } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
                  event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
         console.log('🔌 Main: 측정 중단 - isMeasurementActive: false');
         setIsMeasurementActive(false);
+        // 테스트 중지 시 시간 진행 상황 초기화
+        setTimeProgress(null);
       }
     }
     // [SAVE_PRODUCT_INPUT] 메시지 처리
@@ -229,6 +249,48 @@ useEffect(() => {
         }
       } catch (err) {
         console.error('Failed to parse TimeMode data:', err);
+      }
+    }
+    // [TIME_PROGRESS] 메시지 처리 - 시간 진행 상황 업데이트
+    else if (typeof event.data === 'string' && event.data.startsWith('[TIME_PROGRESS]')) {
+      try {
+        const match = event.data.match(/\[TIME_PROGRESS\] (.*)/);
+        if (match && match[1]) {
+          const timeProgressData = JSON.parse(match[1]);
+          console.log('⏰ Time progress received:', timeProgressData);
+          setTimeProgress(timeProgressData);
+        }
+      } catch (err) {
+        console.error('Failed to parse time progress data:', err);
+      }
+    }
+    // [TEST_COMPLETED] 메시지 처리 - 테스트 완료 시 시간 진행 상황 초기화
+    else if (typeof event.data === 'string' && event.data.startsWith('[TEST_COMPLETED]')) {
+      console.log('🔌 Test completed message received:', event.data);
+      setTimeProgress(null);
+    }
+    // [TEST_PROGRESS] 메시지 처리 - 테스트 시작 시 상황창 표시
+    else if (typeof event.data === 'string' && event.data.startsWith('[TEST_PROGRESS]')) {
+      console.log('🔌 Test progress message received:', event.data);
+      
+      // 테스트 시작 메시지인지 확인
+      if (event.data.includes('테스트 시작 - 시간 모드 테스트 프로세스')) {
+        console.log('🔌 Time mode test process started - showing progress window');
+        // 테스트 시작 시 즉시 기본 시간 진행 상황 표시
+        const currentTime = Date.now();
+        setTimeProgress({
+          phase: 'starting',
+          startTime: currentTime,
+          currentTime: currentTime,
+          elapsedTime: 0,
+          totalDuration: 0,
+          remainingTime: 0,
+          elapsedMinutes: 0,
+          remainingMinutes: 0,
+          totalMinutes: 0,
+          progressPercentage: 0,
+          timestamp: new Date().toISOString()
+        });
       }
     }
     // [Voltage data: ...] 메시지 파싱
@@ -356,9 +418,28 @@ useEffect(() => {
               // 측정 상태 추적
               if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
                 setIsMeasurementActive(true);
+                // 시간 모드 테스트가 아닌 경우에만 기본 상황창 표시 (시간 모드 테스트는 TEST_PROGRESS에서 처리)
+                if (!event.data.includes('시간 모드 테스트 프로세스')) {
+                  const currentTime = Date.now();
+                  setTimeProgress({
+                    phase: 'starting',
+                    startTime: currentTime,
+                    currentTime: currentTime,
+                    elapsedTime: 0,
+                    totalDuration: 0,
+                    remainingTime: 0,
+                    elapsedMinutes: 0,
+                    remainingMinutes: 0,
+                    totalMinutes: 0,
+                    progressPercentage: 0,
+                    timestamp: new Date().toISOString()
+                  });
+                }
               } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
                          event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
                 setIsMeasurementActive(false);
+                // 테스트 중지 시 시간 진행 상황 초기화
+                setTimeProgress(null);
               }
             }
             // [SAVE_PRODUCT_INPUT] 메시지 처리
@@ -384,27 +465,27 @@ useEffect(() => {
                 console.error('Failed to parse product input data (reconnection):', err);
               }
             }
-            // [TIME_MODE_SAVED] 메시지 처리
-            else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
-              try {
-                const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
-                if (match && match[1]) {
-                  const timeModeData = JSON.parse(match[1]);
-                  console.log('📥 TimeMode settings saved successfully (reconnection):', timeModeData);
-                  
-                  // localStorage에 저장
-                  if (typeof window !== 'undefined') {
-                    localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
-                    console.log('💾 TimeMode settings saved to localStorage (reconnection):', timeModeData);
-                  }
-                  
-                  // 팝업 닫기
-                  handleTimeModeClose();
-                }
-              } catch (err) {
-                console.error('Failed to parse TimeMode saved data (reconnection):', err);
-              }
-            }
+             // [TIME_MODE_SAVED] 메시지 처리
+             else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
+               try {
+                 const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
+                 if (match && match[1]) {
+                   const timeModeData = JSON.parse(match[1]);
+                   console.log('📥 TimeMode settings saved successfully (reconnection):', timeModeData);
+                   
+                   // localStorage에 저장
+                   if (typeof window !== 'undefined') {
+                     localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+                     console.log('💾 TimeMode settings saved to localStorage (reconnection):', timeModeData);
+                   }
+                   
+                   // 팝업 닫기
+                   handleTimeModeClose();
+                 }
+               } catch (err) {
+                 console.error('Failed to parse TimeMode saved data (reconnection):', err);
+               }
+             }
             // [Voltage data: ...] 메시지 파싱
             else if (typeof event.data === 'string' && event.data.startsWith('Voltage data:')) {
               try {
@@ -506,9 +587,28 @@ useEffect(() => {
             // 측정 상태 추적
             if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
               setIsMeasurementActive(true);
+              // 시간 모드 테스트가 아닌 경우에만 기본 상황창 표시 (시간 모드 테스트는 TEST_PROGRESS에서 처리)
+              if (!event.data.includes('시간 모드 테스트 프로세스')) {
+                const currentTime = Date.now();
+                setTimeProgress({
+                  phase: 'starting',
+                  startTime: currentTime,
+                  currentTime: currentTime,
+                  elapsedTime: 0,
+                  totalDuration: 0,
+                  remainingTime: 0,
+                  elapsedMinutes: 0,
+                  remainingMinutes: 0,
+                  totalMinutes: 0,
+                  progressPercentage: 0,
+                  timestamp: new Date().toISOString()
+                });
+              }
             } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
                        event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
               setIsMeasurementActive(false);
+              // 테스트 중지 시 시간 진행 상황 초기화
+              setTimeProgress(null);
             }
           }
           // [SAVE_PRODUCT_INPUT] 메시지 처리
@@ -532,26 +632,26 @@ useEffect(() => {
               console.error('Failed to parse product input data (auto-reconnection):', err);
             }
           }
-          // [TIME_MODE_SAVED] 메시지 처리
-          else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
-            try {
-              const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
-              if (match && match[1]) {
-                const timeModeData = JSON.parse(match[1]);
-                console.log('📥 TimeMode settings saved successfully (auto-reconnection):', timeModeData);
-                
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
-                  console.log('💾 TimeMode settings saved to localStorage (auto-reconnection):', timeModeData);
-                }
-                
-                // 팝업 닫기
-                handleTimeModeClose();
-              }
-            } catch (err) {
-              console.error('Failed to parse TimeMode saved data (auto-reconnection):', err);
-            }
-          }
+           // [TIME_MODE_SAVED] 메시지 처리
+           else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
+             try {
+               const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
+               if (match && match[1]) {
+                 const timeModeData = JSON.parse(match[1]);
+                 console.log('📥 TimeMode settings saved successfully (auto-reconnection):', timeModeData);
+                 
+                 if (typeof window !== 'undefined') {
+                   localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+                   console.log('💾 TimeMode settings saved to localStorage (auto-reconnection):', timeModeData);
+                 }
+                 
+                 // 팝업 닫기
+                 handleTimeModeClose();
+               }
+             } catch (err) {
+               console.error('Failed to parse TimeMode saved data (auto-reconnection):', err);
+             }
+           }
           else if (typeof event.data === 'string' && event.data.startsWith('Voltage data:')) {
             try {
               const match = event.data.match(/Voltage data: (\[.*\])/);
@@ -983,6 +1083,82 @@ const sendMessage = () => {
               ChannelVoltages: {JSON.stringify(channelVoltages)}<br/>
               SelectedDevices: {JSON.stringify(selectedDevices)}
             </div> */}
+            {/* 시간 진행 상황 표시 */}
+            {timeProgress && (
+              <div style={{
+                position: 'fixed',
+                bottom: '20px',
+                right: '20px',
+                backgroundColor: 'rgba(0,0,0,0.9)',
+                color: 'white',
+                padding: '15px',
+                fontSize: '14px',
+                borderRadius: '8px',
+                border: '2px solid #90CAF9',
+                minWidth: '300px',
+                zIndex: 1000
+              }}>
+                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                   <span style={{ fontSize: '18px', marginRight: '8px' }}>⏰</span>
+                   <span style={{ fontWeight: 'bold', color: '#90CAF9' }}>
+                     {timeProgress.phase === 'starting' ? '시작 중' :
+                      timeProgress.phase === 'waiting' ? '대기 중' : 
+                      timeProgress.phase === 'temperature_waiting' ? '온도 대기 중' : 
+                      '진행 중'}
+                   </span>
+                 </div>
+                
+                 <div style={{ marginBottom: '8px' }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                     <span>경과 시간:</span>
+                     <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                       {timeProgress.elapsedMinutes}분
+                     </span>
+                   </div>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                     <span>남은 시간:</span>
+                     <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
+                       {timeProgress.remainingMinutes}분
+                     </span>
+                   </div>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                     <span>총 예상 시간:</span>
+                     <span style={{ color: '#2196F3', fontWeight: 'bold' }}>
+                       {timeProgress.totalMinutes}분
+                     </span>
+                   </div>
+                 </div>
+                
+                {/* 진행률 바 */}
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                    <span>진행률:</span>
+                    <span style={{ color: '#90CAF9', fontWeight: 'bold' }}>
+                      {timeProgress.progressPercentage}%
+                    </span>
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: '8px',
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    borderRadius: '4px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${timeProgress.progressPercentage}%`,
+                      height: '100%',
+                      backgroundColor: '#4CAF50',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+                
+                <div style={{ fontSize: '12px', color: '#B0B0B0', textAlign: 'center' }}>
+                  {new Date(timeProgress.timestamp).toLocaleTimeString()}
+                </div>
+              </div>
+            )}
+
             {/* 디버깅용 정보 표시 */}
             <div style={{ 
               position: 'absolute', 

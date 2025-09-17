@@ -2,5 +2,5 @@
   "lowTemp": true,
   "targetTemp": 99,
   "waitTime": 1,
-  "readCount": 1
+  "readCount": 10
 }

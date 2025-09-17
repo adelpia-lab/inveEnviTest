@@ -36,6 +36,12 @@ let currentTestDirectoryName = null;
 // 테스트 실행별 전체 디렉토리 경로를 저장하는 전역 변수
 let currentTestDirectoryPath = null;
 
+// 전역 변수를 설정하는 함수
+export function setCurrentTestDirectoryPath(path) {
+  currentTestDirectoryPath = path;
+  console.log(`[RunTestProcess] 현재 테스트 디렉토리 경로 설정: ${path}`);
+}
+
 // WebSocket 서버 참조를 설정하는 함수
 export function setWebSocketServer(wss) {
   globalWss = wss;
@@ -55,6 +61,53 @@ function sendProcessLog(message) {
     });
     // console.log(`[ProcessLog] 전송 완료 - 클라이언트 수: ${sentCount}, 메시지: ${message}`);
   }
+}
+
+// 시간 진행 상황을 클라이언트에게 전송하는 함수
+function sendTimeProgress(data) {
+  if (globalWss) {
+    const timeProgressMessage = `[TIME_PROGRESS] ${JSON.stringify(data)}`;
+    let sentCount = 0;
+    globalWss.clients.forEach(client => {
+      if (client.readyState === 1) { // WebSocket.OPEN
+        client.send(timeProgressMessage);
+        sentCount++;
+      }
+    });
+    console.log(`[TimeProgress] 전송 완료 - 클라이언트 수: ${sentCount}, 데이터:`, data);
+  }
+}
+
+// 1분 간격으로 시간 진행 상황을 업데이트하는 함수
+function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'waiting') {
+  const intervalId = setInterval(() => {
+    const currentTime = Date.now();
+    const elapsedTime = currentTime - startTime;
+    const remainingTime = Math.max(0, totalDuration - elapsedTime);
+    
+    const timeProgressData = {
+      phase: currentPhase,
+      startTime: startTime,
+      currentTime: currentTime,
+      elapsedTime: elapsedTime,
+      totalDuration: totalDuration,
+      remainingTime: remainingTime,
+      elapsedMinutes: Math.round(elapsedTime / 60000),
+      remainingMinutes: Math.round(remainingTime / 60000),
+      totalMinutes: Math.round(totalDuration / 60000),
+      progressPercentage: Math.min(100, Math.round((elapsedTime / totalDuration) * 100)),
+      timestamp: new Date().toISOString()
+    };
+    
+    sendTimeProgress(timeProgressData);
+    
+    // 시간이 다 되었으면 인터벌 정리
+    if (remainingTime <= 0) {
+      clearInterval(intervalId);
+    }
+  }, 60000); // 1분 간격
+  
+  return intervalId;
 }
 // import { listenerCount } from 'ws';
 
@@ -175,14 +228,23 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
   
   console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 시작 (${milliseconds}ms) - 중지 요청 확인 간격: ${checkInterval}ms`);
   
+  // 시간 진행 상황 업데이트 시작
+  const startTime = Date.now();
+  const timeProgressInterval = startTimeProgressUpdates(startTime, milliseconds, 'waiting');
+  
   return new Promise((resolve, reject) => {
     let elapsed = 0;
-    const startTime = Date.now();
     
     const checkStop = () => {
       // 중지 요청 확인
       if (getProcessStopRequested()) {
         console.log(`[sleepMinutesWithStopCheck]${contextStr} 🛑 중지 요청 감지 - 대기 중단 (경과: ${Math.round(elapsed/1000)}초/${minutes}분)`);
+        
+        // 시간 진행 상황 인터벌 정리
+        if (timeProgressInterval) {
+          clearInterval(timeProgressInterval);
+        }
+        
         reject(new Error('PROCESS_STOP_REQUESTED'));
         return;
       }
@@ -191,6 +253,12 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
       
       if (elapsed >= milliseconds) {
         console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 완료`);
+        
+        // 시간 진행 상황 인터벌 정리
+        if (timeProgressInterval) {
+          clearInterval(timeProgressInterval);
+        }
+        
         resolve();
       } else {
         // 다음 체크까지 대기
@@ -985,7 +1053,7 @@ export async function runSinglePageProcess() {
           
           // 4개 채널 전압을 모두 읽은 후 클라이언트에 실시간 전송
           console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 4개 채널 완료 - 클라이언트에 데이터 전송`);
-          broadcastTableData();
+          await broadcastTableData();
           
           // 디바이스 해제 재시도 로직
           retryCount = 0;
@@ -2364,7 +2432,7 @@ export async function runNextTankEnviTestProcess() {
  * @param {number} cycleNumber - 총 사이클 수
  * @returns {Object} 종합 리포트 생성 결과
  */
-async function generateFinalDeviceReport(cycleNumber) {
+export async function generateFinalDeviceReport(cycleNumber) {
   try {
     console.log(`[FinalDeviceReport] 디바이스별 종합 리포트 생성 시작 - ${cycleNumber} 사이클`);
     
@@ -2657,6 +2725,39 @@ async function generateFinalDeviceReport(cycleNumber) {
        const status = i < processedFiles ? 'Processed' : 'Skipped';
        
        reportContent += `${file.file},${cycle},${testType},${status},${i < processedFiles ? 'Yes' : 'No'}\n`;
+     }
+     
+     // Include CSV file contents
+     reportContent += `\n`;
+     reportContent += `=== CSV File Contents ===\n`;
+     
+     for (let i = 0; i < csvFiles.length; i++) {
+       const file = csvFiles[i];
+       const filePath = file.directory 
+         ? path.join(file.directory, file.file)
+         : path.join(testDirectoryPath, file.file);
+       
+       try {
+         if (fs.existsSync(filePath)) {
+           const csvContent = fs.readFileSync(filePath, 'utf8');
+           
+           // Extract cycle and test type from filename
+           const cycleMatch = file.file.match(/Cycle(\d+)/);
+           const testTypeMatch = file.file.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
+           
+           const cycle = cycleMatch ? cycleMatch[1] : 'Unknown';
+           const testType = testTypeMatch ? testTypeMatch[1] : 'Unknown';
+           
+           reportContent += `\n--- File: ${file.file} (Cycle ${cycle}, ${testType}) ---\n`;
+           reportContent += csvContent;
+           reportContent += `\n--- End of File: ${file.file} ---\n`;
+         } else {
+           reportContent += `\n--- File: ${file.file} (File not found) ---\n`;
+         }
+       } catch (error) {
+         console.error(`[FinalDeviceReport] CSV 파일 읽기 실패: ${file.file}`, error);
+         reportContent += `\n--- File: ${file.file} (Error reading file: ${error.message}) ---\n`;
+       }
      }
      
      reportContent += `\n`;
@@ -2992,6 +3093,36 @@ export async function generateInterruptedTestResultFile(options) {
         const modifiedTime = file.modified.toLocaleString('ko-KR');
         csvContent += `${index + 1},${file.filename},${sizeKB},${createdTime},${modifiedTime}\n`;
       });
+      
+      // CSV 파일 내용 포함
+      csvContent += `\n`;
+      csvContent += `=== CSV 파일 내용 ===\n`;
+      
+      for (let i = 0; i < measurementFiles.length; i++) {
+        const file = measurementFiles[i];
+        
+        try {
+          if (fs.existsSync(file.filepath)) {
+            const fileContent = fs.readFileSync(file.filepath, 'utf8');
+            
+            // Extract cycle and test type from filename
+            const cycleMatch = file.filename.match(/Cycle(\d+)/);
+            const testTypeMatch = file.filename.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
+            
+            const cycle = cycleMatch ? cycleMatch[1] : 'Unknown';
+            const testType = testTypeMatch ? testTypeMatch[1] : 'Unknown';
+            
+            csvContent += `\n--- File: ${file.filename} (Cycle ${cycle}, ${testType}) ---\n`;
+            csvContent += fileContent;
+            csvContent += `\n--- End of File: ${file.filename} ---\n`;
+          } else {
+            csvContent += `\n--- File: ${file.filename} (File not found) ---\n`;
+          }
+        } catch (error) {
+          console.error(`[InterruptedTestResult] CSV 파일 읽기 실패: ${file.filename}`, error);
+          csvContent += `\n--- File: ${file.filename} (Error reading file: ${error.message}) ---\n`;
+        }
+      }
     }
     csvContent += `\n`;
     
@@ -3166,7 +3297,7 @@ export function getCurrentTableData() {
 }
 
 // 테이블 데이터를 클라이언트에 전송하는 함수
-export function broadcastTableData() {
+export async function broadcastTableData() {
   if (!globalWss) {
     console.warn(`[TableData] 전역 WebSocket 서버가 설정되지 않음`);
     return;
@@ -3175,19 +3306,26 @@ export function broadcastTableData() {
   try {
     // 시간 기반 디바운싱 제거 - 이벤트 기반 전송으로 변경
     
-    // 테이블 완성도 계산
+    // 선택된 디바이스 상태 가져오기
+    const getTableOption = await getSafeGetTableOption();
+    const deviceStates = getTableOption.deviceStates || [];
+    
+    // 선택된 디바이스만 필터링하여 테이블 완성도 계산
     let totalCells = 0;
     let completedCells = 0;
     
-    globalTableData.devices.forEach(device => {
-      device.tests.forEach(test => {
-        test.channels.forEach(channel => {
-          totalCells++;
-          if (channel.status === 'completed' && channel.voltage !== null) {
-            completedCells++;
-          }
+    globalTableData.devices.forEach((device, deviceIndex) => {
+      // 선택된 디바이스만 처리
+      if (deviceStates[deviceIndex]) {
+        device.tests.forEach(test => {
+          test.channels.forEach(channel => {
+            totalCells++;
+            if (channel.status === 'completed' && channel.voltage !== null) {
+              completedCells++;
+            }
+          });
         });
-      });
+      }
     });
     
     const completionPercentage = totalCells > 0 ? (completedCells / totalCells) * 100 : 0;

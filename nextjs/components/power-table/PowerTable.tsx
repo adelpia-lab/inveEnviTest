@@ -80,7 +80,8 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   // 테이블 완성도 계산 함수 개선
   const calculateTableCompletion = (data: AccumulatedTableData) => {
     try {
-      const totalCells = 10 * 3 * 4; // 10개 디바이스 * 3개 테스트 * 4개 채널
+      // 선택된 디바이스 수에 따라 총 셀 수 계산
+      const totalCells = selectedDevices.length * 3 * 4; // 선택된 디바이스 수 * 3개 테스트 * 4개 채널
       let filledCells = 0;
       let validDataCount = 0;
       
@@ -95,7 +96,11 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         };
       }
       
-      Object.values(data).forEach(deviceData => {
+      // 선택된 디바이스만 처리
+      selectedDevices.forEach(deviceIndex => {
+        const deviceKey = `device${deviceIndex + 1}`;
+        const deviceData = data[deviceKey];
+        
         if (deviceData && typeof deviceData === 'object') {
           Object.values(deviceData).forEach(testData => {
             if (testData && typeof testData === 'object') {
@@ -117,12 +122,13 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         }
       });
       
-      // 완성도 계산 개선: 유효한 데이터가 90% 이상이고 최소 100개 이상의 셀이 채워져야 완성으로 간주
+      // 완성도 계산 개선: 유효한 데이터가 90% 이상이고 최소 선택된 디바이스의 80% 이상의 셀이 채워져야 완성으로 간주
       const completionPercentage = (filledCells / totalCells) * 100;
       const validDataPercentage = (validDataCount / totalCells) * 100;
       
       // 완성 조건 강화: 95% 이상의 셀이 채워지고, 90% 이상이 유효한 데이터여야 함
-      const isComplete = completionPercentage >= 95 && validDataPercentage >= 90 && filledCells >= 100;
+      const minRequiredCells = Math.ceil(totalCells * 0.8); // 최소 80% 이상의 셀이 채워져야 함
+      const isComplete = completionPercentage >= 95 && validDataPercentage >= 90 && filledCells >= minRequiredCells;
       
       return {
         totalCells,
@@ -133,7 +139,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     } catch (error) {
       console.error('PowerTable: calculateTableCompletion 오류:', error);
       return {
-        totalCells: 120,
+        totalCells: selectedDevices.length * 3 * 4,
         filledCells: 0,
         completionPercentage: 0,
         isComplete: false
