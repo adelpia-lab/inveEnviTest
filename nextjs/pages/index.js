@@ -885,11 +885,24 @@ const sendMessage = () => {
     setIsTimeModePopupOpen(true);
   };
 
-  const handleTimeModeSave = (timeValues) => {
+  const handleTimeModeSave = (timeValues, isTimeModeEnabled) => {
     console.log('TimeMode: 저장된 시간 값들:', timeValues);
-    // 여기에 시간 값들을 서버로 전송하는 로직을 추가할 수 있습니다
-    const messageWithIdentifier = `[TIME_MODE] ${JSON.stringify(timeValues)}`;
+    console.log('TimeMode: 활성화 상태:', isTimeModeEnabled);
+    
+    // 시간 값과 활성화 상태를 함께 서버로 전송
+    const timeModeSettings = {
+      ...timeValues,
+      isTimeModeEnabled: isTimeModeEnabled
+    };
+    
+    const messageWithIdentifier = `[TIME_MODE] ${JSON.stringify(timeModeSettings)}`;
     sendWebSocketMessage(messageWithIdentifier);
+    
+    // localStorage에도 저장
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('timeModeSettings', JSON.stringify(timeModeSettings));
+      console.log('TimeMode: localStorage에 설정 저장됨:', timeModeSettings);
+    }
   };
 
   const handleTimeModeClose = () => {

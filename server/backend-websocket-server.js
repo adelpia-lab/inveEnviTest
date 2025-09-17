@@ -9,6 +9,7 @@ import { ReadAllVoltages, ReadVolt } from './ReadVolt.js';
 import { RelayAllOff, SelectDevice, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { GetData } from './GetData.js';
 import { runSinglePageProcess, runNextTankEnviTestProcess, setWebSocketServer, testPowerTableReset } from './RunTestProcess.js';
+import { runTimeModeTestProcess, setWebSocketServer as setTimeModeWebSocketServer } from './RunTimeMode.js';
 
 // 테이블 데이터 관련 함수들을 import
 import { updateTableData, broadcastTableData, getCurrentTableData, resetTableData } from './RunTestProcess.js';
@@ -179,6 +180,9 @@ async function startWebSocketServer() {
         // RunTestProcess에 WebSocket 서버 참조 설정
         setWebSocketServer(wss);
         
+        // RunTimeMode에 WebSocket 서버 참조 설정
+        setTimeModeWebSocketServer(wss);
+        
         return wss;
     } catch (error) {
         console.error(`❌ [Backend WS Server] Failed to start WebSocket server: ${error.message}`);
@@ -261,15 +265,28 @@ async function readAndBroadcastChamberTemperature() {
 }
 
 // 챔버 온도 모니터링 시작
-function startChamberTemperatureMonitoring() {
+async function startChamberTemperatureMonitoring() {
     if (chamberTemperatureInterval) {
         clearInterval(chamberTemperatureInterval);
+    }
+    
+    // TimeMode 설정 확인
+    try {
+        const timeModeSettings = await loadTimeModeSettings();
+        const isTimeModeEnabled = timeModeSettings.isTimeModeEnabled || false;
+        
+        if (isTimeModeEnabled) {
+            console.log(`🌡️ [Backend WS Server] TimeMode 활성화됨 - 챔버 온도 주기적 모니터링 비활성화`);
+            return;
+        }
+    } catch (error) {
+        console.warn(`🌡️ [Backend WS Server] TimeMode 설정 로드 실패, 기본 모니터링 실행: ${error.message}`);
     }
     
     // 즉시 첫 번째 읽기 실행
     readAndBroadcastChamberTemperature();
     
-    // 5초마다 온도 읽기 및 전송
+    // 2분마다 온도 읽기 및 전송
     chamberTemperatureInterval = setInterval(readAndBroadcastChamberTemperature, 120000);
     console.log(`🌡️ [Backend WS Server] Chamber temperature monitoring started ( 2 min interval)`);
 }
@@ -670,7 +687,7 @@ async function saveChannelVoltages(channelVoltages) {
 }
 
 // TimeMode 설정 저장 함수
-async function saveTimeModeSettings(timeValues) {
+async function saveTimeModeSettings(timeValues, isTimeModeEnabled = false) {
   try {
     // 입력값 검증
     if (!timeValues || typeof timeValues !== 'object') {
@@ -692,9 +709,15 @@ async function saveTimeModeSettings(timeValues) {
       }
     }
     
-    const jsonString = JSON.stringify(timeValues, null, 2);
+    // TimeMode 설정 객체 생성 (시간 값과 활성화 상태 포함)
+    const timeModeSettings = {
+      ...timeValues,
+      isTimeModeEnabled: Boolean(isTimeModeEnabled)
+    };
+    
+    const jsonString = JSON.stringify(timeModeSettings, null, 2);
     await fs.writeFile(TIME_MODE_SETTINGS_FILE, jsonString);
-    console.log(`✅ [Backend WS Server] TimeMode settings saved: ${JSON.stringify(timeValues)}`);
+    console.log(`✅ [Backend WS Server] TimeMode settings saved: ${JSON.stringify(timeModeSettings)}`);
     return true;
   } catch (error) {
     console.error(`❌ [Backend WS Server] Failed to save TimeMode settings: ${error.message}`);
@@ -720,7 +743,8 @@ async function loadTimeModeSettings() {
       T5: "240",
       T6: "110",
       T7: "50",
-      T8: "20"
+      T8: "20",
+      isTimeModeEnabled: false
     };
   }
 }
@@ -951,11 +975,11 @@ function broadcastToClients(message) {
 
 // WebSocket 이벤트 핸들러 설정 함수
 function setupWebSocketEventHandlers(wss) {
-    wss.on('connection', ws => {
+    wss.on('connection', async (ws) => {
     console.log(`[Backend WS Server] 클라이언트 연결됨 (${ws._socket.remoteAddress}:${ws._socket.remotePort})`);
 
     // 챔버 온도 모니터링 시작
-    startChamberTemperatureMonitoring();
+    await startChamberTemperatureMonitoring();
     
     // 현재 챔버 온도를 클라이언트에게 즉시 전송
     if (currentChamberTemperature !== null) {
@@ -1324,12 +1348,15 @@ function setupWebSocketEventHandlers(wss) {
                 console.log("=== TimeMode Settings Process: OK ===");
                 try {
                     const timeModeData = decodedMessage.replace('[TIME_MODE] ', '');
-                    const timeValues = JSON.parse(timeModeData);
+                    const timeModeSettings = JSON.parse(timeModeData);
                     
-                    const saveSuccess = await saveTimeModeSettings(timeValues);
+                    // 시간 값과 활성화 상태 분리
+                    const { isTimeModeEnabled, ...timeValues } = timeModeSettings;
+                    
+                    const saveSuccess = await saveTimeModeSettings(timeValues, isTimeModeEnabled);
                     if (saveSuccess) {
                         console.log(`✅ [Backend WS Server] TimeMode settings saved successfully`);
-                        ws.send(`[TIME_MODE_SAVED] ${JSON.stringify(timeValues)}`);
+                        ws.send(`[TIME_MODE_SAVED] ${JSON.stringify(timeModeSettings)}`);
                     } else {
                         console.error(`❌ [Backend WS Server] Failed to save TimeMode settings`);
                         ws.send(`Error: Failed to save TimeMode settings`);
@@ -2152,13 +2179,26 @@ function setupWebSocketEventHandlers(wss) {
                         // 프로세스 실행 상태 설정
                         globalProcessRunning = true;
                         
-                        // runNextTankEnviTestProcess 실행
+                        // TimeMode 설정 확인 후 적절한 프로세스 실행
                         try {
-                            console.log(`🚀 [Backend WS Server] Starting runNextTankEnviTestProcess...`);
-                            await runNextTankEnviTestProcess();
-                            console.log(`✅ [Backend WS Server] runNextTankEnviTestProcess completed successfully`);
+                            const timeModeSettings = await loadTimeModeSettings();
+                            const isTimeModeEnabled = timeModeSettings.isTimeModeEnabled || false;
+                            
+                            console.log(`🔍 [Backend WS Server] TimeMode 상태 확인: ${isTimeModeEnabled ? '활성화됨' : '비활성화됨'}`);
+                            
+                            if (isTimeModeEnabled) {
+                                // TimeMode가 활성화된 경우 runTimeModeTestProcess 실행
+                                console.log(`🚀 [Backend WS Server] Starting runTimeModeTestProcess (TimeMode 활성화됨)...`);
+                                await runTimeModeTestProcess();
+                                console.log(`✅ [Backend WS Server] runTimeModeTestProcess completed successfully`);
+                            } else {
+                                // TimeMode가 비활성화된 경우 기존 runNextTankEnviTestProcess 실행
+                                console.log(`🚀 [Backend WS Server] Starting runNextTankEnviTestProcess (TimeMode 비활성화됨)...`);
+                                await runNextTankEnviTestProcess();
+                                console.log(`✅ [Backend WS Server] runNextTankEnviTestProcess completed successfully`);
+                            }
                         } catch (processError) {
-                            console.error(`❌ [Backend WS Server] runNextTankEnviTestProcess error: ${processError.message}`);
+                            console.error(`❌ [Backend WS Server] Process execution error: ${processError.message}`);
                             const errorMessage = `[POWER_SWITCH] PROCESS_ERROR: ${processError.message}`;
                             ws.send(errorMessage);
                             

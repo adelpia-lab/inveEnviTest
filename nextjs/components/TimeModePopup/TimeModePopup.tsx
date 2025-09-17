@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 interface TimeModePopupProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (timeValues: Record<string, string>) => void;
+  onSave: (timeValues: Record<string, string>, isTimeModeEnabled: boolean) => void;
   wsConnection?: WebSocket | null;
 }
 
@@ -20,6 +20,7 @@ const TimeModePopup: React.FC<TimeModePopupProps> = ({ isOpen, onClose, onSave, 
     T7: '',
     T8: ''
   });
+  const [isTimeModeEnabled, setIsTimeModeEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   // 컴포넌트 마운트 시 localStorage에서 초기값 로드
@@ -40,6 +41,7 @@ const TimeModePopup: React.FC<TimeModePopupProps> = ({ isOpen, onClose, onSave, 
             T7: parsed.T7 ? String(parsed.T7) : '',
             T8: parsed.T8 ? String(parsed.T8) : ''
           });
+          setIsTimeModeEnabled(parsed.isTimeModeEnabled || false);
         } catch (error) {
           console.error('TimeModePopup: localStorage 파싱 실패:', error);
         }
@@ -74,8 +76,9 @@ const TimeModePopup: React.FC<TimeModePopupProps> = ({ isOpen, onClose, onSave, 
             };
             
             setTimeValues(newTimeValues);
+            setIsTimeModeEnabled(serverData.isTimeModeEnabled || false);
             setIsLoading(false);
-            console.log('TimeModePopup: TimeMode 데이터 업데이트 완료:', newTimeValues);
+            console.log('TimeModePopup: TimeMode 데이터 업데이트 완료:', newTimeValues, 'isTimeModeEnabled:', serverData.isTimeModeEnabled);
           }
         } catch (error) {
           console.error('TimeModePopup: TimeMode 데이터 파싱 실패:', error);
@@ -118,7 +121,7 @@ const TimeModePopup: React.FC<TimeModePopupProps> = ({ isOpen, onClose, onSave, 
   };
 
   const handleSave = () => {
-    onSave(timeValues);
+    onSave(timeValues, isTimeModeEnabled);
     onClose();
   };
 
@@ -258,6 +261,64 @@ const TimeModePopup: React.FC<TimeModePopupProps> = ({ isOpen, onClose, onSave, 
             >
               ×
             </button>
+          </div>
+
+          {/* TimeMode Toggle Switch */}
+          <div 
+            style={{ 
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: '20px 24px',
+              backgroundColor: 'rgba(55, 65, 81, 0.8)',
+              borderBottom: '1px solid #4b5563'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <span style={{ 
+                fontSize: '18px', 
+                fontWeight: 'bold', 
+                color: '#f9fafb' 
+              }}>
+                TimeMode
+              </span>
+              <div
+                onClick={() => setIsTimeModeEnabled(!isTimeModeEnabled)}
+                style={{
+                  width: '60px',
+                  height: '30px',
+                  backgroundColor: isTimeModeEnabled ? '#10b981' : '#6b7280',
+                  borderRadius: '15px',
+                  position: 'relative',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  border: '2px solid',
+                  borderColor: isTimeModeEnabled ? '#059669' : '#4b5563',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+                }}
+              >
+                <div
+                  style={{
+                    width: '26px',
+                    height: '26px',
+                    backgroundColor: 'white',
+                    borderRadius: '50%',
+                    position: 'absolute',
+                    top: '0px',
+                    left: isTimeModeEnabled ? '30px' : '0px',
+                    transition: 'all 0.3s ease',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+                  }}
+                />
+              </div>
+              <span style={{ 
+                fontSize: '16px', 
+                fontWeight: '500', 
+                color: isTimeModeEnabled ? '#10b981' : '#9ca3af' 
+              }}>
+                {isTimeModeEnabled ? 'ON' : 'OFF'}
+              </span>
+            </div>
           </div>
 
           {/* Main Content Area - Time Inputs Only */}

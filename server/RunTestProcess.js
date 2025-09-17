@@ -2445,7 +2445,7 @@ async function generateFinalDeviceReport(cycleNumber) {
         
         // 파일명에서 사이클 번호와 테스트 유형 추출
         const cycleMatch = filename.match(/Cycle(\d+)/);
-        const testTypeMatch = filename.match(/(HighTemp_Test\d+|LowTemp_Test\d+)/);
+        const testTypeMatch = filename.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
         
         if (!cycleMatch || !testTypeMatch) {
           console.warn(`[FinalDeviceReport] 파일명 형식 오류: ${filename}`);

@@ -5,6 +5,7 @@ import { ReadVolt } from './ReadVolt.js';
 
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
+import { getSimulationMode } from './RunTestProcess.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,19 +15,7 @@ import { InterByteTimeoutParser } from 'serialport';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 시뮬레이션 모드 - backend-websocket-server.js에서 관리
-let SIMULATION_PROC = false;
-
-// 시뮬레이션 모드를 설정하는 함수
-export function setSimulationMode(enabled) {
-  SIMULATION_PROC = enabled;
-  console.log(`[RunTestProcess] 시뮬레이션 모드 설정: ${enabled}`);
-}
-
-// 시뮬레이션 모드를 가져오는 함수
-export function getSimulationMode() {
-  return SIMULATION_PROC;
-}
+// 시뮬레이션 모드는 RunTestProcess.js에서 관리됨
 
 // 전역 WebSocket 서버 참조를 위한 변수
 let globalWss = null;
@@ -648,7 +637,7 @@ export async function runSinglePageProcess() {
   let stopInfo = null;
   
   try {
-    const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
+    const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[SinglePageProcess] 🔧 단일 페이지 프로세스 시작 (${modeText})`);
     
     // 파워스위치 상태 확인
@@ -759,7 +748,7 @@ export async function runSinglePageProcess() {
         }
 
         try {
-          if(SIMULATION_PROC === false ){
+          if(getSimulationMode() === false ){
             voltSetSuccess = await SendVoltCommand(inputVolt);
           }else {
             voltSetSuccess = true;
@@ -826,7 +815,7 @@ export async function runSinglePageProcess() {
          
               let selectResult = true;
 
-              if( SIMULATION_PROC === false ){
+              if( getSimulationMode() === false ){
                 selectResult = await SelectDeviceOn(i+1);  // 1 부터 시작 함
               }
 
@@ -868,7 +857,7 @@ export async function runSinglePageProcess() {
             // 중지 요청 확인 - 채널 처리 시작 전
             if (getProcessStopRequested()) {
               console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 채널 ${j+1}/4에서 중단`);
-              if( SIMULATION_PROC === false ){ 
+              if( getSimulationMode() === false ){ 
                 await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
               }
               stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'channel_start' };
@@ -886,7 +875,7 @@ export async function runSinglePageProcess() {
               // 중지 요청 확인 - 전압 읽기 중 (매 반복마다 확인)
               if (getProcessStopRequested()) {
                 console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 읽기 중 중단`);
-                if( SIMULATION_PROC === false ){ 
+                if( getSimulationMode() === false ){ 
                   await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
                 }
                 stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'voltage_reading' };
@@ -894,7 +883,7 @@ export async function runSinglePageProcess() {
               }
               
                           try {
-              if( SIMULATION_PROC === false ){
+              if( getSimulationMode() === false ){
                 // 순차적 실행을 위한 로깅 추가
                 // console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
                 voltData = await ReadVolt(j+1);
@@ -937,7 +926,7 @@ export async function runSinglePageProcess() {
              
             // 채널 3 (j=2)의 경우 읽은 전압에 -1.0을 곱함
             // 시뮬레이션인 경우는 통과한다. 
-            if( SIMULATION_PROC === false ){
+            if( getSimulationMode() === false ){
               if (j === 2 && voltData !== 'error' && typeof voltData === 'number') {
                 voltData = voltData * -1.0;
               }
@@ -995,7 +984,7 @@ export async function runSinglePageProcess() {
               console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 디바이스 ${i+1} 해제 중 중단`);
               // 디바이스 해제는 시도하되 즉시 반환
               try {
-                if( SIMULATION_PROC === false ){
+                if( getSimulationMode() === false ){
                   await SelectDeviceOff(i+1);
                 }
               } catch (error) {
@@ -1010,7 +999,7 @@ export async function runSinglePageProcess() {
               await sleep(2000);
               
               let offResult = true;
-              if( SIMULATION_PROC === false ){
+              if( getSimulationMode() === false ){
                 offResult =  await SelectDeviceOff(i+1); // 1 부터 시작 함
               }
               
@@ -1120,9 +1109,292 @@ async function generateStopReport(stopInfo) {
   }
 }
 
+// TimeMode 설정을 로드하는 함수
+function loadTimeModeSettings() {
+  try {
+    const settingsPath = path.join(__dirname, 'time_mode_settings.json');
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    
+    // T1~T8 값을 분 단위에서 밀리초로 변환
+    const T1 = parseInt(settings.T1) * 60 * 1000; // 분 -> 밀리초
+    const T2 = parseInt(settings.T2) * 60 * 1000;
+    const T3 = parseInt(settings.T3) * 60 * 1000;
+    const T4 = parseInt(settings.T4) * 60 * 1000;
+    const T5 = parseInt(settings.T5) * 60 * 1000;
+    const T6 = parseInt(settings.T6) * 60 * 1000;
+    const T7 = parseInt(settings.T7) * 60 * 1000;
+    const T8 = parseInt(settings.T8) * 60 * 1000;
+    
+    // T_elapsed 배열 계산 (그림의 공식에 따라)
+    const T_high1 = T1 + T2;
+    const T_low1 = T_high1 + T3 + T4;
+    const T_high2 = T_low1 + T5 + T6;
+    const T_low2 = T_high2 + T3 + T4;
+    const T_end = T_low2 + T5 + T7 + T8;
+    
+    const T_elapsed = [T_high1, T_low1, T_high2, T_low2];
+    
+    console.log(`[TimeMode] 시간 설정 로드됨:`);
+    console.log(`  T1: ${settings.T1}분, T2: ${settings.T2}분, T3: ${settings.T3}분, T4: ${settings.T4}분`);
+    console.log(`  T5: ${settings.T5}분, T6: ${settings.T6}분, T7: ${settings.T7}분, T8: ${settings.T8}분`);
+    console.log(`  T_elapsed: [${T_elapsed.map(t => Math.round(t/60000)).join('분, ')}분]`);
+    console.log(`  T_end: ${Math.round(T_end/60000)}분`);
+    
+    return {
+      T_elapsed,
+      T_end,
+      intervals: { T1, T2, T3, T4, T5, T6, T7, T8 }
+    };
+  } catch (error) {
+    console.error(`[TimeMode] 시간 설정 로드 실패:`, error);
+    // 기본값 반환
+    return {
+      T_elapsed: [10*60*1000, 20*60*1000, 30*60*1000, 40*60*1000], // 기본 10, 20, 30, 40분
+      T_end: 50*60*1000, // 기본 50분
+      intervals: { T1: 5*60*1000, T2: 5*60*1000, T3: 5*60*1000, T4: 5*60*1000, T5: 5*60*1000, T6: 5*60*1000, T7: 5*60*1000, T8: 5*60*1000 }
+    };
+  }
+}
+
+// TimeMode 기반 테스트 실행 함수
+export async function runTimeModeTestProcess() {
+  try {
+    const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
+    console.log(`[TimeModeTestProcess] 🔄 TimeMode 테스트 프로세스 시작 (${modeText})`);
+    
+    // 프로세스 시작 전 중지 요청 확인
+    if (getProcessStopRequested()) {
+      console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - 프로세스 시작 전 중단`);
+      return { 
+        status: 'stopped', 
+        message: '사용자에 의해 중지됨', 
+        stoppedAtPhase: 'initialization',
+        stopReason: 'power_switch_off'
+      };
+    }
+    
+    // ===== 디렉토리명을 한 번만 생성하고 전역 변수에 저장 =====
+    currentTestDirectoryName = getDateDirectoryName();
+    console.log(`[TimeModeTestProcess] 📁 테스트 디렉토리명 생성: ${currentTestDirectoryName}`);
+    
+    // 테스트 결과 저장을 위한 디렉토리 생성
+    const dataFolderPath = path.join(process.cwd(), 'Data');
+    if (!fs.existsSync(dataFolderPath)) {
+      fs.mkdirSync(dataFolderPath, { recursive: true });
+      console.log(`[TimeModeTestProcess] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
+    }
+    
+    const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
+    // 전역 변수에 전체 디렉토리 경로 저장
+    currentTestDirectoryPath = dateFolderPath;
+    
+    if (!fs.existsSync(dateFolderPath)) {
+      fs.mkdirSync(dateFolderPath, { recursive: true });
+      console.log(`[TimeModeTestProcess] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
+      
+      if (globalWss) {
+        const dirCreateMessage = `[DIRECTORY_CREATED] ${currentTestDirectoryName}`;
+        let sentCount = 0;
+        globalWss.clients.forEach(client => {
+          if (client.readyState === 1) { // WebSocket.OPEN
+            client.send(dirCreateMessage);
+            sentCount++;
+          }
+        });
+        console.log(`[TimeModeTestProcess] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
+      }
+    } else {
+      console.log(`[TimeModeTestProcess] 📁 기존 테스트 결과 저장 디렉토리 사용: ${dateFolderPath}`);
+    }
+    
+    // 중지 요청 확인 - 디렉토리 생성 후
+    if (getProcessStopRequested()) {
+      console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - 디렉토리 생성 후 중단`);
+      return { 
+        status: 'stopped', 
+        message: '사용자에 의해 중지됨', 
+        stoppedAtPhase: 'directory_creation',
+        stopReason: 'power_switch_off'
+      };
+    }
+    
+    // TimeMode 설정 로드
+    const timeSettings = loadTimeModeSettings();
+    const { T_elapsed, T_end } = timeSettings;
+    
+    // 시뮬레이션 모드에 따른 초기화 처리
+    if (getSimulationMode() === false) {
+      await RelayAllOff();                      // jsk debug return error 에 대한 처리를 할 것
+      await sleep(3000); // 포트 초기화를 위한 추가 대기
+    } else {
+      // 시뮬레이션 모드일 경우 패스
+      console.log('[TimeModeTestProcess] 시뮬레이션 모드: RelayAllOff 및 포트 초기화 대기 패스');
+    }
+    
+    // CtrlTimer 초기화 및 시작
+    let CtrlTimer = 0;
+    const startTime = Date.now();
+    let i = 0; // T_elapsed 배열 인덱스
+    
+    console.log(`[TimeModeTestProcess] ⏰ CtrlTimer 시작 - T_end: ${Math.round(T_end/60000)}분`);
+    
+    // 메인 루프: T_elapsed[i] 시간이 경과할 때까지 대기
+    while (i < T_elapsed.length) {
+      // 중지 요청 확인
+      if (getProcessStopRequested()) {
+        console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - T_elapsed[${i}] 대기 중 중단`);
+        setMachineRunningStatus(false);
+        
+        if (globalWss) {
+          const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Process stopped during time waiting`;
+          globalWss.clients.forEach(client => {
+            if (client.readyState === 1) {
+              client.send(powerOffMessage);
+            }
+          });
+        }
+        
+        return { 
+          status: 'stopped', 
+          message: '사용자에 의해 중지됨', 
+          stoppedAtPhase: `time_waiting_${i}`,
+          stopReason: 'power_switch_off'
+        };
+      }
+      
+      // 현재 경과 시간 계산
+      CtrlTimer = Date.now() - startTime;
+      
+      // T_elapsed[i] 시간이 경과했는지 확인
+      if (CtrlTimer > T_elapsed[i]) {
+        console.log(`[TimeModeTestProcess] ⏰ T_elapsed[${i}] 시간 경과 (${Math.round(T_elapsed[i]/60000)}분) - runSinglePageProcess() 실행`);
+        
+        // runSinglePageProcess() 실행
+        const result = await runSinglePageProcess();
+        
+        // 성공 여부 확인
+        if (!result || result.status !== 'completed') {
+          console.log(`[TimeModeTestProcess] ❌ runSinglePageProcess() 실패 - generateStopReport() 실행`);
+          return await generateStopReport(result);
+        }
+        
+        // 측정 데이터 저장 (runNextTankEnviTestProcess 패턴과 동일)
+        if (result && result.status === 'completed' && result.data) {
+          console.log(`[TimeModeTestProcess] T_elapsed[${i}] 측정 결과 저장 시작`);
+          try {
+            const getTableOption = await getSafeGetTableOption();
+            const saveResult = saveTotaReportTableToFile(
+              result.data, 
+              getTableOption.outVoltSettings || [18, 24, 30], 
+              i + 1, // T_elapsed 단계 번호를 사이클 번호로 사용
+              `TimeMode_Test${i + 1}`
+            );
+            
+            if (saveResult && saveResult.success) {
+              console.log(`[TimeModeTestProcess] ✅ T_elapsed[${i}] 측정 데이터 저장 성공: ${saveResult.filename}`);
+            } else {
+              console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] 측정 데이터 저장 실패:`, saveResult?.error || '알 수 없는 오류');
+            }
+          } catch (saveError) {
+            console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] 측정 데이터 저장 중 오류:`, saveError.message);
+          }
+        }
+        
+        console.log(`[TimeModeTestProcess] ✅ runSinglePageProcess() 성공 - 다음 단계로 진행`);
+        i++; // 다음 T_elapsed로 진행
+      } else {
+        // 아직 시간이 경과하지 않았으면 잠시 대기 (중지 요청 확인을 위해)
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
+      }
+    }
+    
+    // 모든 T_elapsed 단계 완료 후 최종 보고서 생성
+    console.log(`[TimeModeTestProcess] 📄 모든 T_elapsed 단계 완료 - 종합 리포트 생성`);
+    try {
+      const finalReportResult = await generateFinalDeviceReport(i); // 실제 실행된 단계 수
+      if (finalReportResult && finalReportResult.success) {
+        console.log(`[TimeModeTestProcess] ✅ 종합 리포트 생성 성공: ${finalReportResult.filename}`);
+      } else {
+        console.error(`[TimeModeTestProcess] ❌ 종합 리포트 생성 실패:`, finalReportResult?.error || '알 수 없는 오류');
+      }
+    } catch (error) {
+      console.error(`[TimeModeTestProcess] ❌ 종합 리포트 생성 실패:`, error.message);
+    }
+    
+    // T_end 시간까지 대기
+    console.log(`[TimeModeTestProcess] ⏰ T_end 시간까지 대기 (${Math.round(T_end/60000)}분)`);
+    while (CtrlTimer < T_end) {
+      // 중지 요청 확인
+      if (getProcessStopRequested()) {
+        console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - T_end 대기 중 중단`);
+        setMachineRunningStatus(false);
+        
+        if (globalWss) {
+          const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Process stopped during T_end waiting`;
+          globalWss.clients.forEach(client => {
+            if (client.readyState === 1) {
+              client.send(powerOffMessage);
+            }
+          });
+        }
+        
+        return { 
+          status: 'stopped', 
+          message: '사용자에 의해 중지됨', 
+          stoppedAtPhase: 't_end_waiting',
+          stopReason: 'power_switch_off'
+        };
+      }
+      
+      // 현재 경과 시간 업데이트
+      CtrlTimer = Date.now() - startTime;
+      
+      // 아직 T_end에 도달하지 않았으면 잠시 대기
+      if (CtrlTimer < T_end) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
+      }
+    }
+    
+    // PowerSwitch 상태 OFF 설정
+    setMachineRunningStatus(false);
+    
+    // 클라이언트에게 파워스위치 OFF 상태 전송
+    if (globalWss) {
+      const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Test completed`;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) {
+          client.send(powerOffMessage);
+        }
+      });
+    }
+    
+    console.log(`[TimeModeTestProcess] 🛑 프로세스 완료 - 중지 플래그 상태 유지`);
+    
+    // 프로세스 완료 후 전역 디렉토리명 초기화 (모든 파일 생성 완료 후)
+    console.log(`[TimeModeTestProcess] 📁 프로세스 완료 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
+    currentTestDirectoryName = null;
+    
+    return { 
+      status: 'completed', 
+      message: '모든 T_elapsed 단계 완료 및 종합 리포트 생성 완료',
+      totalSteps: i, // 실제 실행된 단계 수
+      finalReportGenerated: true
+    };
+    
+  } catch (error) {
+    console.error(`[TimeModeTestProcess] ❌ 오류 발생:`, error);
+    setMachineRunningStatus(false);
+    return {
+      status: 'error',
+      message: `TimeMode 테스트 프로세스 오류: ${error.message}`,
+      error: error
+    };
+  }
+}
+
 export async function runNextTankEnviTestProcess() {
   try {
-    const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
+    const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
     
     // 프로세스 시작 전 중지 요청 확인
@@ -1198,7 +1470,7 @@ export async function runNextTankEnviTestProcess() {
     // cycleNumber 횟수만큼 반복
     const cycleNumber = getTableOption.delaySettings.cycleNumber || 1; // 기본값 1
 
-    if( SIMULATION_PROC === false ){
+    if( getSimulationMode() === false ){
       await RelayAllOff();                      // jsk debug return error 에 대한 처리를 할 것
       await sleep(3000); // 포트 초기화를 위한 추가 대기
     } else {
@@ -1365,7 +1637,7 @@ export async function runNextTankEnviTestProcess() {
           }
           
           let chamberTemp = 23.45;
-          if( SIMULATION_PROC === false ){
+          if( getSimulationMode() === false ){
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 대기 중 온도 읽기`);
             chamberTemp = await getCurrentChamberTemperature();
           }
@@ -1455,7 +1727,7 @@ export async function runNextTankEnviTestProcess() {
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 시작 (${chamberTemp}°C)`);
             
             // waitTime 분 만큼 대기 (중지 요청 확인 가능)
-            if(SIMULATION_PROC === false){
+            if(getSimulationMode() === false){
               console.log(`[NextTankEnviTestProcess] 고온 도달 후 ${waitTime}분 대기 시작...`);
               try {
                 await sleepMinutesWithStopCheck(waitTime, `사이클 ${cycle} 고온 대기`);
@@ -1864,7 +2136,7 @@ export async function runNextTankEnviTestProcess() {
           }
           
           let chamberTemp = 23.45;
-          if( SIMULATION_PROC != true ){
+          if( getSimulationMode() != true ){
             chamberTemp = await getCurrentChamberTemperature();
           }
           console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 대기 중 온도: ${chamberTemp}℃`);
@@ -2445,7 +2717,7 @@ async function generateFinalDeviceReport(cycleNumber) {
         
         // 파일명에서 사이클 번호와 테스트 유형 추출
         const cycleMatch = filename.match(/Cycle(\d+)/);
-        const testTypeMatch = filename.match(/(HighTemp_Test\d+|LowTemp_Test\d+)/);
+        const testTypeMatch = filename.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
         
         if (!cycleMatch || !testTypeMatch) {
           console.warn(`[FinalDeviceReport] 파일명 형식 오류: ${filename}`);
