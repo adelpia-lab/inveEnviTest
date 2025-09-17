@@ -1125,6 +1125,22 @@ export async function runNextTankEnviTestProcess() {
     const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
     
+    // 테스트 시작 알림
+    if (globalWss) {
+      const testStartMessage = `[TEST_PROGRESS] 테스트 시작 - 환경 시험 프로세스 (${modeText})`;
+      console.log(`[NextTankEnviTestProcess] 📤 테스트 시작 메시지 전송: ${testStartMessage}`);
+      let sentCount = 0;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(testStartMessage);
+          sentCount++;
+        }
+      });
+      console.log(`[NextTankEnviTestProcess] 📤 ${sentCount}개 클라이언트에게 메시지 전송 완료`);
+    } else {
+      console.log(`[NextTankEnviTestProcess] ❌ globalWss가 null입니다. WebSocket 서버가 설정되지 않았습니다.`);
+    }
+    
     // 프로세스 시작 전 중지 요청 확인
     if (getProcessStopRequested()) {
       console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 프로세스 시작 전 중단`);
@@ -1219,9 +1235,19 @@ export async function runNextTankEnviTestProcess() {
         };
       }
       
-      console.log(`[NextTankEnviTestProcess] === 사이클 ${cycle}/${cycleNumber} 시작 ===`);
-      
-      // 각 사이클 시작 시 PowerTable 전압 데이터 초기화
+        console.log(`[NextTankEnviTestProcess] === 사이클 ${cycle}/${cycleNumber} 시작 ===`);
+        
+        // 사이클 시작 진행상황 알림
+        if (globalWss) {
+          const cycleStartMessage = `[TEST_PROGRESS] 사이클 ${cycle}/${cycleNumber} 시작`;
+          globalWss.clients.forEach(client => {
+            if (client.readyState === 1) { // WebSocket.OPEN
+              client.send(cycleStartMessage);
+            }
+          });
+        }
+        
+        // 각 사이클 시작 시 PowerTable 전압 데이터 초기화
       if (globalWss) {
         const cycleResetMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
           action: 'cycle_reset',
@@ -2183,6 +2209,16 @@ export async function runNextTankEnviTestProcess() {
     // 프로세스 완료 후 전역 디렉토리명 초기화 (모든 파일 생성 완료 후)
     console.log(`[NextTankEnviTestProcess] 📁 프로세스 완료 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
     currentTestDirectoryName = null;
+    
+    // 테스트 완료 알림
+    if (globalWss) {
+      const testCompleteMessage = `[TEST_COMPLETED] 환경 시험 프로세스 완료 - 총 ${cycleNumber}개 사이클 완료`;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(testCompleteMessage);
+        }
+      });
+    }
     
     return { 
       status: 'completed', 

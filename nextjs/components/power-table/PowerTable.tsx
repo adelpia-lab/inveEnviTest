@@ -499,7 +499,39 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       const message = event.data;
       
       // PowerTable에서 필요한 메시지만 처리
-      // 1. 챔버 온도 업데이트
+      // 1. 테스트 진행상황 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[TEST_PROGRESS]')) {
+        try {
+          const match = message.match(/\[TEST_PROGRESS\] (.+)/);
+          if (match && match[1]) {
+            const progressMessage = match[1];
+            console.log('🔌 PowerTable: 테스트 진행상황 메시지 수신:', progressMessage);
+            setTestProgressMessage(progressMessage);
+            setIsTestProgressActive(true);
+          }
+        } catch (error) {
+          console.error('PowerTable: 테스트 진행상황 메시지 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 2. 테스트 완료 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[TEST_COMPLETED]')) {
+        try {
+          const match = message.match(/\[TEST_COMPLETED\] (.+)/);
+          if (match && match[1]) {
+            const completeMessage = match[1];
+            console.log('🔌 PowerTable: 테스트 완료 메시지 수신:', completeMessage);
+            setTestProgressMessage(completeMessage);
+            setIsTestProgressActive(true);
+          }
+        } catch (error) {
+          console.error('PowerTable: 테스트 완료 메시지 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 3. 챔버 온도 업데이트
       if (typeof message === 'string' && message.startsWith('[CHAMBER_TEMPERATURE]')) {
         try {
           const match = message.match(/\[CHAMBER_TEMPERATURE] (.+)/);
@@ -516,7 +548,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         return; // 처리 완료 후 종료
       }
       
-      // 2. PowerTable 전압 데이터 초기화 메시지 처리
+      // 4. PowerTable 전압 데이터 초기화 메시지 처리
       if (typeof message === 'string' && message.startsWith('[POWER_TABLE_RESET]')) {
         try {
           

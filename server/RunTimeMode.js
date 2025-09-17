@@ -1162,6 +1162,22 @@ export async function runTimeModeTestProcess() {
     const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[TimeModeTestProcess] 🔄 TimeMode 테스트 프로세스 시작 (${modeText})`);
     
+    // 테스트 시작 알림
+    if (globalWss) {
+      const testStartMessage = `[TEST_PROGRESS] 테스트 시작 - 시간 모드 테스트 프로세스 (${modeText})`;
+      console.log(`[TimeModeTestProcess] 📤 테스트 시작 메시지 전송: ${testStartMessage}`);
+      let sentCount = 0;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(testStartMessage);
+          sentCount++;
+        }
+      });
+      console.log(`[TimeModeTestProcess] 📤 ${sentCount}개 클라이언트에게 메시지 전송 완료`);
+    } else {
+      console.log(`[TimeModeTestProcess] ❌ globalWss가 null입니다. WebSocket 서버가 설정되지 않았습니다.`);
+    }
+    
     // 프로세스 시작 전 중지 요청 확인
     if (getProcessStopRequested()) {
       console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - 프로세스 시작 전 중단`);
@@ -1266,10 +1282,26 @@ export async function runTimeModeTestProcess() {
       CtrlTimer = Date.now() - startTime;
       
       // T_elapsed[i] 시간이 경과했는지 확인
-      if (CtrlTimer > T_elapsed[i]) {
-        console.log(`[TimeModeTestProcess] ⏰ T_elapsed[${i}] 시간 경과 (${Math.round(T_elapsed[i]/60000)}분) - runSinglePageProcess() 실행`);
-        
-        // runSinglePageProcess() 실행
+        if (CtrlTimer > T_elapsed[i]) {
+          console.log(`[TimeModeTestProcess] ⏰ T_elapsed[${i}] 시간 경과 (${Math.round(T_elapsed[i]/60000)}분) - runSinglePageProcess() 실행`);
+          
+          // 단계별 진행상황 알림
+          if (globalWss) {
+            const stepProgressMessage = `[TEST_PROGRESS] 단계 ${i+1}/${T_elapsed.length} 실행 중 (${Math.round(T_elapsed[i]/60000)}분 경과)`;
+            console.log(`[TimeModeTestProcess] 📤 단계 진행상황 메시지 전송: ${stepProgressMessage}`);
+            let sentCount = 0;
+            globalWss.clients.forEach(client => {
+              if (client.readyState === 1) { // WebSocket.OPEN
+                client.send(stepProgressMessage);
+                sentCount++;
+              }
+            });
+            console.log(`[TimeModeTestProcess] 📤 ${sentCount}개 클라이언트에게 메시지 전송 완료`);
+          } else {
+            console.log(`[TimeModeTestProcess] ❌ globalWss가 null입니다.`);
+          }
+          
+          // runSinglePageProcess() 실행
         const result = await runSinglePageProcess();
         
         // 성공 여부 확인
@@ -1323,6 +1355,17 @@ export async function runTimeModeTestProcess() {
     
     // T_end 시간까지 대기
     console.log(`[TimeModeTestProcess] ⏰ T_end 시간까지 대기 (${Math.round(T_end/60000)}분)`);
+    
+    // 대기 시작 알림
+    if (globalWss) {
+      const waitStartMessage = `[TEST_PROGRESS] 모든 측정 완료 - T_end 시간까지 대기 중 (${Math.round(T_end/60000)}분)`;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(waitStartMessage);
+        }
+      });
+    }
+    
     while (CtrlTimer < T_end) {
       // 중지 요청 확인
       if (getProcessStopRequested()) {
@@ -1373,6 +1416,16 @@ export async function runTimeModeTestProcess() {
     // 프로세스 완료 후 전역 디렉토리명 초기화 (모든 파일 생성 완료 후)
     console.log(`[TimeModeTestProcess] 📁 프로세스 완료 - 전역 디렉토리명 초기화: ${currentTestDirectoryName}`);
     currentTestDirectoryName = null;
+    
+    // 테스트 완료 알림
+    if (globalWss) {
+      const testCompleteMessage = `[TEST_COMPLETED] 시간 모드 테스트 프로세스 완료 - 총 ${i}개 단계 완료`;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(testCompleteMessage);
+        }
+      });
+    }
     
     return { 
       status: 'completed', 
