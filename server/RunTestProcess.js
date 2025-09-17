@@ -80,7 +80,8 @@ function sendTimeProgress(data) {
 
 // 1분 간격으로 시간 진행 상황을 업데이트하는 함수
 function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'waiting') {
-  const intervalId = setInterval(() => {
+  // 즉시 첫 번째 업데이트 실행
+  const updateTimeProgress = () => {
     const currentTime = Date.now();
     const elapsedTime = currentTime - startTime;
     const remainingTime = Math.max(0, totalDuration - elapsedTime);
@@ -105,7 +106,13 @@ function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'wait
     if (remainingTime <= 0) {
       clearInterval(intervalId);
     }
-  }, 60000); // 1분 간격
+  };
+  
+  // 즉시 첫 번째 업데이트 실행
+  updateTimeProgress();
+  
+  // 그 후 1분 간격으로 업데이트
+  const intervalId = setInterval(updateTimeProgress, 60000);
   
   return intervalId;
 }
