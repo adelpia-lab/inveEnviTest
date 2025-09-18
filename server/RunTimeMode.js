@@ -63,6 +63,8 @@ function sendTimeProgress(data) {
 
 // 1분 간격으로 시간 진행 상황을 업데이트하는 함수
 function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'waiting') {
+  let isFirstSend = true; // 첫 번째 전송 여부 추적
+  
   // 즉시 첫 번째 업데이트 실행
   const updateTimeProgress = () => {
     const currentTime = Date.now();
@@ -83,7 +85,15 @@ function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'wait
       timestamp: new Date().toISOString()
     };
     
-    sendTimeProgress(timeProgressData);
+    // 첫 번째 전송만 실행하고 이후에는 전송하지 않음
+    if (isFirstSend) {
+      console.log('📤 Sending first TIME_PROGRESS message - totalMinutes:', timeProgressData.totalMinutes);
+      sendTimeProgress(timeProgressData);
+      isFirstSend = false;
+      console.log('🔒 TIME_PROGRESS sending disabled - client will use local calculation');
+    } else {
+      console.log('🔒 TIME_PROGRESS sending skipped - client using local calculation');
+    }
     
     // 시간이 다 되었으면 인터벌 정리
     if (remainingTime <= 0) {
@@ -1484,9 +1494,8 @@ export async function runTimeModeTestProcess() {
           
           if (remainingTime > 0) {
             console.log(`[TimeModeTestProcess] ⏰ 다음 단계 대기 시작 - ${Math.round(nextWaitTime/60000)}분 후 실행`);
-            const nextTimeProgressInterval = startTimeProgressUpdates(nextStartTime, remainingTime, 'waiting');
-            // 다음 루프에서 사용할 수 있도록 변수 업데이트
-            timeProgressInterval = nextTimeProgressInterval;
+            console.log('🔒 TIME_PROGRESS sending skipped - client using local calculation');
+            // 시간 진행 상황 업데이트는 클라이언트에서 로컬 계산으로 처리
           }
         }
       } else {
@@ -1771,20 +1780,18 @@ export async function runNextTankEnviTestProcess() {
         const tempCheckInterval = 1000; // 1초마다 중지 요청 확인
         let lastTempCheck = Date.now();
         
-        // 온도 대기 시작 시간 기록 및 시간 진행 상황 업데이트 시작
+        // 온도 대기 시작 시간 기록
         const tempWaitStartTime = Date.now();
         const estimatedTempWaitTime = 30 * 60 * 1000; // 30분 예상 대기 시간
-        let tempWaitProgressInterval = startTimeProgressUpdates(tempWaitStartTime, estimatedTempWaitTime, 'temperature_waiting');
+        console.log('🔒 TIME_PROGRESS sending skipped - client using local calculation');
+        // 시간 진행 상황 업데이트는 클라이언트에서 로컬 계산으로 처리
         
         while(true) {
           // 중지 요청 확인 - 온도 대기 중
           if (getProcessStopRequested()) {
             console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 고온 테스트 온도 대기 중 중단`);
             
-            // 온도 대기 진행 상황 인터벌 정리
-            if (tempWaitProgressInterval) {
-              clearInterval(tempWaitProgressInterval);
-            }
+            // 온도 대기 진행 상황 인터벌 정리 (이미 제거됨)
             
             // PowerSwitch 상태 OFF 설정
             setMachineRunningStatus(false);
@@ -1949,10 +1956,7 @@ export async function runNextTankEnviTestProcess() {
           if(chamberTemp >= highTemp) {
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 시작 (${chamberTemp}°C)`);
             
-            // 온도 대기 진행 상황 인터벌 정리
-            if (tempWaitProgressInterval) {
-              clearInterval(tempWaitProgressInterval);
-            }
+            // 온도 대기 진행 상황 인터벌 정리 (이미 제거됨)
             
             // waitTime 분 만큼 대기 (중지 요청 확인 가능)
             if(getSimulationMode() === false){

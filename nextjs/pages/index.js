@@ -98,9 +98,88 @@ const [hasUserInteracted, setHasUserInteracted] = useState(false);
 const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
 const [pendingExit, setPendingExit] = useState(false);
 const [timeProgress, setTimeProgress] = useState(null);
+const [testStartTime, setTestStartTime] = useState(null);
+const [fixedTotalMinutes, setFixedTotalMinutes] = useState(null);
+
+// fixedTotalMinutes를 안전하게 설정하는 함수 (한 번만 설정 가능)
+const setFixedTotalMinutesSafe = (value) => {
+  if (fixedTotalMinutes !== null) {
+    console.log('🔒 BLOCKED: Attempt to change fixedTotalMinutes from', fixedTotalMinutes, 'to', value, '- REJECTED');
+    return;
+  }
+  console.log('🔒 Setting fixedTotalMinutes to:', value, '- This value will NEVER change');
+  setFixedTotalMinutes(value);
+};
 
 // 디버깅을 위한 로그
 console.log('🔌 Main: channelVoltages 상태:', channelVoltages);
+
+// 시간 진행 상황 계산 함수
+const calculateTimeProgress = () => {
+  if (!testStartTime || !fixedTotalMinutes || fixedTotalMinutes <= 0) {
+    console.log('⚠️ Cannot calculate time progress - missing required values:', {
+      testStartTime: !!testStartTime,
+      fixedTotalMinutes: fixedTotalMinutes
+    });
+    return null;
+  }
+  
+  const currentTime = Date.now();
+  const elapsedTime = currentTime - testStartTime;
+  const elapsedMinutes = Math.floor(elapsedTime / (1000 * 60));
+  const remainingMinutes = Math.max(0, fixedTotalMinutes - elapsedMinutes);
+  const progressPercentage = Math.min(100, Math.floor((elapsedMinutes / fixedTotalMinutes) * 100));
+  
+  // 진행 상황에 따른 phase 결정
+  let phase = 'waiting';
+  if (elapsedMinutes === 0) {
+    phase = 'starting';
+  } else if (remainingMinutes <= 0) {
+    phase = 'completed';
+  } else {
+    phase = 'waiting';
+  }
+  
+  const result = {
+    phase: phase,
+    startTime: testStartTime,
+    currentTime: currentTime,
+    elapsedTime: elapsedTime,
+    totalDuration: fixedTotalMinutes * 60 * 1000,
+    remainingTime: remainingMinutes * 60 * 1000,
+    elapsedMinutes: elapsedMinutes,
+    remainingMinutes: remainingMinutes,
+    totalMinutes: fixedTotalMinutes, // 항상 고정값 사용 - 절대 변경되지 않음
+    progressPercentage: progressPercentage,
+    timestamp: new Date().toISOString()
+  };
+  
+  // 디버깅 로그 (너무 자주 출력되지 않도록 10초마다)
+  if (elapsedMinutes % 10 === 0 || elapsedMinutes < 5) {
+    console.log('⏰ Local calculation (FIXED totalMinutes):', {
+      fixedTotalMinutes: fixedTotalMinutes,
+      elapsedMinutes: elapsedMinutes,
+      remainingMinutes: remainingMinutes,
+      progressPercentage: progressPercentage
+    });
+  }
+  
+  return result;
+};
+
+// 시간 진행 상황 업데이트를 위한 useEffect
+useEffect(() => {
+  if (!testStartTime || !fixedTotalMinutes || fixedTotalMinutes <= 0) return;
+  
+  const interval = setInterval(() => {
+    const newTimeProgress = calculateTimeProgress();
+    if (newTimeProgress) {
+      setTimeProgress(newTimeProgress);
+    }
+  }, 1000); // 1초마다 업데이트
+  
+  return () => clearInterval(interval);
+}, [testStartTime, fixedTotalMinutes]);
 
   // WebSocket 연결 상태 확인 함수
   const isWebSocketReady = () => {
@@ -166,7 +245,14 @@ useEffect(() => {
         setIsMeasurementActive(true);
         // 시간 모드 테스트가 아닌 경우에만 기본 상황창 표시 (시간 모드 테스트는 TEST_PROGRESS에서 처리)
         if (!event.data.includes('시간 모드 테스트 프로세스')) {
+          // fixedTotalMinutes가 이미 설정되어 있으면 서버 데이터 무시
+          if (fixedTotalMinutes) {
+            console.log('🔒 BLOCKED: Main handler - fixedTotalMinutes already set, ignoring server data');
+            return;
+          }
           const currentTime = Date.now();
+          setTestStartTime(currentTime);
+          // 서버에서 계산된 실제 총 시간을 기다리기 위해 초기값만 설정
           setTimeProgress({
             phase: 'starting',
             startTime: currentTime,
@@ -187,6 +273,8 @@ useEffect(() => {
         setIsMeasurementActive(false);
         // 테스트 중지 시 시간 진행 상황 초기화
         setTimeProgress(null);
+        setTestStartTime(null);
+        setFixedTotalMinutes(null);
       }
     }
     // [SAVE_PRODUCT_INPUT] 메시지 처리
@@ -258,6 +346,28 @@ useEffect(() => {
         if (match && match[1]) {
           const timeProgressData = JSON.parse(match[1]);
           console.log('⏰ Time progress received:', timeProgressData);
+          
+          // fixedTotalMinutes가 이미 설정되어 있으면 서버 메시지 완전 무시
+          if (fixedTotalMinutes) {
+            console.log('🔒 BLOCKED: Server TIME_PROGRESS message ignored - using fixed totalMinutes:', fixedTotalMinutes);
+            console.log('🔒 Server tried to send totalMinutes:', timeProgressData.totalMinutes, '- REJECTED');
+            return; // 서버 메시지 완전 무시
+          }
+          
+          // 서버에서 받은 totalMinutes가 있으면 고정값으로 설정 (한 번만 설정)
+          if (timeProgressData.totalMinutes && timeProgressData.totalMinutes > 0) {
+            console.log('🔒 Setting fixed total minutes from server:', timeProgressData.totalMinutes);
+            console.log('🔒 This value will NEVER change during the test session');
+            setFixedTotalMinutesSafe(timeProgressData.totalMinutes);
+          }
+          
+          // 서버에서 받은 startTime이 있으면 테스트 시작 시간으로 설정
+          if (timeProgressData.startTime && !testStartTime) {
+            setTestStartTime(timeProgressData.startTime);
+          }
+          
+          // 첫 번째 서버값 사용 (totalMinutes는 나중에 고정값으로 덮어쓸 예정)
+          console.log('📡 Using first server data - fixedTotalMinutes not set yet');
           setTimeProgress(timeProgressData);
         }
       } catch (err) {
@@ -268,6 +378,8 @@ useEffect(() => {
     else if (typeof event.data === 'string' && event.data.startsWith('[TEST_COMPLETED]')) {
       console.log('🔌 Test completed message received:', event.data);
       setTimeProgress(null);
+      setTestStartTime(null);
+      setFixedTotalMinutes(null);
     }
     // [TEST_PROGRESS] 메시지 처리 - 테스트 시작 시 상황창 표시
     else if (typeof event.data === 'string' && event.data.startsWith('[TEST_PROGRESS]')) {
@@ -277,7 +389,14 @@ useEffect(() => {
       if (event.data.includes('테스트 시작 - 시간 모드 테스트 프로세스')) {
         console.log('🔌 Time mode test process started - showing progress window');
         // 테스트 시작 시 즉시 기본 시간 진행 상황 표시
+        // fixedTotalMinutes가 이미 설정되어 있으면 서버 데이터 무시
+        if (fixedTotalMinutes) {
+          console.log('🔒 BLOCKED: TEST_PROGRESS handler - fixedTotalMinutes already set, ignoring server data');
+          return;
+        }
         const currentTime = Date.now();
+        setTestStartTime(currentTime);
+        // 서버에서 계산된 실제 총 시간을 기다리기 위해 초기값만 설정
         setTimeProgress({
           phase: 'starting',
           startTime: currentTime,
@@ -420,6 +539,11 @@ useEffect(() => {
                 setIsMeasurementActive(true);
                 // 시간 모드 테스트가 아닌 경우에만 기본 상황창 표시 (시간 모드 테스트는 TEST_PROGRESS에서 처리)
                 if (!event.data.includes('시간 모드 테스트 프로세스')) {
+                  // fixedTotalMinutes가 이미 설정되어 있으면 서버 데이터 무시
+                  if (fixedTotalMinutes) {
+                    console.log('🔒 BLOCKED: Reconnection handler - fixedTotalMinutes already set, ignoring server data');
+                    return;
+                  }
                   const currentTime = Date.now();
                   setTimeProgress({
                     phase: 'starting',
@@ -589,6 +713,11 @@ useEffect(() => {
               setIsMeasurementActive(true);
               // 시간 모드 테스트가 아닌 경우에만 기본 상황창 표시 (시간 모드 테스트는 TEST_PROGRESS에서 처리)
               if (!event.data.includes('시간 모드 테스트 프로세스')) {
+                // fixedTotalMinutes가 이미 설정되어 있으면 서버 데이터 무시
+                if (fixedTotalMinutes) {
+                  console.log('🔒 BLOCKED: Auto-reconnection handler - fixedTotalMinutes already set, ignoring server data');
+                  return;
+                }
                 const currentTime = Date.now();
                 setTimeProgress({
                   phase: 'starting',
