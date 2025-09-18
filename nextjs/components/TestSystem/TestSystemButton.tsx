@@ -31,7 +31,7 @@ const TestSystemButton: React.FC<TestSystemButtonProps> = ({ wsConnection }) => 
   };
 
   return (
-    <Box>
+    <Box sx={{ p: 0.5, textAlign: 'center', mt: 1, display: 'flex', justifyContent: 'center' }}>
       <Button
         ref={buttonRef}
         variant="contained"
@@ -46,7 +46,9 @@ const TestSystemButton: React.FC<TestSystemButtonProps> = ({ wsConnection }) => 
           borderRadius: '8px',
           padding: '8px 16px',
           textTransform: 'none',
-          fontWeight: 500
+          fontWeight: 500,
+          width: '140px',
+          py: 0.5
         }}
       >
         시스템 테스트

@@ -75,7 +75,7 @@ export default function OutVoltSettingPanel({ wsConnection }: { wsConnection?: W
       {/* 입력 전압 1~4 */}
       {[0, 1, 2, 3].map(idx => (
         <div key={idx} className="flex items-center w-full justify-between mb-2">
-          <span className="font-medium px-2 py-1 mb-2" style={{ fontSize: '1.2rem' }}>{`입력전압${idx + 1}`}</span>
+          <span className="font-medium px-2 py-1 mb-2" style={{ fontSize: '1.1rem' }}>{`입력전압${idx + 1}`}</span>
           <input
             type="number"
             step="0.1"
@@ -85,9 +85,9 @@ export default function OutVoltSettingPanel({ wsConnection }: { wsConnection?: W
             max={50}
             onChange={e => handleVoltageChange(idx, Number(e.target.value))}
             disabled={!isOutVoltEnabled}
-            style={{ fontSize: '1.5rem', width: '80px', minWidth: '80px', maxWidth: '80px' }}
+            style={{ fontSize: '1.3rem', width: '80px', minWidth: '80px', maxWidth: '80px', height: 'calc(100% - 2px)' }}
           />
-          <span style={{ fontSize: '1.2rem' }}>Volt</span>
+          <span style={{ fontSize: '1.1rem' }}>Volt</span>
         </div>
       ))}
       {/* 에러 메시지 */}

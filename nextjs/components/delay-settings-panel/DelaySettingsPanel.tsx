@@ -192,21 +192,25 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
     <>
       {/* 메인 버튼 */}
       <Box
-        sx={{ p: 1, textAlign: 'center', mt: 1, display: 'flex', justifyContent: 'center', fontFamily: 'inherit' }}
+        sx={{ p: 0.5, textAlign: 'center', mt: 1, display: 'flex', justifyContent: 'center', fontFamily: 'inherit' }}
       >
         <Button
           variant="outlined"
           onClick={handleOpenDialog}
           disabled={isLoading}
           sx={{ 
-            width: '120px',
+            width: '140px',
             mb: 1,
+            py: 0.5,
+            borderColor: '#64B5F6',
+            color: '#64B5F6',
             '&:hover': {
-              backgroundColor: '#64B5F6',
+              borderColor: '#42A5F5',
+              backgroundColor: 'rgba(100, 181, 246, 0.1)'
             }
           }}
         >
-          {isLoading ? '로딩...' : '딜레이/싸이클 설정'}
+          {isLoading ? '로딩...' : '딜레이/싸이클'}
         </Button>
       </Box>
 

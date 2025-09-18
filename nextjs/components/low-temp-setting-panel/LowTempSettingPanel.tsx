@@ -330,7 +330,7 @@ export default function LowTempSettingPanel({
       </div>
       {/* 저온 설정 */}
       <div className="flex items-center w-full justify-between mb-2 gap-2">
-        <span className="font-medium px-2 py-1 mb-2" style={{ fontSize: '1.2rem' }}>저온 설정</span>
+        <span className="font-medium px-2 py-1 mb-2" style={{ fontSize: '1.1rem' }}>저온 설정</span>
         <input
           type="number"
           className="text-right border border-gray-400 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
@@ -339,14 +339,14 @@ export default function LowTempSettingPanel({
           max={99}
           onChange={e => handleChange('targetTemp', Number(e.target.value))}
           disabled={!isLowTempEnabled}
-          style={{ fontSize: '1.5rem', width: '80px', minWidth: '80px', maxWidth: '80px' }}
+          style={{ fontSize: '1.3rem', width: '80px', minWidth: '80px', maxWidth: '80px', height: 'calc(100% - 2px)' }}
         />
-        <span style={{ fontSize: '1.2rem' }}>℃</span>
+        <span style={{ fontSize: '1.1rem' }}>℃</span>
       </div>
 
       {/* 대기 시간 */}
       <div className="flex items-center w-full justify-between mb-2">
-        <span className="font-medium px-2 py-1" style={{ fontSize: '1.2rem' }}>대기 시간</span>
+        <span className="font-medium px-2 py-1" style={{ fontSize: '1.1rem' }}>대기 시간</span>
         <input
             type="number"
             className="text-right border border-gray-400 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
@@ -355,14 +355,14 @@ export default function LowTempSettingPanel({
             max={999}
             onChange={e => handleChange('waitTime', Number(e.target.value))}
             disabled={!isLowTempEnabled}
-            style={{ fontSize: '1.5rem', width: '80px', minWidth: '80px', maxWidth: '80px' }}
+            style={{ fontSize: '1.3rem', width: '80px', minWidth: '80px', maxWidth: '80px', height: 'calc(100% - 2px)' }}
         />
-          <span style={{ fontSize: '1.2rem' }}>분</span>
+          <span style={{ fontSize: '1.1rem' }}>분</span>
       </div>
 
       {/* 읽기 횟수 */}
       <div className="flex items-center w-full justify-between mb-2">
-      <span className="font-medium px-2 py-1" style={{ fontSize: '1.2rem' }}>ON/OFF</span>
+      <span className="font-medium px-2 py-1" style={{ fontSize: '1.1rem' }}>ON/OFF</span>
           <input
             type="number"
             className="text-right border border-gray-400 rounded px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
@@ -371,9 +371,9 @@ export default function LowTempSettingPanel({
             max={10}
             onChange={e => handleChange('readCount', Number(e.target.value))}
             disabled={!isLowTempEnabled} 
-            style={{ fontSize: '1.5rem', width: '80px', minWidth: '80px', maxWidth: '80px' }}
+            style={{ fontSize: '1.3rem', width: '80px', minWidth: '80px', maxWidth: '80px', height: 'calc(100% - 2px)' }}
             />
-          <span style={{ fontSize: '1.2rem' }}>회</span>
+          <span style={{ fontSize: '1.1rem' }}>회</span>
     </div>
 
     {/* 상태 메시지 */}

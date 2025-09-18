@@ -1176,23 +1176,23 @@ const sendMessage = () => {
         </main>
 
         <footer className={styles.footer}>
-            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', padding: '10px' }}> 
+            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', padding: '4px 10px 10px 10px' }}> 
               <ProductInput wsConnection={ws.current} /> 
               <DelaySettingsPanel wsConnection={ws.current} />
               <ChannelVoltageSettings wsConnection={ws.current} />
               <TestSystemButton wsConnection={ws.current} />
             </div>
-            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '10px' }}> 
+            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '4px 10px 10px 10px' }}> 
               <OutVoltSettingPanel wsConnection={ws.current} />            
             </div>
-            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '10px' }}> 
+            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '4px 10px 10px 10px' }}> 
               {/* <SetVolt initialValue="PowerOff" onSelectionChange={ handleSelectionFromVoltSelect } /> */}
               <HighTempSettingPanel wsConnection={ws.current} />
             </div>
-            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '10px' }}>          
+            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '4px 10px 10px 10px' }}>          
               <LowTempSettingPanel wsConnection={ws.current} />
             </div>
-            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '10px 10px 10px 10px', paddingTop: '12px' }}> 
+            <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '4px 10px 10px 10px' }}> 
               <UsbPortSelect wsConnection={ws.current} onSelectionChange={handleUsbPortSelection} />
             </div>
         </footer>

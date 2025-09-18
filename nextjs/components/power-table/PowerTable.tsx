@@ -1233,29 +1233,34 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       </div>
       
       {/* 테이블 컨테이너 - 그리드 영역 */}
-      <div className="overflow-x-auto" style={{ 
+      <div className="overflow-x-auto overflow-y-auto" style={{ 
         width: '100%', 
         gridArea: 'table',
         backgroundColor: '#1a1b20',
         borderRadius: '8px',
-        padding: '10px'
+        padding: '10px',
+        maxHeight: 'calc(100vh - 300px)', /* 최대 높이 설정으로 스크롤 가능하게 함 */
+        minHeight: '400px', /* 최소 높이 보장 */
+        /* 스크롤바 스타일링 */
+        scrollbarWidth: 'thin',
+        scrollbarColor: '#4a5568 #2d3748'
       }}>
         <table className="w-full text-xs sm:text-sm md:text-base text-left text-gray-300 border-separate border-spacing-0" style={{ width: '100%', tableLayout: 'fixed' }}>
           <thead className="sticky top-0 z-10">
-            <tr className="bg-[#23242a]">
-              <th className="px-1 py-0" style={{ width: '8%', fontSize: '20px' }}>입력</th>
-              <th className="px-1 py-0" style={{ width: '8%', fontSize: '20px' }}>출력</th>
+            <tr className="bg-[#23242a]" style={{ height: '36px' }}>
+              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>입력</th>
+              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>출력</th>
               {Array.from({ length: 10 }, (_, i) => (
-                <th key={i} className="px-1 py-0" style={{ width: '6%', fontSize: '20px' }}>dev{String(i+1).padStart(2,'0')}</th>
+                <th key={i} className="px-1 py-0" style={{ width: '6%', fontSize: '16px', height: '36px' }}>dev{String(i+1).padStart(2,'0')}</th>
               ))}
-              <th className="px-1 py-0" style={{ width: '8%', fontSize: '20px' }}>GOOD</th>
+              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>GOOD</th>
             </tr>
           </thead>
           <tbody>
             {group.rows.map((row, idx) => (
-              <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#3a3a3a' : '#1a1a1a' }}>
-                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>{row.input}</td>
-                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>{getOutputVoltageDisplay(row.output)}</td>
+              <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#3a3a3a' : '#1a1a1a', height: '31px' }}>
+                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px' }}>{row.input}</td>
+                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px' }}>{getOutputVoltageDisplay(row.output)}</td>
                 {row.devs.map((v, i) => {
                   try {
                     // 누적된 전압 데이터를 사용하여 표시
@@ -1273,20 +1278,20 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
                     const accumulatedVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, channelNumber);
                     
                     return (
-                      <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px' }}>
+                      <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px' }}>
                         {accumulatedVoltage}
                       </td>
                     );
                   } catch (error) {
                     console.error(`PowerTable: 디바이스 ${i+1} 데이터 표시 오류:`, error);
                     return (
-                      <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '18px', color: '#EF4444' }}>
+                      <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px', color: '#EF4444' }}>
                         ERROR
                       </td>
                     );
                   }
                 })}
-                <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '18px' }}>
+                <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '16px', height: '31px' }}>
                   {(() => {
                     // 현재 행의 출력값을 기반으로 채널 번호 결정
                     const channelNumber = getChannelNumberFromOutput(row.output);

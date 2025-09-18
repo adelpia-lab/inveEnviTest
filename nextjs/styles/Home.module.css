@@ -44,7 +44,7 @@
 
 /* 바디 스타일 */
 .bodyContent {
-  height: calc(100vh - 10vh - 25vh - 50px); /* 전체 높이에서 헤더(10vh)와 푸터(25vh)를 빼고 50px 추가로 감소 */
+  height: calc(100vh - 10vh - 21vh - 30px); /* 푸터 높이를 21vh로 변경 */
   min-height: 0; /* flex 아이템 최소 높이 설정 */
   display: grid;
   grid-template-columns: 160px 1fr; /* 반응형 그리드 */
@@ -53,7 +53,7 @@
   font-size: clamp(16px, 2vw, 24px); /* 반응형 폰트 크기 */
   color: #e0e0e0; /* 다크 모드: 바디 글자색 */
   margin-top: 8px; /* 헤더와 바디 사이 간격 */
-  overflow: hidden; /* 바디 내부 스크롤 방지 */
+  overflow: visible; /* 바디 내부 스크롤 허용 */
 }
 
 .bodyItem {
@@ -69,9 +69,9 @@
 
 /* 푸터 스타일 */
 .footer {
-  height: calc(25vh + 50px); /* 뷰포트 높이의 25% + 50px */
-  min-height: 250px; /* 최소 높이 보장 (200px + 50px) */
-  max-height: 350px; /* 최대 높이 제한 (300px + 50px) */
+  height: calc(21vh + 30px); /* 뷰포트 높이의 21% + 30px로 변경 */
+  min-height: 200px; /* 최소 높이 보장 (기존 250px에서 200px로 줄임) */
+  max-height: 300px; /* 최대 높이 제한 (기존 350px에서 300px로 줄임) */
   display: grid;
   /* 반응형 그리드 - 화면 크기에 따라 조정 */
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -85,7 +85,7 @@
 .footerItem {
   border-radius:  7px;
   text-align: center;
-  padding: 8px;
+  padding: 4px; /* 8px에서 4px로 줄임 */
   width: 100%; /* 최대 너비로 설정 */
   height: 100%; /* 최대 높이로 설정 */
   display: flex; /* flexbox 사용 */
@@ -166,10 +166,11 @@
   
   .bodyContent {
     grid-template-columns: 80px 1fr;
+    height: calc(100vh - 8vh - 15vh - 20px); /* 모바일에서 더 많은 공간 확보 */
   }
   
   .footer {
-    height: 30vh;
+    height: 15vh; /* 모바일에서 푸터 높이 줄임 */
     grid-template-columns: 1fr;
   }
 }

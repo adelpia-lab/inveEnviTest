@@ -282,12 +282,21 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
   };
 
   return (
-    <Box sx={{ p: 1, textAlign: 'center', mt: 1, display: 'flex', justifyContent: 'center' }}>
+    <Box sx={{ p: 0.5, textAlign: 'center', mt: 1, display: 'flex', justifyContent: 'center' }}>
       <Button 
         variant="outlined" 
         onClick={handleClickOpen} 
         size="large"
-        sx={{ width: '120px' }}
+        sx={{ 
+          width: '140px', 
+          py: 0.5,
+          borderColor: '#64B5F6',
+          color: '#64B5F6',
+          '&:hover': {
+            borderColor: '#42A5F5',
+            backgroundColor: 'rgba(100, 181, 246, 0.1)'
+          }
+        }}
       >
         번호입력
       </Button>
