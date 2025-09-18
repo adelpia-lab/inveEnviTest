@@ -267,7 +267,7 @@ function Now() {
 }
 
 /**
- * 현재 날짜와 시간을 yymmdd_hhmm 형식으로 반환
+ * 현재 날짜와 시간을 yymmdd_hhmm 형식으로 반환 (영문 형식)
  */
 function getFormattedDateTime() {
   const now = new Date();
@@ -374,7 +374,7 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
       console.log(`[SaveData] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
-      console.log(`[SaveData] 📅 디렉토리명: ${dateDirectoryName} (${new Date().toLocaleString('ko-KR')})`);
+      console.log(`[SaveData] 📅 디렉토리명: ${dateDirectoryName} (${new Date().toLocaleString('en-US')})`);
       
       // 클라이언트에게 디렉토리 생성 알림 전송
       if (globalWss) {
@@ -758,8 +758,8 @@ export async function runSinglePageProcess() {
       ProductNumber: getTableOption.ProductNumber || ['Unknown'],
       inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
       reportTable: [{
-        TestDate: new Date().toLocaleDateString('ko-KR'),
-        TestTime: new Date().toLocaleTimeString('ko-KR'),
+        TestDate: new Date().toLocaleDateString('en-US'),
+        TestTime: new Date().toLocaleTimeString('en-US'),
         TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
         voltagTable: Array(3).fill(null).map(() => 
           Array(10).fill(null).map(() => 
@@ -3068,7 +3068,7 @@ async function generateFinalDeviceReport(cycleNumber) {
     
     let reportContent = '';
      reportContent += `=== Device Comprehensive Test Report ===\n`;
-     reportContent += `Generated Date,${new Date().toLocaleString('ko-KR')}\n`;
+     reportContent += `Generated Date,${new Date().toLocaleString('en-US')}\n`;
      reportContent += `Total Cycles,${cycleNumber}\n`;
      reportContent += `Analyzed Files,${processedFiles}\n`;
     reportContent += `\n`;
@@ -3310,7 +3310,7 @@ function analyzeStopReason(stopReason, errorMessage, stoppedAtPhase) {
     originalReason: stopReason,
     errorMessage: errorMessage || '',
     stoppedAtPhase: stoppedAtPhase || 'unknown',
-    timestamp: new Date().toLocaleString('ko-KR')
+    timestamp: new Date().toLocaleString('en-US')
   };
 }
 
@@ -3397,7 +3397,7 @@ export async function generateInterruptedTestResultFile(options) {
         severity: '정보',
         actionRequired: '추가 조치 불필요',
         errorMessage: '',
-        timestamp: new Date().toLocaleString('ko-KR')
+        timestamp: new Date().toLocaleString('en-US')
       };
     } else {
       stopAnalysis = analyzeStopReason(stopReason, errorMessage, stoppedAtPhase);
@@ -3485,8 +3485,8 @@ export async function generateInterruptedTestResultFile(options) {
       csvContent += `순번,파일명,크기(KB),생성시간,수정시간\n`;
       measurementFiles.forEach((file, index) => {
         const sizeKB = (file.size / 1024).toFixed(1);
-        const createdTime = file.created.toLocaleString('ko-KR');
-        const modifiedTime = file.modified.toLocaleString('ko-KR');
+        const createdTime = file.created.toLocaleString('en-US');
+        const modifiedTime = file.modified.toLocaleString('en-US');
         csvContent += `${index + 1},${file.filename},${sizeKB},${createdTime},${modifiedTime}\n`;
       });
     }
