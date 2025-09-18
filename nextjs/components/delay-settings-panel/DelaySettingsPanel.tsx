@@ -4,8 +4,8 @@ import { Button, Typography, Dialog, DialogTitle, DialogContent, DialogActions, 
 
 // Zod 스키마 정의
 const delaySettingsSchema = z.object({
-  onDelay: z.number().min(0).max(999),
-  offDelay: z.number().min(0).max(999),
+  onDelay: z.number().min(2).max(999),
+  offDelay: z.number().min(2).max(999),
   cycleNumber: z.number().min(1).max(3),
 });
 
@@ -13,8 +13,8 @@ type DelaySettings = z.infer<typeof delaySettingsSchema>;
 
 // 기본값 정의
 const DEFAULT_DELAY_SETTINGS: DelaySettings = {
-  onDelay: 0,
-  offDelay: 0,
+  onDelay: 2,
+  offDelay: 2,
   cycleNumber: 1,
 };
 
@@ -150,7 +150,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
   const handleSave = () => {
     const result = delaySettingsSchema.safeParse(form);
     if (!result.success) {
-      setError('입력값을 확인하세요. (0-999 SEC)');
+      setError('입력값을 확인하세요. (2-999 SEC)');
       return;
     }
     setError(null);
@@ -247,7 +247,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
                   value={form.onDelay}
                   onChange={(e) => handleChange('onDelay', Number(e.target.value))}
                   inputProps={{
-                    min: 0,
+                    min: 2,
                     max: 999,
                     style: { 
                       fontSize: '1.5rem',
@@ -288,7 +288,7 @@ export default function DelaySettingsPanel({ onSave, wsConnection }: DelaySettin
                   value={form.offDelay}
                   onChange={(e) => handleChange('offDelay', Number(e.target.value))}
                   inputProps={{
-                    min: 0,
+                    min: 2,
                     max: 999,
                     style: { 
                       fontSize: '1.5rem',
