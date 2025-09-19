@@ -787,8 +787,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
             // 테이블 완성도 정보 업데이트 (POWER_TABLE_UPDATE와 POWER_TABLE_COMPLETE에서만)
             if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
                 tableData.completionPercentage !== undefined) {
+              // 선택된 디바이스 수에 따른 동적 계산
+              const dynamicTotalCells = selectedDevices.length * 3 * 4;
               setTableCompletionStatus({
-                totalCells: tableData.totalCells || 120,
+                totalCells: tableData.totalCells || dynamicTotalCells,
                 filledCells: tableData.completedCells || 0,
                 completionPercentage: tableData.completionPercentage || 0,
                 isComplete: tableData.completionPercentage >= 95
@@ -954,13 +956,13 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     // 새로운 테이블 업데이트 방식으로 데모 데이터 생성
     const demoTableData = {
       timestamp: new Date().toISOString(),
-      totalDevices: 10,
+      totalDevices: selectedDevices.length,
       totalTests: 3,
       totalChannels: 4,
       completionPercentage: 100.0,
-      completedCells: 120,
-      totalCells: 120,
-      tableData: Array.from({ length: 10 }, (_, deviceIndex) =>
+      completedCells: selectedDevices.length * 3 * 4,
+      totalCells: selectedDevices.length * 3 * 4,
+      tableData: Array.from({ length: selectedDevices.length }, (_, deviceIndex) =>
         Array.from({ length: 3 }, (_, testIndex) =>
           Array.from({ length: 4 }, (_, channelIndex) => {
             // 현재 설정된 channelVoltages 값을 사용하여 랜덤한 전압값 생성
@@ -972,8 +974,8 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         )
       ),
       summary: {
-        totalCells: 120,
-        completedCells: 120,
+        totalCells: selectedDevices.length * 3 * 4,
+        completedCells: selectedDevices.length * 3 * 4,
         status: 'completed'
       }
     };
@@ -1009,8 +1011,8 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     
     // 테이블 완성도 상태도 업데이트
     setTableCompletionStatus({
-      totalCells: 120,
-      filledCells: 120,
+      totalCells: selectedDevices.length * 3 * 4,
+      filledCells: selectedDevices.length * 3 * 4,
       completionPercentage: 100,
       isComplete: true
     });

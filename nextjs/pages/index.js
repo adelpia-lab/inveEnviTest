@@ -68,6 +68,7 @@ import DelaySettingsPanel from "/components/delay-settings-panel/DelaySettingsPa
 import TestSystemButton from "/components/TestSystem/TestSystemButton";
 import ChannelVoltageSettings from "/components/ChannelVoltageSettings/ChannelVoltageSettings";
 import TimeModePopup from "/components/TimeModePopup/TimeModePopup";
+import TimeProgressWindow from "/components/TimeProgressWindow/TimeProgressWindow";
 const PowerTable = dynamic(() => import('../components/power-table/PowerTable'), { ssr: false });
 // import WebSocketClient from "/components/WebSocketClient/WebSocketClient";
 
@@ -97,89 +98,26 @@ const [isMeasurementActive, setIsMeasurementActive] = useState(false);
 const [hasUserInteracted, setHasUserInteracted] = useState(false);
 const [showExitConfirmModal, setShowExitConfirmModal] = useState(false);
 const [pendingExit, setPendingExit] = useState(false);
-const [timeProgress, setTimeProgress] = useState(null);
-const [testStartTime, setTestStartTime] = useState(null);
-const [fixedTotalMinutes, setFixedTotalMinutes] = useState(null);
+// 시간진행 윈도우 상태
+const [showTimeWindow, setShowTimeWindow] = useState(false);
+const [testDuration, setTestDuration] = useState(0); // 총 테스트 시간 (분)
+const [testStartTime, setTestStartTime] = useState(null); // 테스트 시작 시간
 
-// fixedTotalMinutes를 안전하게 설정하는 함수 (한 번만 설정 가능)
-const setFixedTotalMinutesSafe = (value) => {
-  if (fixedTotalMinutes !== null) {
-    console.log('🔒 BLOCKED: Attempt to change fixedTotalMinutes from', fixedTotalMinutes, 'to', value, '- REJECTED');
-    return;
-  }
-  console.log('🔒 Setting fixedTotalMinutes to:', value, '- This value will NEVER change');
-  setFixedTotalMinutes(value);
+// 시간진행 윈도우 표시/숨김 함수
+const showTimeProgressWindow = (duration) => {
+  setTestDuration(duration);
+  setTestStartTime(Date.now());
+  setShowTimeWindow(true);
+};
+
+const hideTimeProgressWindow = () => {
+  setShowTimeWindow(false);
+  setTestDuration(0);
+  setTestStartTime(null);
 };
 
 // 디버깅을 위한 로그
 console.log('🔌 Main: channelVoltages 상태:', channelVoltages);
-
-// 시간 진행 상황 계산 함수
-const calculateTimeProgress = () => {
-  if (!testStartTime || !fixedTotalMinutes || fixedTotalMinutes <= 0) {
-    console.log('⚠️ Cannot calculate time progress - missing required values:', {
-      testStartTime: !!testStartTime,
-      fixedTotalMinutes: fixedTotalMinutes
-    });
-    return null;
-  }
-  
-  const currentTime = Date.now();
-  const elapsedTime = currentTime - testStartTime;
-  const elapsedMinutes = Math.floor(elapsedTime / (1000 * 60));
-  const remainingMinutes = Math.max(0, fixedTotalMinutes - elapsedMinutes);
-  const progressPercentage = Math.min(100, Math.floor((elapsedMinutes / fixedTotalMinutes) * 100));
-  
-  // 진행 상황에 따른 phase 결정
-  let phase = 'waiting';
-  if (elapsedMinutes === 0) {
-    phase = 'starting';
-  } else if (remainingMinutes <= 0) {
-    phase = 'completed';
-  } else {
-    phase = 'waiting';
-  }
-  
-  const result = {
-    phase: phase,
-    startTime: testStartTime,
-    currentTime: currentTime,
-    elapsedTime: elapsedTime,
-    totalDuration: fixedTotalMinutes * 60 * 1000,
-    remainingTime: remainingMinutes * 60 * 1000,
-    elapsedMinutes: elapsedMinutes,
-    remainingMinutes: remainingMinutes,
-    totalMinutes: fixedTotalMinutes, // 항상 고정값 사용 - 절대 변경되지 않음
-    progressPercentage: progressPercentage,
-    timestamp: new Date().toISOString()
-  };
-  
-  // 디버깅 로그 (너무 자주 출력되지 않도록 10초마다)
-  if (elapsedMinutes % 10 === 0 || elapsedMinutes < 5) {
-    console.log('⏰ Local calculation (FIXED totalMinutes):', {
-      fixedTotalMinutes: fixedTotalMinutes,
-      elapsedMinutes: elapsedMinutes,
-      remainingMinutes: remainingMinutes,
-      progressPercentage: progressPercentage
-    });
-  }
-  
-  return result;
-};
-
-// 시간 진행 상황 업데이트를 위한 useEffect
-useEffect(() => {
-  if (!testStartTime || !fixedTotalMinutes || fixedTotalMinutes <= 0) return;
-  
-  const interval = setInterval(() => {
-    const newTimeProgress = calculateTimeProgress();
-    if (newTimeProgress) {
-      setTimeProgress(newTimeProgress);
-    }
-  }, 1000); // 1초마다 업데이트
-  
-  return () => clearInterval(interval);
-}, [testStartTime, fixedTotalMinutes]);
 
   // WebSocket 연결 상태 확인 함수
   const isWebSocketReady = () => {
@@ -191,6 +129,276 @@ useEffect(() => {
     // });
     return isReady;
   };
+
+// 통합된 WebSocket 메시지 처리 함수
+const handleWebSocketMessage = (event) => {
+  // console.log('📨 WebSocket 메시지 수신:', event.data);
+  
+  // [POWER_SWITCH] 메시지 처리
+  if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
+    console.log('🔌 Power switch message received:', event.data);
+    // 측정 상태 추적
+    if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
+      console.log('🔌 Main: 측정 시작 - isMeasurementActive: true');
+      setIsMeasurementActive(true);
+      // 서버에서 [TIME_PROGRESS] 메시지를 받을 때 윈도우가 표시됨
+    } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
+               event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
+      console.log('🔌 Main: 측정 중단 - isMeasurementActive: false');
+      setIsMeasurementActive(false);
+      // 테스트 중지 시 시간진행 윈도우 숨김
+      hideTimeProgressWindow();
+      console.log('🔌 Main: 테스터 중단으로 인한 시간진행 윈도우 숨김');
+    }
+  }
+  // [SAVE_PRODUCT_INPUT] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
+    try {
+      const match = event.data.match(/\[SAVE_PRODUCT_INPUT\] (.*)/);
+      if (match && match[1]) {
+        const productData = JSON.parse(match[1]);
+        // console.log('📥 Received product input data from server:', productData);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('productInput', JSON.stringify(productData));
+          // console.log('💾 Product input saved to localStorage from server:', productData);
+        }
+        
+        // 성공 메시지를 ProductInput 컴포넌트로 전송
+        const successMessage = `[PRODUCT_INPUT_SAVED] ${JSON.stringify(productData)}`;
+        ws.current.send(successMessage);
+        // console.log('📤 Sent success confirmation to ProductInput component');
+      }
+    } catch (err) {
+      console.error('Failed to parse product input data:', err);
+    }
+  }
+  // [TIME_MODE_SAVED] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
+    try {
+      const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
+      if (match && match[1]) {
+        const timeModeData = JSON.parse(match[1]);
+        console.log('📥 TimeMode settings saved successfully:', timeModeData);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+          console.log('💾 TimeMode settings saved to localStorage:', timeModeData);
+        }
+        
+        // 팝업 닫기
+        handleTimeModeClose();
+      }
+    } catch (err) {
+      console.error('Failed to parse TimeMode saved data:', err);
+    }
+  }
+  // [TIME_MODE_DATA] 메시지 처리 - 서버에서 읽어온 TimeMode 데이터
+  else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_DATA]')) {
+    try {
+      const match = event.data.match(/\[TIME_MODE_DATA\] (.*)/);
+      if (match && match[1]) {
+        const timeModeData = JSON.parse(match[1]);
+        console.log('📥 TimeMode data received from server:', timeModeData);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
+          console.log('💾 TimeMode settings saved to localStorage:', timeModeData);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse TimeMode data:', err);
+    }
+  }
+  // [TIME_PROGRESS] 메시지 처리 - 서버에서 총예상시간을 받는 시점에서 윈도우 표시
+  else if (typeof event.data === 'string' && event.data.startsWith('[TIME_PROGRESS]')) {
+    try {
+      const match = event.data.match(/\[TIME_PROGRESS\] (.*)/);
+      if (match && match[1]) {
+        const timeProgressData = JSON.parse(match[1]);
+        
+        // 서버에서 받은 totalMinutes로 시간진행 윈도우 표시
+        if (timeProgressData.totalMinutes && timeProgressData.totalMinutes > 0) {
+          console.log('⏰ 시간진행 윈도우 표시 - 총 시간:', timeProgressData.totalMinutes, '분');
+          showTimeProgressWindow(timeProgressData.totalMinutes);
+        }
+      }
+    } catch (err) {
+      console.error('⏰ TIME_PROGRESS 데이터 파싱 오류:', err);
+    }
+  }
+  // [TEST_COMPLETED] 메시지 처리 - 테스트 완료 시 시간진행 윈도우 숨김
+  else if (typeof event.data === 'string' && event.data.startsWith('[TEST_COMPLETED]')) {
+    console.log('🔌 Test completed message received:', event.data);
+    hideTimeProgressWindow();
+    console.log('🔌 Main: 테스트 완료로 인한 시간진행 윈도우 숨김');
+  }
+  // [TEST_PROGRESS] 메시지 처리 - 테스트 시작 시 상황창 표시
+  else if (typeof event.data === 'string' && event.data.startsWith('[TEST_PROGRESS]')) {
+    console.log('🔌 Test progress message received:', event.data);
+    
+    // 테스트 시작 메시지인지 확인
+    if (event.data.includes('테스트 시작 - 시간 모드 테스트 프로세스')) {
+      console.log('🔌 Time mode test process started - waiting for server time data');
+      // 서버에서 [TIME_PROGRESS] 메시지를 받을 때 윈도우가 표시됨
+    }
+  }
+  // [Voltage data: ...] 메시지 파싱
+  else if (typeof event.data === 'string' && event.data.startsWith('Voltage data:')) {
+    try {
+      const match = event.data.match(/Voltage data: (\[.*\])/);
+      if (match && match[1]) {
+        const arr = JSON.parse(match[1]);
+        if (Array.isArray(arr) && arr.length === 5 && arr.every(v => typeof v === 'number')) {
+          setVoltages(arr);
+          // console.log('Voltage data updated:', arr);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse voltage data:', err);
+    }
+  }
+  // [Channel Voltages] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[Channel Voltages]')) {
+    try {
+      const match = event.data.match(/\[Channel Voltages\] (.*)/);
+      if (match && match[1]) {
+        const voltages = JSON.parse(match[1]);
+        console.log('📥 Channel voltages received from server:', voltages);
+        setChannelVoltages(voltages);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('channelVoltages', JSON.stringify(voltages));
+          console.log('💾 Channel voltages saved to localStorage:', voltages);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse channel voltages data:', err);
+    }
+  }
+  // [Delay Settings] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[Delay Settings]')) {
+    try {
+      const match = event.data.match(/\[Delay Settings\] (.*)/);
+      if (match && match[1]) {
+        const delaySettings = JSON.parse(match[1]);
+        console.log('📥 Delay settings received from server:', delaySettings);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('delaySettings', JSON.stringify(delaySettings));
+          console.log('💾 Delay settings saved to localStorage:', delaySettings);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse delay settings data:', err);
+    }
+  }
+  // [High Temp Settings] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[High Temp Settings]')) {
+    try {
+      const match = event.data.match(/\[High Temp Settings\] (.*)/);
+      if (match && match[1]) {
+        const highTempSettings = JSON.parse(match[1]);
+        console.log('📥 High temp settings received from server:', highTempSettings);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('highTempSettings', JSON.stringify(highTempSettings));
+          console.log('💾 High temp settings saved to localStorage:', highTempSettings);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse high temp settings data:', err);
+    }
+  }
+  // [Low Temp Settings] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[Low Temp Settings]')) {
+    try {
+      const match = event.data.match(/\[Low Temp Settings\] (.*)/);
+      if (match && match[1]) {
+        const lowTempSettings = JSON.parse(match[1]);
+        console.log('📥 Low temp settings received from server:', lowTempSettings);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('lowTempSettings', JSON.stringify(lowTempSettings));
+          console.log('💾 Low temp settings saved to localStorage:', lowTempSettings);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse low temp settings data:', err);
+    }
+  }
+  // [USB Port Settings] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[USB Port Settings]')) {
+    try {
+      const match = event.data.match(/\[USB Port Settings\] (.*)/);
+      if (match && match[1]) {
+        const usbPortSettings = JSON.parse(match[1]);
+        console.log('📥 USB port settings received from server:', usbPortSettings);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('usbPortSettings', JSON.stringify(usbPortSettings));
+          console.log('💾 USB port settings saved to localStorage:', usbPortSettings);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse USB port settings data:', err);
+    }
+  }
+  // [Out Volt Settings] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[Out Volt Settings]')) {
+    try {
+      const match = event.data.match(/\[Out Volt Settings\] (.*)/);
+      if (match && match[1]) {
+        const outVoltSettings = JSON.parse(match[1]);
+        console.log('📥 Out volt settings received from server:', outVoltSettings);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('outVoltSettings', JSON.stringify(outVoltSettings));
+          console.log('💾 Out volt settings saved to localStorage:', outVoltSettings);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse out volt settings data:', err);
+    }
+  }
+  // [Product Input] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[Product Input]')) {
+    try {
+      const match = event.data.match(/\[Product Input\] (.*)/);
+      if (match && match[1]) {
+        const productData = JSON.parse(match[1]);
+        // console.log('📥 Received product input data from server:', productData);
+        
+        // localStorage에 저장
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('productInput', JSON.stringify(productData));
+          // console.log('💾 Product input saved to localStorage from server:', productData);
+        }
+        
+        // 성공 메시지를 ProductInput 컴포넌트로 전송
+        const successMessage = `[PRODUCT_INPUT_SAVED] ${JSON.stringify(productData)}`;
+        ws.current.send(successMessage);
+        // console.log('📤 Sent success confirmation to ProductInput component');
+      }
+    } catch (err) {
+      console.error('Failed to parse product input data:', err);
+    }
+  }
+  // 기타 메시지 처리
+  else {
+    // console.log('📨 기타 메시지 수신:', event.data);
+    setReceivedMessages(prev => [...prev, event.data]);
+  }
+};
 
 // 안전한 메시지 전송 함수
 const sendWebSocketMessage = (message) => {
@@ -232,266 +440,8 @@ useEffect(() => {
     setReceivedMessages(prev => [...prev, '--- 서버에 연결되었습니다! ---']);
   };
 
-  // 메시지 수신 시
-  ws.current.onmessage = (event) => {
-    // console.log('메시지 수신:', event.data);
-    
-    // [POWER_SWITCH] 메시지 처리
-    if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
-      console.log('🔌 Power switch message received:', event.data);
-      // 측정 상태 추적
-      if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
-        console.log('🔌 Main: 측정 시작 - isMeasurementActive: true');
-        const currentTime = Date.now();
-        setTestStartTime(currentTime); // 즉시 testStartTime 설정
-        setIsMeasurementActive(true);
-        
-        // fixedTotalMinutes가 이미 설정되어 있으면 기존 값 사용, 아니면 기본값 설정
-        const totalMinutes = fixedTotalMinutes || 60; // 기본값 60분
-        
-        console.log('🔌 Main: 상태창 표시 - totalMinutes:', totalMinutes, 'fixedTotalMinutes:', fixedTotalMinutes);
-        
-        // 즉시 상태창 표시 (서버 데이터를 기다리지 않음)
-        setTimeProgress({
-          phase: 'starting',
-          startTime: currentTime,
-          currentTime: currentTime,
-          elapsedTime: 0,
-          totalDuration: totalMinutes * 60 * 1000,
-          remainingTime: totalMinutes * 60 * 1000,
-          elapsedMinutes: 0,
-          remainingMinutes: totalMinutes,
-          totalMinutes: totalMinutes,
-          progressPercentage: 0,
-          timestamp: new Date().toISOString()
-        });
-      } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
-                 event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
-        console.log('🔌 Main: 측정 중단 - isMeasurementActive: false');
-        setIsMeasurementActive(false);
-        // 테스트 중지 시 시간 진행 상황 초기화
-        setTimeProgress(null);
-        setTestStartTime(null);
-        setFixedTotalMinutes(null);
-      }
-    }
-    // [SAVE_PRODUCT_INPUT] 메시지 처리
-    else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
-      try {
-        const match = event.data.match(/\[SAVE_PRODUCT_INPUT\] (.*)/);
-        if (match && match[1]) {
-          const productData = JSON.parse(match[1]);
-          // console.log('📥 Received product input data from server:', productData);
-          
-          // localStorage에 저장
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('productInput', JSON.stringify(productData));
-            // console.log('💾 Product input saved to localStorage from server:', productData);
-          }
-          
-          // 성공 메시지를 ProductInput 컴포넌트로 전송
-          const successMessage = `[PRODUCT_INPUT_SAVED] ${JSON.stringify(productData)}`;
-          ws.current.send(successMessage);
-          // console.log('📤 Sent success confirmation to ProductInput component');
-        }
-      } catch (err) {
-        console.error('Failed to parse product input data:', err);
-      }
-    }
-    // [TIME_MODE_SAVED] 메시지 처리
-    else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
-      try {
-        const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
-        if (match && match[1]) {
-          const timeModeData = JSON.parse(match[1]);
-          console.log('📥 TimeMode settings saved successfully:', timeModeData);
-          
-          // localStorage에 저장
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
-            console.log('💾 TimeMode settings saved to localStorage:', timeModeData);
-          }
-          
-          // 팝업 닫기
-          handleTimeModeClose();
-        }
-      } catch (err) {
-        console.error('Failed to parse TimeMode saved data:', err);
-      }
-    }
-    // [TIME_MODE_DATA] 메시지 처리 - 서버에서 읽어온 TimeMode 데이터
-    else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_DATA]')) {
-      try {
-        const match = event.data.match(/\[TIME_MODE_DATA\] (.*)/);
-        if (match && match[1]) {
-          const timeModeData = JSON.parse(match[1]);
-          console.log('📥 TimeMode data received from server:', timeModeData);
-          
-          // localStorage에 저장
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
-            console.log('💾 TimeMode settings saved to localStorage:', timeModeData);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to parse TimeMode data:', err);
-      }
-    }
-    // [TIME_PROGRESS] 메시지 처리 - 시간 진행 상황 업데이트
-    else if (typeof event.data === 'string' && event.data.startsWith('[TIME_PROGRESS]')) {
-      try {
-        const match = event.data.match(/\[TIME_PROGRESS\] (.*)/);
-        if (match && match[1]) {
-          const timeProgressData = JSON.parse(match[1]);
-          console.log('⏰ Time progress received:', timeProgressData);
-          
-          // 서버에서 받은 totalMinutes가 있으면 고정값으로 설정 (한 번만 설정)
-          if (timeProgressData.totalMinutes && timeProgressData.totalMinutes > 0 && !fixedTotalMinutes) {
-            console.log('🔒 Setting fixed total minutes from server:', timeProgressData.totalMinutes);
-            console.log('🔒 This value will NEVER change during the test session');
-            setFixedTotalMinutesSafe(timeProgressData.totalMinutes);
-          }
-          
-          // 서버에서 받은 startTime이 있으면 테스트 시작 시간으로 설정
-          if (timeProgressData.startTime && !testStartTime) {
-            setTestStartTime(timeProgressData.startTime);
-          }
-          
-          // 서버 데이터로 상태창 업데이트 (totalMinutes는 기존 값 유지)
-          const updatedTimeProgress = {
-            ...timeProgressData,
-            totalMinutes: fixedTotalMinutes || timeProgressData.totalMinutes || 60
-          };
-          
-          console.log('📡 Updating time progress with server data:', updatedTimeProgress);
-          setTimeProgress(updatedTimeProgress);
-        }
-      } catch (err) {
-        console.error('Failed to parse time progress data:', err);
-      }
-    }
-    // [TEST_COMPLETED] 메시지 처리 - 테스트 완료 시 시간 진행 상황 초기화
-    else if (typeof event.data === 'string' && event.data.startsWith('[TEST_COMPLETED]')) {
-      console.log('🔌 Test completed message received:', event.data);
-      setTimeProgress(null);
-      setTestStartTime(null);
-      setFixedTotalMinutes(null);
-    }
-    // [TEST_PROGRESS] 메시지 처리 - 테스트 시작 시 상황창 표시
-    else if (typeof event.data === 'string' && event.data.startsWith('[TEST_PROGRESS]')) {
-      console.log('🔌 Test progress message received:', event.data);
-      
-      // 테스트 시작 메시지인지 확인
-      if (event.data.includes('테스트 시작 - 시간 모드 테스트 프로세스')) {
-        console.log('🔌 Time mode test process started - showing progress window');
-        const currentTime = Date.now();
-        setTestStartTime(currentTime); // 즉시 testStartTime 설정
-        
-        // fixedTotalMinutes가 이미 설정되어 있으면 기존 값 사용, 아니면 기본값 설정
-        const totalMinutes = fixedTotalMinutes || 60; // 기본값 60분
-        
-        console.log('🔌 Main: 시간 모드 테스트 상태창 표시 - totalMinutes:', totalMinutes);
-        
-        // 즉시 상태창 표시 (서버 데이터를 기다리지 않음)
-        setTimeProgress({
-          phase: 'starting',
-          startTime: currentTime,
-          currentTime: currentTime,
-          elapsedTime: 0,
-          totalDuration: totalMinutes * 60 * 1000,
-          remainingTime: totalMinutes * 60 * 1000,
-          elapsedMinutes: 0,
-          remainingMinutes: totalMinutes,
-          totalMinutes: totalMinutes,
-          progressPercentage: 0,
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-    // [Voltage data: ...] 메시지 파싱
-    else if (typeof event.data === 'string' && event.data.startsWith('Voltage data:')) {
-      try {
-        const match = event.data.match(/Voltage data: (\[.*\])/);
-        if (match && match[1]) {
-          const arr = JSON.parse(match[1]);
-          if (Array.isArray(arr) && arr.length === 5 && arr.every(v => typeof v === 'number')) {
-            setVoltages(arr);
-          } else {
-            console.error('Voltage data is not a valid array:', arr);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to parse voltage data:', err);
-      }
-    } else if (typeof event.data === 'string' && event.data.startsWith('Temperature:')) {
-      try {
-        // console.log("Temperature: " + event.data);
-        const match = event.data.match(/Temperature: ([\d.]+)/);
-        if (match && match[1]) {
-          const temp = parseFloat(match[1]);
-          if (!isNaN(temp)) {
-            // console.log("Temperature data: " + temp);
-            setTemperature(temp);
-          } else {
-            console.error('Temperature data is not a valid number:', match[1]);
-          }
-        }
-      } catch (err) {
-          console.error('Failed to parse temperature data:', err);
-      }
-    }
-    // [VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
-    else if (typeof event.data === 'string' && event.data.startsWith('[VOLTAGE_UPDATE]')) {
-      console.log('📥 Main: 전압 업데이트 메시지 수신:', event.data);
-      console.log('📥 Main: 메시지 길이:', event.data.length);
-      console.log('📥 Main: 메시지 타입:', typeof event.data);
-      // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
-    }
-    // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
-    else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
-      console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신:', event.data);
-      // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
-    }
-    // Initial channel voltages 메시지 처리
-    else if (typeof event.data === 'string' && event.data.startsWith('Initial channel voltages:')) {
-      try {
-        const match = event.data.match(/Initial channel voltages: (\[.*\])/);
-        if (match && match[1]) {
-          const voltages = JSON.parse(match[1]);
-          if (Array.isArray(voltages) && voltages.length === 4) {
-            console.log('📥 Main: 채널 전압 설정 수신 전:', channelVoltages);
-            setChannelVoltages(voltages);
-            console.log('📥 Main: 채널 전압 설정 수신 후:', voltages);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to parse channel voltages:', err);
-      }
-    }
-    // 채널 전압 저장 완료 메시지 처리
-    else if (typeof event.data === 'string' && event.data.startsWith('[CHANNEL_VOLTAGES_SAVED]')) {
-      try {
-        const match = event.data.match(/\[CHANNEL_VOLTAGES_SAVED\] (\[.*\])/);
-        if (match && match[1]) {
-          const voltages = JSON.parse(match[1]);
-          if (Array.isArray(voltages) && voltages.length === 4) {
-            console.log('📥 Main: 채널 전압 저장 완료, 파워 테이블 업데이트:', voltages);
-            setChannelVoltages(voltages);
-            
-            // 채널 전압 변경 시 파워 테이블 강제 업데이트를 위한 메시지 전송
-            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-              const updateMessage = `[POWER_TABLE_FORCE_UPDATE] ${JSON.stringify(voltages)}`;
-              ws.current.send(updateMessage);
-              console.log('📤 Main: 파워 테이블 강제 업데이트 메시지 전송:', updateMessage);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Failed to parse saved channel voltages:', err);
-      }
-    }
-    //setReceivedMessages(prev => [...prev, event.data]);
-  };
+  // 메시지 수신 시 - 통합된 메시지 처리 함수 사용
+  ws.current.onmessage = handleWebSocketMessage;
 
   // 에러 발생 시
   ws.current.onerror = (error) => {
@@ -523,150 +473,7 @@ useEffect(() => {
             setStatus('재연결됨');
           };
           
-          ws.current.onmessage = (event) => {
-            // console.log('재연결 후 메시지 수신:', event.data);
-            // 기존 메시지 처리 로직과 동일하게 처리
-            
-            // [POWER_SWITCH] 메시지 처리
-            if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
-              console.log('🔌 Power switch message received (reconnection):', event.data);
-              // 측정 상태 추적
-              if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
-                const currentTime = Date.now();
-                setTestStartTime(currentTime); // 즉시 testStartTime 설정
-                setIsMeasurementActive(true);
-                
-                // fixedTotalMinutes가 이미 설정되어 있으면 기존 값 사용, 아니면 기본값 설정
-                const totalMinutes = fixedTotalMinutes || 60; // 기본값 60분
-                
-                console.log('🔌 Main: 재연결 후 상태창 표시 - totalMinutes:', totalMinutes);
-                
-                // 즉시 상태창 표시 (서버 데이터를 기다리지 않음)
-                setTimeProgress({
-                  phase: 'starting',
-                  startTime: currentTime,
-                  currentTime: currentTime,
-                  elapsedTime: 0,
-                  totalDuration: totalMinutes * 60 * 1000,
-                  remainingTime: totalMinutes * 60 * 1000,
-                  elapsedMinutes: 0,
-                  remainingMinutes: totalMinutes,
-                  totalMinutes: totalMinutes,
-                  progressPercentage: 0,
-                  timestamp: new Date().toISOString()
-                });
-              } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
-                         event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
-                setIsMeasurementActive(false);
-                // 테스트 중지 시 시간 진행 상황 초기화
-                setTimeProgress(null);
-                setTestStartTime(null);
-                setFixedTotalMinutes(null);
-              }
-            }
-            // [SAVE_PRODUCT_INPUT] 메시지 처리
-            else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
-              try {
-                const match = event.data.match(/\[SAVE_PRODUCT_INPUT\] (.*)/);
-                if (match && match[1]) {
-                  const productData = JSON.parse(match[1]);
-                  // console.log('📥 Received product input data from server (reconnection):', productData);
-                  
-                  // localStorage에 저장
-                  if (typeof window !== 'undefined') {
-                    localStorage.setItem('productInput', JSON.stringify(productData));
-                    // console.log('💾 Product input saved to localStorage from server (reconnection):', productData);
-                  }
-                  
-                  // 성공 메시지를 ProductInput 컴포넌트로 전송
-                  const successMessage = `[PRODUCT_INPUT_SAVED] ${JSON.stringify(productData)}`;
-                  ws.current.send(successMessage);
-                  // console.log('📤 Sent success confirmation to ProductInput component (reconnection)');
-                }
-              } catch (err) {
-                console.error('Failed to parse product input data (reconnection):', err);
-              }
-            }
-             // [TIME_MODE_SAVED] 메시지 처리
-             else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
-               try {
-                 const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
-                 if (match && match[1]) {
-                   const timeModeData = JSON.parse(match[1]);
-                   console.log('📥 TimeMode settings saved successfully (reconnection):', timeModeData);
-                   
-                   // localStorage에 저장
-                   if (typeof window !== 'undefined') {
-                     localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
-                     console.log('💾 TimeMode settings saved to localStorage (reconnection):', timeModeData);
-                   }
-                   
-                   // 팝업 닫기
-                   handleTimeModeClose();
-                 }
-               } catch (err) {
-                 console.error('Failed to parse TimeMode saved data (reconnection):', err);
-               }
-             }
-            // [Voltage data: ...] 메시지 파싱
-            else if (typeof event.data === 'string' && event.data.startsWith('Voltage data:')) {
-              try {
-                const match = event.data.match(/Voltage data: (\[.*\])/);
-                if (match && match[1]) {
-                  const arr = JSON.parse(match[1]);
-                  if (Array.isArray(arr) && arr.length === 5 && arr.every(v => typeof v === 'number')) {
-                    setVoltages(arr);
-                  }
-                }
-              } catch (err) {
-                console.error('Failed to parse voltage data:', err);
-              }
-            } else if (typeof event.data === 'string' && event.data.startsWith('Temperature:')) {
-              try {
-                const match = event.data.match(/Temperature: ([\d.]+)/);
-                if (match && match[1]) {
-                  const temp = parseFloat(match[1]);
-                  if (!isNaN(temp)) {
-                    setTemperature(temp);
-                  }
-                }
-              } catch (err) {
-                console.error('Failed to parse temperature data:', err);
-              }
-            }
-            // [VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
-            else if (typeof event.data === 'string' && event.data.startsWith('[VOLTAGE_UPDATE]')) {
-              console.log('📥 Main: 전압 업데이트 메시지 수신 (재연결):', event.data);
-              // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
-            }
-          // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
-          else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
-            console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신 (재연결):', event.data);
-            // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
-          }
-          // 채널 전압 저장 완료 메시지 처리 (재연결)
-          else if (typeof event.data === 'string' && event.data.startsWith('[CHANNEL_VOLTAGES_SAVED]')) {
-            try {
-              const match = event.data.match(/\[CHANNEL_VOLTAGES_SAVED\] (\[.*\])/);
-              if (match && match[1]) {
-                const voltages = JSON.parse(match[1]);
-                if (Array.isArray(voltages) && voltages.length === 4) {
-                  console.log('📥 Main: 채널 전압 저장 완료, 파워 테이블 업데이트 (재연결):', voltages);
-                  setChannelVoltages(voltages);
-                  
-                  // 채널 전압 변경 시 파워 테이블 강제 업데이트를 위한 메시지 전송
-                  if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-                    const updateMessage = `[POWER_TABLE_FORCE_UPDATE] ${JSON.stringify(voltages)}`;
-                    ws.current.send(updateMessage);
-                    console.log('📤 Main: 파워 테이블 강제 업데이트 메시지 전송 (재연결):', updateMessage);
-                  }
-                }
-              }
-            } catch (err) {
-              console.error('Failed to parse saved channel voltages (reconnection):', err);
-            }
-          }
-          };
+          ws.current.onmessage = handleWebSocketMessage;
           
           ws.current.onclose = (event) => {
             // console.log('WebSocket 재연결 후 종료. Code:', event.code, 'Reason:', event.reason);
@@ -699,146 +506,7 @@ useEffect(() => {
           setStatus('자동 재연결됨');
         };
         
-        ws.current.onmessage = (event) => {
-          // console.log('Auto-reconnected WebSocket message received:', event.data);
-          // 기존 메시지 처리 로직과 동일하게 처리
-          
-          // [POWER_SWITCH] 메시지 처리
-          if (typeof event.data === 'string' && event.data.includes('[POWER_SWITCH]')) {
-            console.log('🔌 Power switch message received (auto-reconnection):', event.data);
-            // 측정 상태 추적
-            if (event.data.includes('ON - Machine running: true') || event.data.includes('STATUS - Machine running: true')) {
-              const currentTime = Date.now();
-              setTestStartTime(currentTime); // 즉시 testStartTime 설정
-              setIsMeasurementActive(true);
-              
-              // fixedTotalMinutes가 이미 설정되어 있으면 기존 값 사용, 아니면 기본값 설정
-              const totalMinutes = fixedTotalMinutes || 60; // 기본값 60분
-              
-              console.log('🔌 Main: 자동재연결 후 상태창 표시 - totalMinutes:', totalMinutes);
-              
-              // 즉시 상태창 표시 (서버 데이터를 기다리지 않음)
-              setTimeProgress({
-                phase: 'starting',
-                startTime: currentTime,
-                currentTime: currentTime,
-                elapsedTime: 0,
-                totalDuration: totalMinutes * 60 * 1000,
-                remainingTime: totalMinutes * 60 * 1000,
-                elapsedMinutes: 0,
-                remainingMinutes: totalMinutes,
-                totalMinutes: totalMinutes,
-                progressPercentage: 0,
-                timestamp: new Date().toISOString()
-              });
-            } else if (event.data.includes('OFF - Machine running: false') || event.data.includes('STATUS - Machine running: false') || 
-                       event.data.includes('PROCESS_COMPLETED') || event.data.includes('PROCESS_STOPPED:')) {
-              setIsMeasurementActive(false);
-              // 테스트 중지 시 시간 진행 상황 초기화
-              setTimeProgress(null);
-              setTestStartTime(null);
-              setFixedTotalMinutes(null);
-            }
-          }
-          // [SAVE_PRODUCT_INPUT] 메시지 처리
-          else if (typeof event.data === 'string' && event.data.startsWith('[SAVE_PRODUCT_INPUT]')) {
-            try {
-              const match = event.data.match(/\[SAVE_PRODUCT_INPUT\] (.*)/);
-              if (match && match[1]) {
-                const productData = JSON.parse(match[1]);
-                // console.log('📥 Received product input data from server (auto-reconnection):', productData);
-                
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('productInput', JSON.stringify(productData));
-                  // console.log('💾 Product input saved to localStorage from server (auto-reconnection):', productData);
-                }
-                
-                const successMessage = `[PRODUCT_INPUT_SAVED] ${JSON.stringify(productData)}`;
-                ws.current.send(successMessage);
-                // console.log('📤 Sent success confirmation to ProductInput component (auto-reconnection)');
-              }
-            } catch (err) {
-              console.error('Failed to parse product input data (auto-reconnection):', err);
-            }
-          }
-           // [TIME_MODE_SAVED] 메시지 처리
-           else if (typeof event.data === 'string' && event.data.startsWith('[TIME_MODE_SAVED]')) {
-             try {
-               const match = event.data.match(/\[TIME_MODE_SAVED\] (.*)/);
-               if (match && match[1]) {
-                 const timeModeData = JSON.parse(match[1]);
-                 console.log('📥 TimeMode settings saved successfully (auto-reconnection):', timeModeData);
-                 
-                 if (typeof window !== 'undefined') {
-                   localStorage.setItem('timeModeSettings', JSON.stringify(timeModeData));
-                   console.log('💾 TimeMode settings saved to localStorage (auto-reconnection):', timeModeData);
-                 }
-                 
-                 // 팝업 닫기
-                 handleTimeModeClose();
-               }
-             } catch (err) {
-               console.error('Failed to parse TimeMode saved data (auto-reconnection):', err);
-             }
-           }
-          else if (typeof event.data === 'string' && event.data.startsWith('Voltage data:')) {
-            try {
-              const match = event.data.match(/Voltage data: (\[.*\])/);
-              if (match && match[1]) {
-                const arr = JSON.parse(match[1]);
-                if (Array.isArray(arr) && arr.length === 5 && arr.every(v => typeof v === 'number')) {
-                  setVoltages(arr);
-                }
-              }
-            } catch (err) {
-              console.error('Failed to parse voltage data (auto-reconnection):', err);
-            }
-          } else if (typeof event.data === 'string' && event.data.startsWith('Temperature:')) {
-            try {
-              const match = event.data.match(/Temperature: ([\d.]+)/);
-              if (match && match[1]) {
-                const temp = parseFloat(match[1]);
-                if (!isNaN(temp)) {
-                  setTemperature(temp);
-                }
-              }
-            } catch (err) {
-              console.error('Failed to parse temperature data (auto-reconnection):', err);
-            }
-          }
-          // [VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
-          else if (typeof event.data === 'string' && event.data.startsWith('[VOLTAGE_UPDATE]')) {
-            console.log('📥 Main: 전압 업데이트 메시지 수신 (자동재연결):', event.data);
-            // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
-          }
-          // [TEST_VOLTAGE_UPDATE] 메시지 처리 - PowerTable 컴포넌트로 전달
-          else if (typeof event.data === 'string' && event.data.startsWith('[TEST_VOLTAGE_UPDATE]')) {
-            console.log('🧪 Main: 테스트 전압 업데이트 메시지 수신 (자동재연결):', event.data);
-            // PowerTable 컴포넌트에서 처리하므로 여기서는 로그만 출력
-          }
-          // 채널 전압 저장 완료 메시지 처리 (자동재연결)
-          else if (typeof event.data === 'string' && event.data.startsWith('[CHANNEL_VOLTAGES_SAVED]')) {
-            try {
-              const match = event.data.match(/\[CHANNEL_VOLTAGES_SAVED\] (\[.*\])/);
-              if (match && match[1]) {
-                const voltages = JSON.parse(match[1]);
-                if (Array.isArray(voltages) && voltages.length === 4) {
-                  console.log('📥 Main: 채널 전압 저장 완료, 파워 테이블 업데이트 (자동재연결):', voltages);
-                  setChannelVoltages(voltages);
-                  
-                  // 채널 전압 변경 시 파워 테이블 강제 업데이트를 위한 메시지 전송
-                  if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-                    const updateMessage = `[POWER_TABLE_FORCE_UPDATE] ${JSON.stringify(voltages)}`;
-                    ws.current.send(updateMessage);
-                    console.log('📤 Main: 파워 테이블 강제 업데이트 메시지 전송 (자동재연결):', updateMessage);
-                  }
-                }
-              }
-            } catch (err) {
-              console.error('Failed to parse saved channel voltages (auto-reconnection):', err);
-            }
-          }
-        };
+        ws.current.onmessage = handleWebSocketMessage;
         
         ws.current.onclose = (event) => {
           // console.log('Auto-reconnected WebSocket closed. Code:', event.code, 'Reason:', event.reason);
@@ -1132,6 +800,9 @@ const sendMessage = () => {
       localStorage.setItem('timeModeSettings', JSON.stringify(timeModeSettings));
       console.log('TimeMode: localStorage에 설정 저장됨:', timeModeSettings);
     }
+    
+    // 옵션 저장 완료
+    console.log('🔌 Main: TimeMode 옵션 저장 완료');
   };
 
   const handleTimeModeClose = () => {
@@ -1212,83 +883,6 @@ const sendMessage = () => {
               ChannelVoltages: {JSON.stringify(channelVoltages)}<br/>
               SelectedDevices: {JSON.stringify(selectedDevices)}
             </div> */}
-            {/* 시간 진행 상황 표시 - 테스터가 시작되면 항상 표시 */}
-            {(timeProgress || isMeasurementActive || testStartTime) && (
-              <div style={{
-                position: 'fixed',
-                bottom: '20px',
-                right: '20px',
-                backgroundColor: 'rgba(0,0,0,0.9)',
-                color: 'white',
-                padding: '15px',
-                fontSize: '14px',
-                borderRadius: '8px',
-                border: '2px solid #90CAF9',
-                minWidth: '300px',
-                zIndex: 1000
-              }}>
-                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-                   <span style={{ fontSize: '18px', marginRight: '8px' }}>⏰</span>
-                   <span style={{ fontWeight: 'bold', color: '#90CAF9' }}>
-                     {timeProgress ? (
-                       timeProgress.phase === 'starting' ? '시작 중' :
-                       timeProgress.phase === 'waiting' ? '대기 중' : 
-                       timeProgress.phase === 'temperature_waiting' ? '온도 대기 중' : 
-                       '진행 중'
-                     ) : '측정 중'}
-                   </span>
-                 </div>
-                
-                 <div style={{ marginBottom: '8px' }}>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                     <span>경과 시간:</span>
-                     <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                       {timeProgress ? timeProgress.elapsedMinutes : 0}분
-                     </span>
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                     <span>남은 시간:</span>
-                     <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
-                       {timeProgress ? timeProgress.remainingMinutes : (fixedTotalMinutes || 60)}분
-                     </span>
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                     <span>총 예상 시간:</span>
-                     <span style={{ color: '#2196F3', fontWeight: 'bold' }}>
-                       {timeProgress ? timeProgress.totalMinutes : (fixedTotalMinutes || 60)}분
-                     </span>
-                   </div>
-                 </div>
-                
-                {/* 진행률 바 */}
-                <div style={{ marginBottom: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                    <span>진행률:</span>
-                    <span style={{ color: '#90CAF9', fontWeight: 'bold' }}>
-                      {timeProgress ? timeProgress.progressPercentage : 0}%
-                    </span>
-                  </div>
-                  <div style={{
-                    width: '100%',
-                    height: '8px',
-                    backgroundColor: 'rgba(255,255,255,0.2)',
-                    borderRadius: '4px',
-                    overflow: 'hidden'
-                  }}>
-                    <div style={{
-                      width: `${timeProgress ? timeProgress.progressPercentage : 0}%`,
-                      height: '100%',
-                      backgroundColor: '#4CAF50',
-                      transition: 'width 0.3s ease'
-                    }} />
-                  </div>
-                </div>
-                
-                <div style={{ fontSize: '12px', color: '#B0B0B0', textAlign: 'center' }}>
-                  {timeProgress ? new Date(timeProgress.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString()}
-                </div>
-              </div>
-            )}
 
             {/* 디버깅용 정보 표시 */}
             <div style={{ 
@@ -1312,6 +906,11 @@ const sendMessage = () => {
               <DelaySettingsPanel wsConnection={ws.current} />
               <ChannelVoltageSettings wsConnection={ws.current} />
               <TestSystemButton wsConnection={ws.current} />
+              <TimeProgressWindow 
+                isVisible={showTimeWindow}
+                testDuration={testDuration}
+                testStartTime={testStartTime}
+              />
             </div>
             <div className={styles.footerItem} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '4px 10px 10px 10px' }}> 
               <OutVoltSettingPanel wsConnection={ws.current} />            
