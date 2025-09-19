@@ -1584,11 +1584,23 @@ export async function runTimeModeTestProcess() {
     // 테스트 완료 알림
     if (globalWss) {
       const testCompleteMessage = `[TEST_COMPLETED] 시간 모드 테스트 프로세스 완료 - 총 ${i}개 단계 완료`;
+      const testCompleteData = {
+        type: 'TEST_COMPLETED',
+        testType: '시간 모드 테스트',
+        cycleCount: i,
+        completionTime: new Date().toISOString(),
+        status: 'success'
+      };
+      
       globalWss.clients.forEach(client => {
         if (client.readyState === 1) { // WebSocket.OPEN
           client.send(testCompleteMessage);
+          client.send(`[TEST_COMPLETE_DATA] ${JSON.stringify(testCompleteData)}`);
         }
       });
+      console.log(`[TimeModeTestProcess] 🎉 테스트 완료 알림 메시지 전송 완료 - 클라이언트 수: ${globalWss.clients.size}`);
+    } else {
+      console.warn(`[TimeModeTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 테스트 완료 알림 메시지 전송 불가`);
     }
     
     return { 
@@ -3125,7 +3137,7 @@ async function generateFinalDeviceReport(cycleNumber) {
     
     let reportContent = '';
      reportContent += `=== Device Comprehensive Test Report ===\n`;
-     reportContent += `Generated Date,${new Date().toLocaleString('ko-KR')}\n`;
+     reportContent += `Generated Date,${new Date().toLocaleString('en-US')}\n`;
      reportContent += `Total Cycles,${cycleNumber}\n`;
      reportContent += `Analyzed Files,${processedFiles}\n`;
     reportContent += `\n`;

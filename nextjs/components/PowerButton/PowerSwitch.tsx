@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import MeasurementStopConfirm from '../MeasurementStopConfirm/MeasurementStopConfirm';
+import TestCompleteModal from '../TestCompleteModal/TestCompleteModal';
 
 interface PowerSwitchProps {
   wsConnection?: WebSocket | null;
@@ -11,6 +12,12 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
   const [isStopping, setIsStopping] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [isMeasurementActive, setIsMeasurementActive] = useState(false);
+  const [showTestCompleteModal, setShowTestCompleteModal] = useState(false);
+  const [testCompleteData, setTestCompleteData] = useState({
+    testType: '환경 시험',
+    cycleCount: 0,
+    completionTime: ''
+  });
 
   // WebSocket 메시지 수신 처리
   useEffect(() => {
@@ -39,6 +46,12 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           
           // 파워스위치 OFF 시 즉시 UI 업데이트
           console.log('🔌 PowerSwitch: 파워스위치 OFF 상태 감지 - UI 즉시 업데이트');
+          
+          // 테스트 완료로 인한 OFF인지 확인
+          if (message.includes('Test completed')) {
+            console.log('🎉 PowerSwitch: 테스트 완료로 인한 파워스위치 OFF 감지');
+            // 테스트 완료 모달은 별도 메시지에서 처리
+          }
         } else if (message.includes('STATUS - Machine running: true')) {
           setIsOn(true);
           setErrorMessage(null); // 에러 메시지 초기화
@@ -99,6 +112,28 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
         } else if (message.includes('STOPPED') || message.includes('COMPLETED')) {
           setIsMeasurementActive(false);
           console.log('🔌 PowerSwitch: 측정 중단/완료 감지');
+        }
+      }
+      
+      // 테스트 완료 데이터 메시지 처리
+      if (typeof message === 'string' && message.includes('[TEST_COMPLETE_DATA]')) {
+        try {
+          const dataMatch = message.match(/\[TEST_COMPLETE_DATA\] (.+)/);
+          if (dataMatch) {
+            const data = JSON.parse(dataMatch[1]);
+            console.log('🎉 PowerSwitch: 테스트 완료 데이터 수신:', data);
+            
+            setTestCompleteData({
+              testType: data.testType || '환경 시험',
+              cycleCount: data.cycleCount || 0,
+              completionTime: data.completionTime ? new Date(data.completionTime).toLocaleString('ko-KR') : new Date().toLocaleString('ko-KR')
+            });
+            
+            // 테스트 완료 모달 표시
+            setShowTestCompleteModal(true);
+          }
+        } catch (error) {
+          console.error('🔌 PowerSwitch: 테스트 완료 데이터 파싱 오류:', error);
         }
       }
     };
@@ -172,6 +207,12 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
     // 팝업만 닫고 측정은 계속 진행
   };
 
+  // 테스트 완료 모달 닫기 핸들러
+  const handleCloseTestCompleteModal = () => {
+    console.log('🎉 PowerSwitch: 테스트 완료 모달 닫기');
+    setShowTestCompleteModal(false);
+  };
+
   // 디버깅을 위한 상태 로그
   console.log('🔌 PowerSwitch: 렌더링 상태 - isOn:', isOn, 'showStopConfirm:', showStopConfirm, 'isMeasurementActive:', isMeasurementActive);
 
@@ -240,6 +281,17 @@ function PowerSwitch({ wsConnection }: PowerSwitchProps) {
           isVisible={showStopConfirm}
           onConfirm={handleConfirmStop}
           onCancel={handleCancelStop}
+        />
+      )}
+      
+      {/* 테스트 완료 모달 */}
+      {showTestCompleteModal && (
+        <TestCompleteModal
+          isVisible={showTestCompleteModal}
+          onClose={handleCloseTestCompleteModal}
+          testType={testCompleteData.testType}
+          cycleCount={testCompleteData.cycleCount}
+          completionTime={testCompleteData.completionTime}
         />
       )}
     </div>

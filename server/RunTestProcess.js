@@ -2298,11 +2298,23 @@ export async function runNextTankEnviTestProcess() {
     // 테스트 완료 알림
     if (globalWss) {
       const testCompleteMessage = `[TEST_COMPLETED] 환경 시험 프로세스 완료 - 총 ${cycleNumber}개 사이클 완료`;
+      const testCompleteData = {
+        type: 'TEST_COMPLETED',
+        testType: '환경 시험',
+        cycleCount: cycleNumber,
+        completionTime: new Date().toISOString(),
+        status: 'success'
+      };
+      
       globalWss.clients.forEach(client => {
         if (client.readyState === 1) { // WebSocket.OPEN
           client.send(testCompleteMessage);
+          client.send(`[TEST_COMPLETE_DATA] ${JSON.stringify(testCompleteData)}`);
         }
       });
+      console.log(`[NextTankEnviTestProcess] 🎉 테스트 완료 알림 메시지 전송 완료 - 클라이언트 수: ${globalWss.clients.size}`);
+    } else {
+      console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 테스트 완료 알림 메시지 전송 불가`);
     }
     
     return { 
@@ -2742,7 +2754,7 @@ export async function generateFinalDeviceReport(cycleNumber) {
     
     let reportContent = '';
      reportContent += `=== Device Comprehensive Test Report ===\n`;
-     reportContent += `Generated Date,${new Date().toLocaleString('ko-KR')}\n`;
+     reportContent += `Generated Date,${new Date().toLocaleString('en-US')}\n`;
      reportContent += `Total Cycles,${cycleNumber}\n`;
      reportContent += `Analyzed Files,${processedFiles}\n`;
     reportContent += `\n`;
