@@ -1,6 +1,6 @@
 // components/power-table/PowerTable.tsx
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, JSX } from 'react';
 import type { PowerDataGroup } from '../../lib/parsePowerData';
 
 interface PowerTableProps {
@@ -35,7 +35,7 @@ interface AccumulatedTableData {
   };
 }
 
-export default function PowerTable({ groups, wsConnection, channelVoltages = [5, 15, -15, 24], selectedDevices = [0] }: PowerTableProps) {
+export default function PowerTable({ groups, wsConnection, channelVoltages = [220], selectedDevices = [0] }: PowerTableProps) {
   // 디버깅을 위한 로그
   console.log('🔌 PowerTable: 컴포넌트 렌더링, channelVoltages:', channelVoltages);
   console.log('🔌 PowerTable: 선택된 디바이스:', selectedDevices);
@@ -81,7 +81,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
   const calculateTableCompletion = (data: AccumulatedTableData) => {
     try {
       // 선택된 디바이스 수에 따라 총 셀 수 계산
-      const totalCells = selectedDevices.length * 3 * 4; // 선택된 디바이스 수 * 3개 테스트 * 4개 채널
+      const totalCells = selectedDevices.length * 3 ; // 선택된 디바이스 수 * 3개 테스트 
       let filledCells = 0;
       let validDataCount = 0;
       
@@ -203,7 +203,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
               displayValue = '-.-';
             } else if (typeof channel.voltage === 'number') {
               // 전압값 범위 검증 (-100V ~ 100V로 확장하여 -15 채널 지원)
-              if (channel.voltage >= -100 && channel.voltage <= 100) {
+              if (channel.voltage >= -300 && channel.voltage <= 300) {
                 displayValue = `${channel.voltage.toFixed(2)}V`;
               } else {
                 console.warn(`PowerTable: 전압값 범위 오류: ${channel.voltage}V`);
@@ -211,13 +211,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
               }
             } else {
               displayValue = '-.-';
-            }
-            
-            // 디버깅을 위한 로그 (특히 -15 채널에 대해)
-            if (process.env.NODE_ENV === 'development' && channel.channel === 3) {
-              console.log(`PowerTable: Channel 3 (-15) - Device: ${newData.device}, Test: ${newData.voltageTest}, Voltage: ${channel.voltage}, Display: ${displayValue}`);
-              console.log(`PowerTable: Channel 3 (-15) - 원본 데이터:`, channel);
-              console.log(`PowerTable: Channel 3 (-15) - 누적 데이터 구조:`, updatedData[`device${newData.device}`]?.[`test${newData.voltageTest}`]);
             }
             
             updatedData[`device${newData.device}`][`test${newData.voltageTest}`][channelKey] = displayValue;
@@ -390,16 +383,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       }
     }
     
-    // 기존 하드코딩된 값들과의 호환성 유지
-    if (outputValue === '+5' || outputValue === '5') return 1;
-    else if (outputValue === '+15' || outputValue === '15') return 2;
-    else if (outputValue === '-15') return 3;
-    else if (outputValue === '+24' || outputValue === '24') return 4;
-    else {
-      // 디버깅을 위한 로그 추가
-      console.warn(`PowerTable: 알 수 없는 출력값: ${outputValue}, channelVoltages:`, channelVoltages);
-      return 1; // 기본값
-    }
   }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
 
   // GOOD/NO GOOD 판단 함수
@@ -422,13 +405,13 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
       }
 
       // 해당 채널의 설정된 전압값 가져오기
-      const expectedVoltage = channelVoltages[channelNumber - 1];
+      const expectedVoltage = channelVoltages[0];
       if (expectedVoltage === undefined || expectedVoltage === null) {
         return 'NO GOOD';
       }
 
-      // 허용 오차 범위 (±0.5V)
-      const tolerance = 0.5;
+      // 허용 오차 범위 (±5%)
+      const tolerance = expectedVoltage * 0.05;
       const minVoltage = expectedVoltage - tolerance;
       const maxVoltage = expectedVoltage + tolerance;
 
@@ -449,9 +432,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     try {
       // 입력값 검증
       if (!device || !test || !channel || 
-          device < 1 || device > 10 || 
+          device < 1 || device > 3 || 
           test < 1 || test > 3 || 
-          channel < 1 || channel > 4) {
+          channel < 1 || channel > 1) {
         console.warn(`PowerTable: 잘못된 인덱스 - device: ${device}, test: ${test}, channel: ${channel}`);
         return '-.-';
       }
@@ -911,12 +894,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
     return '일반 초기화';
   };
   
-
-
-
-
-
-
   // 현재 테이블 데이터 가져오기 함수
   const getCurrentTableData = () => {
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
@@ -1250,99 +1227,105 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [5,
         <table className="w-full text-xs sm:text-sm md:text-base text-left text-gray-300 border-separate border-spacing-0" style={{ width: '100%', tableLayout: 'fixed' }}>
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#23242a]" style={{ height: '36px' }}>
-              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>입력</th>
-              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>출력</th>
+              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>INPUT</th>
+              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>제품번호</th>
               {Array.from({ length: 10 }, (_, i) => (
-                <th key={i} className="px-1 py-0" style={{ width: '6%', fontSize: '16px', height: '36px' }}>dev{String(i+1).padStart(2,'0')}</th>
+                <th key={i} className="px-1 py-0" style={{ width: '6%', fontSize: '16px', height: '36px' }}>{i+1}st</th>
               ))}
-              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>GOOD</th>
+              <th className="px-1 py-0" style={{ width: '8%', fontSize: '16px', height: '36px' }}>A.Q.L</th>
             </tr>
           </thead>
           <tbody>
-            {group.rows.map((row, idx) => (
-              <tr key={idx} style={{ backgroundColor: idx % 2 === 0 ? '#3a3a3a' : '#1a1a1a', height: '31px' }}>
-                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px' }}>{row.input}</td>
-                <td className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px' }}>{getOutputVoltageDisplay(row.output)}</td>
-                {row.devs.map((v, i) => {
-                  try {
-                    // 누적된 전압 데이터를 사용하여 표시
-                    const deviceNumber = i + 1; // 디바이스 번호 (1-10)
-                    
-                    // 현재 행의 출력값을 기반으로 채널 번호 결정
-                    const channelNumber = getChannelNumberFromOutput(row.output);
-                    
-                    // 현재 행의 입력값을 기반으로 테스트 번호 결정 (서버의 outVoltSettings [24, 18, 30, 0] 순서에 맞춤)
-                    let testNumber = 1;
-                    if (row.input === '+24') testNumber = 1;  // 첫 번째: 24V
-                    else if (row.input === '+18') testNumber = 2;  // 두 번째: 18V
-                    else if (row.input === '+30') testNumber = 3;  // 세 번째: 30V
-                    
-                    const accumulatedVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, channelNumber);
-                    
-                    return (
-                      <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px' }}>
-                        {accumulatedVoltage}
+            {(() => {
+              // 새로운 테이블 구조를 위한 데이터 생성
+              const tableRows: JSX.Element[] = [];
+              const inputVoltages = ['24V', '18V', '30V'];
+              const productNumbers = ['C005', 'C006', 'C007'];
+              
+              inputVoltages.forEach((inputVoltage, inputIndex) => {
+                productNumbers.forEach((productNumber, productIndex) => {
+                  const rowIndex = inputIndex * 3 + productIndex;
+                  const isFirstProduct = productIndex === 0;
+                  
+                  tableRows.push(
+                    <tr key={`${inputVoltage}-${productNumber}`} style={{ 
+                      backgroundColor: rowIndex % 2 === 0 ? '#3a3a3a' : '#1a1a1a', 
+                      height: '31px' 
+                    }}>
+                      {/* INPUT 열 - 첫 번째 제품에서만 표시하고 세로 병합 */}
+                      {isFirstProduct ? (
+                        <td 
+                          className="px-1 py-0 whitespace-nowrap text-center" 
+                          style={{ 
+                            fontSize: '16px', 
+                            height: '93px', // 3행 높이
+                            verticalAlign: 'middle'
+                          }}
+                          rowSpan={3}
+                        >
+                          {inputVoltage}
+                        </td>
+                      ) : null}
+                      
+                      {/* 제품번호 열 */}
+                      <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '16px', height: '31px' }}>
+                        {productNumber}
                       </td>
-                    );
-                  } catch (error) {
-                    console.error(`PowerTable: 디바이스 ${i+1} 데이터 표시 오류:`, error);
-                    return (
-                      <td key={i} className="px-1 py-0 whitespace-nowrap text-right" style={{ fontSize: '16px', height: '31px', color: '#EF4444' }}>
-                        ERROR
+                      
+                      {/* 1st~10th 열 - 측정값 표시 */}
+                      {Array.from({ length: 10 }, (_, i) => {
+                        try {
+                          const deviceNumber = i + 1; // 디바이스 번호 (1-10)
+                          
+                          // INPUT 전압에 따른 테스트 번호 결정
+                          let testNumber = 1;
+                          if (inputVoltage === '24V') testNumber = 1;
+                          else if (inputVoltage === '18V') testNumber = 2;
+                          else if (inputVoltage === '30V') testNumber = 3;
+                          
+                          // 채널 번호는 1로 고정 (첫 번째 채널만 사용)
+                          const channelNumber = 1;
+                          
+                          const accumulatedVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, channelNumber);
+                          
+                          // 전압값에서 숫자 부분만 추출하여 표시 (V 제거)
+                          let displayValue = '-.-';
+                          if (accumulatedVoltage && accumulatedVoltage !== '-.-' && accumulatedVoltage !== '') {
+                            const voltageMatch = accumulatedVoltage.match(/^([\d.-]+)V$/);
+                            if (voltageMatch) {
+                              const voltageValue = parseFloat(voltageMatch[1]);
+                              if (!isNaN(voltageValue)) {
+                                displayValue = Math.round(voltageValue).toString();
+                              }
+                            }
+                          }
+                          
+                          return (
+                            <td key={i} className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '16px', height: '31px' }}>
+                              {displayValue}
+                            </td>
+                          );
+                        } catch (error) {
+                          console.error(`PowerTable: 디바이스 ${i+1} 데이터 표시 오류:`, error);
+                          return (
+                            <td key={i} className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '16px', height: '31px', color: '#EF4444' }}>
+                              ERROR
+                            </td>
+                          );
+                        }
+                      })}
+                      
+                      {/* A.Q.L 열 */}
+                      <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '16px', height: '31px' }}>
+                        A
                       </td>
-                    );
-                  }
-                })}
-                <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '16px', height: '31px' }}>
-                  {(() => {
-                    // 현재 행의 출력값을 기반으로 채널 번호 결정
-                    const channelNumber = getChannelNumberFromOutput(row.output);
-                    
-                    // 현재 행의 입력값을 기반으로 테스트 번호 결정
-                    let testNumber = 1;
-                    if (row.input === '+24') testNumber = 1;
-                    else if (row.input === '+18') testNumber = 2;
-                    else if (row.input === '+30') testNumber = 3;
-                    
-                    // 선택된 디바이스들의 측정 상태 확인
-                    const selectedDeviceData = selectedDevices.map(deviceIndex => {
-                      const deviceNumber = deviceIndex + 1; // 디바이스 번호는 1부터 시작
-                      const measuredVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, channelNumber);
-                      return {
-                        deviceNumber,
-                        measuredVoltage,
-                        hasData: measuredVoltage !== '-.-' && measuredVoltage !== ''
-                      };
-                    });
-                    
-                    // 모든 선택된 디바이스가 측정되었는지 확인
-                    const allDevicesMeasured = selectedDeviceData.every(device => device.hasData);
-                    const hasAnyData = selectedDeviceData.some(device => device.hasData);
-                    
-                    // 데이터가 전혀 없으면 -.- 표시
-                    if (!hasAnyData) {
-                      return <span style={{ color: '#9CA3AF' }}>-.-</span>;
-                    }
-                    
-                    // 모든 선택된 디바이스가 측정되지 않았으면 WAIT 표시
-                    if (!allDevicesMeasured) {
-                      return <span style={{ color: '#F59E0B', fontWeight: 'bold' }}>WAIT</span>;
-                    }
-                    
-                    // 모든 디바이스가 측정되었으면 GOOD/NO GOOD 판단
-                    const deviceResults = selectedDeviceData.map(device => 
-                      determineGoodNoGood(device.deviceNumber, testNumber, channelNumber, device.measuredVoltage)
-                    );
-                    
-                    const allGood = deviceResults.length > 0 && deviceResults.every(result => result === 'GOOD');
-                    const result = allGood ? 'GOOD' : 'NO GOOD';
-                    const color = allGood ? '#10B981' : '#EF4444'; // GOOD: 초록색, NO GOOD: 빨간색
-                    
-                    return <span style={{ color, fontWeight: 'bold' }}>{result}</span>;
-                  })()}
-                </td>
-              </tr>
-            ))}
+                    </tr>
+                  );
+                });
+              });
+              
+              return tableRows;
+            })()}
           </tbody>
         </table>
       </div>

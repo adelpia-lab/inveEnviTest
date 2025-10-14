@@ -24,16 +24,16 @@ const productInputSchema = z.object({
     .regex(/^\d{8}$/, '모델명은 8자리 숫자만 입력 가능합니다'),
   productNames: z.array(
     z.string()
-      .length(6, '제품명은 6자리여야 합니다')
-      .regex(/^[A-Z]{2}\d{4}$/, '제품명은 2자리 대문자 + 4자리 숫자 형식이어야 합니다')
-  ).length(10, '제품명은 10개여야 합니다')
+      .length(4, '제품명은 4자리여야 합니다')
+      .regex(/^[A-Z]{1}\d{3}$/, '제품명은 1자리 대문자 + 3자리 숫자 형식이어야 합니다')
+  ).length(3, '제품명은 3개여야 합니다')
 });
 
 type ProductInputData = z.infer<typeof productInputSchema>;
 
 // 기본값 정의
-const MODEL_NAME_INIT = '61514540';
-const PRODUCT_NAME_INIT = ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311'];
+const MODEL_NAME_INIT = '60159021';
+const PRODUCT_NAME_INIT = ['C005', 'C006', 'C007'];
 
 interface ProductInputProps {
   wsConnection?: WebSocket;
@@ -42,14 +42,14 @@ interface ProductInputProps {
 
 /**
  * 제품 입력 컴포넌트
- * 모델명(8자리 숫자)과 제품명(2자리 대문자 + 4자리 숫자) 10개를 입력받아 저장
+ * 모델명(8자리 숫자)과 제품명(1자리 대문자 + 3자리 숫자) 3개를 입력받아 저장
  */
 export default function ProductInput({ wsConnection, onSave }: ProductInputProps) {
   // 팝업창 열림/닫힘 상태
   const [open, setOpen] = useState(false);
   // 모델명 상태 - use default values to prevent hydration mismatch
   const [modelName, setModelName] = useState(MODEL_NAME_INIT);
-  // 제품명 배열 상태 (10개 필드로 고정) - use default values to prevent hydration mismatch
+  // 제품명 배열 상태 (3개 필드로 고정) - use default values to prevent hydration mismatch
   const [productNames, setProductNames] = useState<string[]>(PRODUCT_NAME_INIT);
   // 에러 상태
   const [error, setError] = useState<string | null>(null);
@@ -214,10 +214,10 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
     
     // 제품명 검증
     productNames.forEach((name, index) => {
-      if (name.length !== 6) {
-        errors.push(`제품명 ${index + 1}은 6자리여야 합니다`);
-      } else if (!/^[A-Z]{2}\d{4}$/.test(name)) {
-        errors.push(`제품명 ${index + 1}은 2자리 대문자 + 4자리 숫자 형식이어야 합니다`);
+      if (name.length !== 4) {
+        errors.push(`제품명 ${index + 1}은 4자리여야 합니다`);
+      } else if (!/^[A-Z]{1}\d{3}$/.test(name)) {
+        errors.push(`제품명 ${index + 1}은 1자리 대문자 + 3자리 숫자 형식이어야 합니다`);
       }
     });
     
@@ -226,10 +226,6 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
 
   // 저장 핸들러
   const handleSubmit = async () => {
-    // console.log("=== SAVE button clicked - saving product input ===");
-    // console.log("Current model name:", modelName);
-    // console.log("Current product names:", productNames);
-    // console.log("WebSocket connection status:", wsConnection ? wsConnection.readyState : 'No connection');
     
     // 입력값 검증
     const validation = validateInput();
@@ -240,7 +236,6 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
     
     setError(null);
     setIsLoading(true);
-    // console.log('✅ Validation passed, saving product input...');
     
     const productData: ProductInputData = {
       modelName,
@@ -266,7 +261,6 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
       
       // 4. 성공 상태 설정
       setIsSaved(true);
-      // console.log("✅ Product input saved successfully");
       
       // 5. 2초 후 팝업 닫기
       setTimeout(() => {
@@ -348,7 +342,7 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
           {/* 제품명 입력 필드 목록 */}
           <Box>
             <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 'medium' }}>
-              제품명 (2자리 대문자 + 4자리 숫자)
+              제품명 (1자리 대문자 + 3자리 숫자)
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 2 }}>
               {productNames.map((name, index) => (
@@ -360,10 +354,10 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
                     value={name}
                     onChange={(event) => handleProductNameChange(index, event)}
                     inputProps={{
-                      maxLength: 6,
+                      maxLength: 4,
                       style: { textTransform: 'uppercase' }
                     }}
-                    helperText="예: PL1234"
+                    helperText="예: C001"
                     fullWidth
                   />
                 </Box>

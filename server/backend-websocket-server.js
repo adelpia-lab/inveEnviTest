@@ -666,16 +666,16 @@ async function loadOutVoltSettings() {
     if (!Array.isArray(settings) || settings.length !== 4) throw new Error('입력 전압 설정은 4개 요소의 배열이어야 합니다.');
     return settings;
   } catch (error) {
-    // 기본값: 4개 요소 배열
-    return [18.0, 24.0, 30.0, 0.0];
+    // 기본값: 1개 요소 배열
+    return [220.0];
   }
 }
 
 // 채널 전압 설정을 파일에 저장하는 함수
 async function saveChannelVoltages(channelVoltages) {
   try {
-    if (!Array.isArray(channelVoltages) || channelVoltages.length !== 4) {
-      throw new Error('채널 전압 설정은 4개 요소의 배열이어야 합니다.');
+    if (!Array.isArray(channelVoltages) || channelVoltages.length < 1) {
+      throw new Error('채널 전압 설정은 최소 1개 요소의 배열이어야 합니다.');
     }
     await fs.writeFile(CHANNEL_VOLTAGES_FILE, JSON.stringify(channelVoltages, null, 2));
     console.log(`✅ [Backend WS Server] Channel voltages saved: ${JSON.stringify(channelVoltages)}`);
@@ -754,15 +754,15 @@ async function loadChannelVoltages() {
   try {
     const data = await fs.readFile(CHANNEL_VOLTAGES_FILE, 'utf-8');
     const channelVoltages = JSON.parse(data);
-    if (!Array.isArray(channelVoltages) || channelVoltages.length !== 4) {
-      throw new Error('채널 전압 설정은 4개 요소의 배열이어야 합니다.');
+    if (!Array.isArray(channelVoltages) || channelVoltages.length < 1) {
+      throw new Error('채널 전압 설정은 최소 1개 요소의 배열이어야 합니다.');
     }
     console.log(`📖 [Backend WS Server] Channel voltages loaded: ${JSON.stringify(channelVoltages)}`);
     return channelVoltages;
   } catch (error) {
-    // 기본값: 4개 요소 배열
-    console.log(`📖 [Backend WS Server] No saved channel voltages found, using defaults: [5.0, 15.0, -15.0, 24.0]`);
-    return [5.0, 15.0, -15.0, 24.0];
+    // 기본값: 1개 요소 배열
+    console.log(`📖 [Backend WS Server] No saved channel voltages found, using defaults: [220.0]`);
+    return [220.0];
   }
 }
 
@@ -1093,7 +1093,7 @@ function setupWebSocketEventHandlers(wss) {
             const savedChannelVoltages = await loadChannelVoltages();
             ws.send(`Initial channel voltages: ${JSON.stringify(savedChannelVoltages)}`);
         } catch (error) {
-            ws.send(`Initial channel voltages: ${JSON.stringify([5.0, 15.0, -15.0, 24.0])}`);
+            ws.send(`Initial channel voltages: ${JSON.stringify([220.0])}`);
         }
     };
 
@@ -1342,7 +1342,7 @@ function setupWebSocketEventHandlers(wss) {
                     ws.send(`Initial channel voltages: ${JSON.stringify(channelVoltages)}`);
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Failed to load channel voltages: ${error.message}`);
-                    ws.send(`Initial channel voltages: ${JSON.stringify([5.0, 15.0, -15.0, 24.0])}`);
+                    ws.send(`Initial channel voltages: ${JSON.stringify([220.0])}`);
                 }
             } else if(decodeWebSocket[0] === '[TIME_MODE]') {
                 console.log("=== TimeMode Settings Process: OK ===");
@@ -1825,7 +1825,7 @@ function setupWebSocketEventHandlers(wss) {
                     const voltages = JSON.parse(voltagesData);
                     //console.log("📥 Parsed channel voltages:", voltages);
                     
-                    if (Array.isArray(voltages) && voltages.length === 4) {
+                    if (Array.isArray(voltages) && voltages.length >= 1) {
                         //console.log(`✅ [Backend WS Server] Received channel voltages to save:`, voltages);
                         
                         // 채널 전압 설정을 파일에 저장
@@ -1841,7 +1841,7 @@ function setupWebSocketEventHandlers(wss) {
                         }
                     } else {
                         console.error(`❌ [Backend WS Server] Invalid channel voltages format:`, typeof voltages);
-                        ws.send(`Error: Invalid channel voltages format - expected array with 4 elements`);
+                        ws.send(`Error: Invalid channel voltages format - expected array with at least 1 element`);
                     }
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Save channel voltages error: ${error.message}`);
@@ -1861,7 +1861,7 @@ function setupWebSocketEventHandlers(wss) {
                     const voltages = JSON.parse(voltagesData);
                     console.log("📥 Parsed channel voltages:", voltages);
                     
-                    if (Array.isArray(voltages) && voltages.length === 4) {
+                    if (Array.isArray(voltages) && voltages.length >= 1) {
                         console.log(`✅ [Backend WS Server] Received channel voltages to save:`, voltages);
                         
                         // 채널 전압 설정을 파일에 저장
@@ -1877,7 +1877,7 @@ function setupWebSocketEventHandlers(wss) {
                         }
                     } else {
                         console.error(`❌ [Backend WS Server] Invalid channel voltages format:`, typeof voltages);
-                        ws.send(`Error: Invalid channel voltages format - expected array with 4 elements`);
+                        ws.send(`Error: Invalid channel voltages format - expected array with at least 1 element`);
                     }
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Save channel voltages error: ${error.message}`);

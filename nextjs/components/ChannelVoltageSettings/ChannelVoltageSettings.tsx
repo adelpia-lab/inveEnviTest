@@ -8,19 +8,11 @@ interface ChannelVoltageSettingsProps {
 
 interface ChannelVoltages {
   channel1: number;
-  channel2: number;
-  channel3: number;
-  channel4: number;
 }
 
 const ChannelVoltageSettings: React.FC<ChannelVoltageSettingsProps> = ({ wsConnection, onClose }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [voltages, setVoltages] = useState<ChannelVoltages>({
-    channel1: 5.0,
-    channel2: 15.0,
-    channel3: -15.0,
-    channel4: 24.0
-  });
+  const [voltages, setVoltages] = useState<ChannelVoltages>({ channel1: 220 });
   const [isLoading, setIsLoading] = useState(false);
 
   // WebSocket 메시지 수신 처리
@@ -36,12 +28,9 @@ const ChannelVoltageSettings: React.FC<ChannelVoltageSettingsProps> = ({ wsConne
           const match = message.match(/Initial channel voltages: (\[.*\])/);
           if (match && match[1]) {
             const voltageArray = JSON.parse(match[1]);
-            if (Array.isArray(voltageArray) && voltageArray.length === 4) {
+            if (Array.isArray(voltageArray) && voltageArray.length >= 1) {
               setVoltages({
-                channel1: voltageArray[0] || 0,
-                channel2: voltageArray[1] || 0,
-                channel3: voltageArray[2] || 0,
-                channel4: voltageArray[3] || 0
+                channel1: voltageArray[0] || 0
               });
             }
           }
@@ -75,8 +64,8 @@ const ChannelVoltageSettings: React.FC<ChannelVoltageSettingsProps> = ({ wsConne
 
   const handleInputChange = (channel: keyof ChannelVoltages, value: string) => {
     const numValue = parseFloat(value) || 0;
-    // 최소값 -40.0, 최대값 40.0으로 제한
-    const clampedValue = Math.max(-40.0, Math.min(40.0, numValue));
+    // 최소값 0, 최대값 500으로 제한
+    const clampedValue = Math.max(0, Math.min(500, numValue));
     setVoltages(prev => ({
       ...prev,
       [channel]: clampedValue
@@ -93,10 +82,7 @@ const ChannelVoltageSettings: React.FC<ChannelVoltageSettingsProps> = ({ wsConne
     
     // 전압 배열로 변환
     const voltageArray = [
-      voltages.channel1,
-      voltages.channel2,
-      voltages.channel3,
-      voltages.channel4
+      voltages.channel1
     ];
 
     // WebSocket을 통해 서버에 전송
@@ -135,60 +121,19 @@ const ChannelVoltageSettings: React.FC<ChannelVoltageSettingsProps> = ({ wsConne
             
             <div className={styles.modalContent}>
               <div className={styles.inputGroup}>
-                <label htmlFor="channel1">채널 1 전압 (V): <span className={styles.rangeInfo}>(-40.0 ~ 40.0)</span></label>
+                <label htmlFor="channel1">채널 1 전압 (V): <span className={styles.rangeInfo}>( 0.0 ~ 500.0)</span></label>
                 <input
                   id="channel1"
                   type="number"
-                  step="0.1"
-                  min="-40.0"
-                  max="40.0"
+                  step="1"
+                  min="0"
+                  max="500"
                   value={voltages.channel1}
                   onChange={(e) => handleInputChange('channel1', e.target.value)}
-                  placeholder="5.0"
+                  placeholder="220.0"
                 />
               </div>
               
-              <div className={styles.inputGroup}>
-                <label htmlFor="channel2">채널 2 전압 (V): <span className={styles.rangeInfo}>(-40.0 ~ 40.0)</span></label>
-                <input
-                  id="channel2"
-                  type="number"
-                  step="0.1"
-                  min="-40.0"
-                  max="40.0"
-                  value={voltages.channel2}
-                  onChange={(e) => handleInputChange('channel2', e.target.value)}
-                  placeholder="15.0"
-                />
-              </div>
-              
-              <div className={styles.inputGroup}>
-                <label htmlFor="channel3">채널 3 전압 (V): <span className={styles.rangeInfo}>(-40.0 ~ 40.0)</span></label>
-                <input
-                  id="channel3"
-                  type="number"
-                  step="0.1"
-                  min="-40.0"
-                  max="40.0"
-                  value={voltages.channel3}
-                  onChange={(e) => handleInputChange('channel3', e.target.value)}
-                  placeholder="-15.0"
-                />
-              </div>
-              
-              <div className={styles.inputGroup}>
-                <label htmlFor="channel4">채널 4 전압 (V): <span className={styles.rangeInfo}>(-40.0 ~ 40.0)</span></label>
-                <input
-                  id="channel4"
-                  type="number"
-                  step="0.1"
-                  min="-40.0"
-                  max="40.0"
-                  value={voltages.channel4}
-                  onChange={(e) => handleInputChange('channel4', e.target.value)}
-                  placeholder="24.0"
-                />
-              </div>
             </div>
             
             <div className={styles.modalFooter}>

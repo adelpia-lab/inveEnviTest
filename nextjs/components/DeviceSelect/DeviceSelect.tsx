@@ -10,18 +10,11 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   const devices = [
     { value: "#1 Device", label: "#1", index: 0 },
     { value: "#2 Device", label: "#2", index: 1 },
-    { value: "#3 Device", label: "#3", index: 2 },
-    { value: "#4 Device", label: "#4", index: 3 },
-    { value: "#5 Device", label: "#5", index: 4 },
-    { value: "#6 Device", label: "#6", index: 5 },
-    { value: "#7 Device", label: "#7", index: 6 },
-    { value: "#8 Device", label: "#8", index: 7 },
-    { value: "#9 Device", label: "#9", index: 8 },
-    { value: "#10 Device", label: "#A", index: 9 }
+    { value: "#3 Device", label: "#3", index: 3 }
   ];
 
   // Default states - same for server and client
-  const defaultStates = [true, false, false, false, false, false, false, false, false, false];
+  const defaultStates = [true, true, true];
 
   // Initialize state with default values to prevent hydration mismatch
   const [deviceStates, setDeviceStates] = useState<boolean[]>(defaultStates);
@@ -81,7 +74,7 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           const match = message.match(/Initial device states: (.*)/);
           if (match && match[1]) {
             const serverStates = JSON.parse(match[1]);
-            if (Array.isArray(serverStates) && serverStates.length === 10) {
+            if (Array.isArray(serverStates) && serverStates.length === 3) {
               console.log('📥 Received device states from server:', serverStates);
               setDeviceStates(serverStates);
               setTempDeviceStates(serverStates);
