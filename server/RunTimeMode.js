@@ -926,10 +926,10 @@ export async function runSinglePageProcess() {
             return stopInfo;
           }
           
-          // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
+          // 채널 전압을 읽은 후 클라이언트에 결과 전송
           const channelResults = [];
           
-          for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
+          for ( let j = 0; j < 1 ; j++) {  // 채널 1개만 사용
             // 채널 변경을 위한 충분한 시간 확보 (기존 1초에서 2초로 증가)
             await sleep(2000);
             
@@ -1038,9 +1038,9 @@ export async function runSinglePageProcess() {
             });
             
             // console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 완료: ${voltageWithComparison}`);
-          } // for (let j = 0; j < 4; j++) 루프 닫기
+          } // for (let j = 0; j < 1; j++) 루프 닫기
           
-          // 4개 채널 전압을 모두 읽은 후 테이블에 누적
+          // 채널 전압을 읽은 후 테이블에 누적
           //console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1} 전압 데이터 테이블에 누적`);
           
           // 각 채널의 전압 데이터를 테이블에 업데이트
@@ -1051,8 +1051,8 @@ export async function runSinglePageProcess() {
             }
           });
           
-          // 4개 채널 전압을 모두 읽은 후 클라이언트에 실시간 전송
-          console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 4개 채널 완료 - 클라이언트에 데이터 전송`);
+          // 채널 전압을 읽은 후 클라이언트에 실시간 전송
+          console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
           await broadcastTableData();
           
           // 디바이스 해제 재시도 로직

@@ -994,6 +994,27 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, i
     console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
     await broadcastTableData();
     
+    // 추가적인 실시간 업데이트 메시지 전송 (매 전압 측정마다)
+    if (globalWss) {
+      const realtimeUpdateMessage = `[REALTIME_VOLTAGE_UPDATE] ${JSON.stringify({
+        deviceNumber: deviceIndex + 1,
+        testNumber: voltageIndex + 1,
+        voltage: voltData,
+        voltageWithComparison: voltageWithComparison,
+        timestamp: new Date().toISOString(),
+        message: `Device ${deviceIndex + 1}, Test ${voltageIndex + 1} 전압 측정 완료`
+      })}`;
+      
+      let sentCount = 0;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) {
+          client.send(realtimeUpdateMessage);
+          sentCount++;
+        }
+      });
+      console.log(`[SinglePageProcess] 실시간 전압 업데이트 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+    }
+    
     // 디바이스 해제 재시도 로직
     retryCount = 0;
     while (retryCount < maxRetries) {
@@ -4066,24 +4087,35 @@ export async function broadcastTableData() {
     
     const completionPercentage = totalCells > 0 ? (completedCells / totalCells) * 100 : 0;
     
-    // 전송할 테이블 데이터 구성
+    // 전송할 테이블 데이터 구성 - 클라이언트 포맷에 맞춤
     const tableDataForClient = {
       timestamp: globalTableData.lastUpdate || new Date().toISOString(),
-      totalDevices: 10,
-      totalTests: 3,
-      totalChannels: 1, // 채널 1개로 변경
+      totalDevices: 3, // Device 1,2,3만 사용
+      totalTests: 3,   // 3개 전압 테스트
+      totalChannels: 1, // 채널 1개
       completionPercentage: completionPercentage,
       completedCells: completedCells,
       totalCells: totalCells,
-      tableData: globalTableData.devices.map(device => 
-        device.tests.map(test => 
-          test.channels.map(channel => {
-            if (channel.status === 'completed' && channel.voltage !== null) {
-              return truncateNumericVoltageToTwoDecimals(channel.voltage);
-            } else {
+      // 클라이언트가 기대하는 voltagTable 포맷: [voltageIndex][deviceIndex][readIndex][channel]
+      voltagTable: Array(3).fill(null).map((_, voltageIndex) => 
+        Array(3).fill(null).map((_, deviceIndex) => 
+          Array(10).fill(null).map((_, readIndex) => 
+            Array(1).fill(null).map((_, channelIndex) => {
+              // globalTableData에서 해당 위치의 데이터 찾기
+              const device = globalTableData.devices[deviceIndex];
+              if (device && device.tests[voltageIndex]) {
+                const channel = device.tests[voltageIndex].channels[channelIndex];
+                if (channel && channel.status === 'completed' && channel.voltage !== null) {
+                  // 전압값과 비교결과를 함께 저장 (예: "221V|G")
+                  const expectedVoltage = getTableOption.channelVoltages[0] || 0;
+                  const comparisonResult = compareVoltage(channel.voltage, expectedVoltage);
+                  const truncatedVoltage = Math.floor(channel.voltage);
+                  return `${truncatedVoltage}V|${comparisonResult}`;
+                }
+              }
               return '-.-';
-            }
-          })
+            })
+          )
         )
       ),
       summary: {
