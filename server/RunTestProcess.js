@@ -829,7 +829,7 @@ export async function runSinglePageProcess(readCount = 1) {
             currentTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][readIndex][0] = "-.-";
           } else {
             // 디바이스 선택 및 전압 읽기 로직
-            const deviceResult = await executeDeviceReading(getTableOption, voltageIndex, deviceIndex, inputVolt);
+            const deviceResult = await executeDeviceReading(getTableOption, voltageIndex, deviceIndex, readIndex, inputVolt);
             if (deviceResult.status === 'stopped') {
               return deviceResult;
             }
@@ -864,7 +864,7 @@ export async function runSinglePageProcess(readCount = 1) {
 }
 
 // 디바이스 읽기 실행 함수
-async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, inputVolt) {
+async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, readIndex, inputVolt) {
   try {
     const maxRetries = 5;
     let retryCount = 0;
@@ -982,11 +982,12 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, i
     
     console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1} 전압 데이터 테이블에 저장`);
     
-    // 채널 1개의 전압 데이터를 테이블에 업데이트
+    // 채널 1개의 전압 데이터를 테이블에 업데이트 (readIndex 추가)
     channelResults.forEach((channelResult, channelIndex) => {
       if (channelResult && typeof channelResult.voltage === 'number') {
         const channelNumber = channelIndex + 1;
-        updateTableData(deviceIndex + 1, voltageIndex + 1, channelNumber, channelResult.voltage, 'completed');
+        // readIndex는 현재 측정 중인 readIndex를 사용
+        updateTableData(deviceIndex + 1, voltageIndex + 1, readIndex + 1, channelNumber, channelResult.voltage, 'completed');
       }
     });
     
@@ -4003,17 +4004,20 @@ export async function generateInterruptedTestResultFile(options) {
   }
 }
 
-// 전역 테이블 데이터 저장소 추가 (채널 1개)
+// 전역 테이블 데이터 저장소 추가 (채널 1개, readCount 지원)
 let globalTableData = {
   devices: Array.from({ length: 10 }, (_, deviceIndex) => ({
     deviceNumber: deviceIndex + 1,
     tests: Array.from({ length: 3 }, (_, testIndex) => ({
       testNumber: testIndex + 1,
-      channels: Array.from({ length: 1 }, (_, channelIndex) => ({ // 채널 1개로 변경
-        channelNumber: channelIndex + 1,
-        voltage: null,
-        timestamp: null,
-        status: 'pending'
+      reads: Array.from({ length: 10 }, (_, readIndex) => ({ // readCount 최대 10개 지원
+        readIndex: readIndex + 1,
+        channels: Array.from({ length: 1 }, (_, channelIndex) => ({ // 채널 1개
+          channelNumber: channelIndex + 1,
+          voltage: null,
+          timestamp: null,
+          status: 'pending'
+        }))
       }))
     }))
   })),
@@ -4021,14 +4025,15 @@ let globalTableData = {
   isComplete: false
 };
 
-// 전압 데이터를 테이블에 업데이트하는 함수
-export function updateTableData(deviceNumber, testNumber, channelNumber, voltage, status = 'completed') {
+// 전압 데이터를 테이블에 업데이트하는 함수 (readIndex 지원)
+export function updateTableData(deviceNumber, testNumber, readIndex, channelNumber, voltage, status = 'completed') {
   try {
     if (deviceNumber >= 1 && deviceNumber <= 10 && 
         testNumber >= 1 && testNumber <= 3 && 
+        readIndex >= 1 && readIndex <= 10 &&
         channelNumber >= 1 && channelNumber <= 1) { // 채널 1개로 변경
       
-      globalTableData.devices[deviceNumber - 1].tests[testNumber - 1].channels[channelNumber - 1] = {
+      globalTableData.devices[deviceNumber - 1].tests[testNumber - 1].reads[readIndex - 1].channels[channelNumber - 1] = {
         channelNumber,
         voltage: voltage,
         timestamp: new Date().toISOString(),
@@ -4037,7 +4042,7 @@ export function updateTableData(deviceNumber, testNumber, channelNumber, voltage
       
       globalTableData.lastUpdate = new Date().toISOString();
       
-      console.log(`[TableData] Device ${deviceNumber}, Test ${testNumber}, Channel ${channelNumber}: ${voltage}V (${status})`);
+      console.log(`[TableData] Device ${deviceNumber}, Test ${testNumber}, Read ${readIndex}, Channel ${channelNumber}: ${voltage}V (${status})`);
       
       // 전압 데이터가 업데이트될 때마다 즉시 클라이언트에 전송하는 대신
       // 4개 채널이 모두 읽힌 후에 전송하도록 변경
@@ -4075,11 +4080,13 @@ export async function broadcastTableData() {
       // 선택된 디바이스만 처리
       if (deviceStates[deviceIndex]) {
         device.tests.forEach(test => {
-          test.channels.forEach(channel => {
-            totalCells++;
-            if (channel.status === 'completed' && channel.voltage !== null) {
-              completedCells++;
-            }
+          test.reads.forEach(read => {
+            read.channels.forEach(channel => {
+              totalCells++;
+              if (channel.status === 'completed' && channel.voltage !== null) {
+                completedCells++;
+              }
+            });
           });
         });
       }
@@ -4096,21 +4103,33 @@ export async function broadcastTableData() {
       completionPercentage: completionPercentage,
       completedCells: completedCells,
       totalCells: totalCells,
-      // 클라이언트가 기대하는 voltagTable 포맷: [voltageIndex][deviceIndex][readIndex][channel]
+      // 순차적 테이블 채우기를 위한 새로운 voltagTable 포맷: [voltageIndex][productIndex][measurementIndex][channel]
+      // 측정 순서: voltageIndex → productIndex → measurementIndex (순차적으로)
+      // 표시 순서: 각 전압(24V, 18V, 30V)에 대해 제품(C005, C006, C007)별로 1st~10th 열에 순차적으로 배치
       voltagTable: Array(3).fill(null).map((_, voltageIndex) => 
-        Array(3).fill(null).map((_, deviceIndex) => 
-          Array(10).fill(null).map((_, readIndex) => 
+        Array(3).fill(null).map((_, productIndex) => 
+          Array(10).fill(null).map((_, measurementIndex) => 
             Array(1).fill(null).map((_, channelIndex) => {
+              // 순차적 측정을 위해 measurementIndex를 직접 사용
+              // measurementIndex 0-9가 1st~10th 열에 순차적으로 매핑됨
+              
               // globalTableData에서 해당 위치의 데이터 찾기
-              const device = globalTableData.devices[deviceIndex];
+              // voltageIndex는 테스트 번호 (0=24V, 1=18V, 2=30V)
+              // productIndex는 제품 번호 (0=C005, 1=C006, 2=C007)
+              // measurementIndex는 측정 순서 (0=1st, 1=2nd, ..., 9=10th)
+              
+              const device = globalTableData.devices[productIndex]; // productIndex를 deviceIndex로 사용
               if (device && device.tests[voltageIndex]) {
-                const channel = device.tests[voltageIndex].channels[channelIndex];
-                if (channel && channel.status === 'completed' && channel.voltage !== null) {
-                  // 전압값과 비교결과를 함께 저장 (예: "221V|G")
-                  const expectedVoltage = getTableOption.channelVoltages[0] || 0;
-                  const comparisonResult = compareVoltage(channel.voltage, expectedVoltage);
-                  const truncatedVoltage = Math.floor(channel.voltage);
-                  return `${truncatedVoltage}V|${comparisonResult}`;
+                const read = device.tests[voltageIndex].reads[measurementIndex];
+                if (read && read.channels[channelIndex]) {
+                  const channel = read.channels[channelIndex];
+                  if (channel && channel.status === 'completed' && channel.voltage !== null) {
+                    // 전압값과 비교결과를 함께 저장 (예: "221V|G")
+                    const expectedVoltage = getTableOption.channelVoltages[0] || 0;
+                    const comparisonResult = compareVoltage(channel.voltage, expectedVoltage);
+                    const truncatedVoltage = Math.floor(channel.voltage);
+                    return `${truncatedVoltage}V|${comparisonResult}`;
+                  }
                 }
               }
               return '-.-';
@@ -4164,11 +4183,14 @@ export function resetTableData() {
       deviceNumber: deviceIndex + 1,
       tests: Array.from({ length: 3 }, (_, testIndex) => ({
         testNumber: testIndex + 1,
-        channels: Array.from({ length: 1 }, (_, channelIndex) => ({ // 채널 1개로 변경
-          channelNumber: channelIndex + 1,
-          voltage: null,
-          timestamp: null,
-          status: 'pending'
+        reads: Array.from({ length: 10 }, (_, readIndex) => ({ // readCount 최대 10개 지원
+          readIndex: readIndex + 1,
+          channels: Array.from({ length: 1 }, (_, channelIndex) => ({ // 채널 1개
+            channelNumber: channelIndex + 1,
+            voltage: null,
+            timestamp: null,
+            status: 'pending'
+          }))
         }))
       }))
     })),

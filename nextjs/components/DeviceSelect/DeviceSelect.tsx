@@ -10,7 +10,7 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   const devices = [
     { value: "#1 Device", label: "#1", index: 0 },
     { value: "#2 Device", label: "#2", index: 1 },
-    { value: "#3 Device", label: "#3", index: 3 }
+    { value: "#3 Device", label: "#3", index: 2 }
   ];
 
   // Default states - same for server and client
@@ -37,8 +37,9 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           try {
             const parsed = JSON.parse(stored);
             // 배열 형태로 저장된 경우
-            if (Array.isArray(parsed) && parsed.length === 10) {
-              return parsed;
+            if (Array.isArray(parsed) && parsed.length >= 3) {
+              // 서버에서 10개 배열을 보내지만 클라이언트에서는 3개만 사용
+              return parsed.slice(0, 3);
             }
             // 기존 객체 형태로 저장된 경우 (마이그레이션)
             else if (typeof parsed === 'object' && parsed !== null) {
@@ -74,13 +75,15 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           const match = message.match(/Initial device states: (.*)/);
           if (match && match[1]) {
             const serverStates = JSON.parse(match[1]);
-            if (Array.isArray(serverStates) && serverStates.length === 3) {
-              console.log('📥 Received device states from server:', serverStates);
-              setDeviceStates(serverStates);
-              setTempDeviceStates(serverStates);
-              // Update localStorage with server data
+            if (Array.isArray(serverStates) && serverStates.length >= 3) {
+              // 서버에서 10개 배열을 보내지만 클라이언트에서는 3개만 사용
+              const clientStates = serverStates.slice(0, 3);
+              console.log('📥 Received device states from server:', serverStates, '-> Using first 3:', clientStates);
+              setDeviceStates(clientStates);
+              setTempDeviceStates(clientStates);
+              // Update localStorage with client data (3 elements only)
               if (typeof window !== 'undefined') {
-                localStorage.setItem('deviceStates', JSON.stringify(serverStates));
+                localStorage.setItem('deviceStates', JSON.stringify(clientStates));
               }
             }
           }
