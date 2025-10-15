@@ -169,8 +169,8 @@ for (let i = 0; i < 3; i++) {
   // 두 번째 차원 (10)
   for (let j = 0; j < 10; j++) {
     RawVoltTable[i][j] = []; // 세 번째 차원을 위한 배열 초기화
-    // 세 번째 차원 (4)
-    for (let k = 0; k < 4; k++) {
+    // 세 번째 차원 (1) - 채널 1개로 변경
+    for (let k = 0; k < 1; k++) {
       RawVoltTable[i][j][k] = ""; // 초기값 ""으로 설정
     }
   }
@@ -435,138 +435,65 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
      csvContent += `Test Type,${testType}\n`;
     csvContent += '\n';
     
-     // Table header (same structure as image)
-     csvContent += `No,Test Item,Test Method,Specification,Sample No.(S/N),A.Q.L\n`;
-     csvContent += `,,,Input Voltage,Load Condition,Output Voltage,1,2,3,4,5,6,7,\n`;
-    csvContent += '\n';
-    
-     // Electrical performance test data (similar to item 101 in image)
-     let rowNumber = 101;
+     // 새로운 테이블 구조 (그림과 유사한 형태)
+     csvContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
      
-     // Generate table for each input voltage
+     // Generate table for each input voltage and product number
      for (let k = 0; k < 3; k++) {
        const inputVoltage = data.inputVolt[k] || 24;
-       const voltageName = k === 0 ? '18Vdc [Min]' : k === 1 ? '24Vdc [Rated]' : '30Vdc [Max]';
        
-       // Test item: Electrical performance test - Line/Load Regulation
-       csvContent += `${rowNumber},Electrical Performance Test,Power Supply,${voltageName},Max Load,5V (4.75V~5.25V),,,,,,,,A\n`;
-       csvContent += `,Line/Load Regulation,O.S.C,${voltageName},Max Load,15V (14.25V~15.75V),,,,,,,,A\n`;
-       csvContent += `,,Electronic Load,${voltageName},Max Load,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
-       csvContent += `,,DVM,${voltageName},Max Load,24V (22.80V~25.20V),,,,,,,,A\n`;
-       csvContent += `,,<SPEC>,${voltageName},Min Load,5V (4.75V~5.25V),,,,,,,,A\n`;
-       csvContent += `,,Line R.: ±1%,${voltageName},Min Load,15V (14.25V~15.75V),,,,,,,,A\n`;
-       csvContent += `,,Load R.: ±5%,${voltageName},Min Load,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
-       csvContent += `,,,${voltageName},Min Load,24V (22.80V~25.20V),,,,,,,,A\n`;
-       csvContent += `,,,${voltageName},Rated Load,5V (4.75V~5.25V),,,,,,,,A\n`;
-       csvContent += `,,,${voltageName},Rated Load,15V (14.25V~15.75V),,,,,,,,A\n`;
-       csvContent += `,,,${voltageName},Rated Load,-15V (-14.25V~-15.75V),,,,,,,,A\n`;
-       csvContent += `,,,${voltageName},Rated Load,24V (22.80V~25.20V),,,,,,,,A\n`;
-      
-       // Actual measurement data input
-       csvContent += '\n';
-       csvContent += `Measurement Results (${voltageName})\n`;
-       csvContent += `Channel,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
-      
-       // Measurement results for 4 channels
-      for (let j = 0; j < 4; j++) {
-        const channelName = `Channel ${j+1}`;
-        const expectedVoltage = channelVoltages[j];
-        csvContent += `${channelName} (${expectedVoltage}V),`;
-        
+       // 각 제품번호에 대해 테이블 생성
+       for (let productIndex = 0; productIndex < data.ProductNumber.length; productIndex++) {
+         const productNumber = data.ProductNumber[productIndex] || `C00${productIndex + 5}`;
+         
+        // 해당 제품번호의 1st-10th 데이터 생성 (채널 1개)
+        const measurementData = [];
         for (let i = 0; i < 10; i++) {
-          // voltagTable 접근 시 안전한 검증
-          let voltageValue = '';
-          try {
-            if (reportData.voltagTable && 
-                reportData.voltagTable[k] && 
-                reportData.voltagTable[k][i] && 
-                reportData.voltagTable[k][i][j] !== undefined) {
-              voltageValue = reportData.voltagTable[k][i][j];
+          // 채널 1개의 값 사용
+          const voltageData = reportData.voltagTable[k][i][0];
+          if (voltageData && voltageData !== "-.-") {
+            const parts = voltageData.split('|');
+            if (parts.length === 2) {
+              const voltageStr = parts[0].replace('V', '');
+              const voltage = parseFloat(voltageStr);
+              if (!isNaN(voltage)) {
+                // 소수점 없이 정수로 변환 (그림의 형태에 맞춤)
+                measurementData.push(Math.round(voltage));
+              } else {
+                measurementData.push('-');
+              }
+            } else {
+              measurementData.push('-');
             }
-          } catch (accessError) {
-            console.warn(`[SaveData] ⚠️ voltagTable[${k}][${i}][${j}] 접근 오류:`, accessError.message);
-            voltageValue = '';
-          }
-          
-          if (voltageValue && voltageValue !== "-.-") {
-            // 전압값을 소수점 2자리로 자르기
-            const truncatedVoltageValue = truncateVoltageToTwoDecimals(voltageValue);
-            // "5.2V|G" 형식에서 전압값만 추출
-            const voltagePart = truncatedVoltageValue.split('|')[0];
-            csvContent += `${voltagePart},`;
           } else {
-            csvContent += `-,`;
+            measurementData.push('-');
           }
         }
-        csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거
-      }
-      
-      // 비교 결과 (G/N)
-      csvContent += '\n';
-      csvContent += `비교결과 (G=Good, N=Not Good)\n`;
-      csvContent += `채널,Device 1,Device 2,Device 3,Device 4,Device 5,Device 6,Device 7,Device 8,Device 9,Device 10\n`;
-      
-      for (let j = 0; j < 4; j++) {
-        const channelName = `Channel ${j+1}`;
-        csvContent += `${channelName},`;
-        
-        for (let i = 0; i < 10; i++) {
-          // voltagTable 접근 시 안전한 검증
-          let voltageValue = '';
-          try {
-            if (reportData.voltagTable && 
-                reportData.voltagTable[k] && 
-                reportData.voltagTable[k][i] && 
-                reportData.voltagTable[k][i][j] !== undefined) {
-              voltageValue = reportData.voltagTable[k][i][j];
-            }
-          } catch (accessError) {
-            console.warn(`[SaveData] ⚠️ voltagTable[${k}][${i}][${j}] 접근 오류:`, accessError.message);
-            voltageValue = '';
-          }
-          
-          if (voltageValue && voltageValue !== "-.-") {
-            // "5.2V|G" 형식에서 비교 결과만 추출
-            const comparisonResult = voltageValue.includes('|') ? voltageValue.split('|')[1] : '';
-            csvContent += `${comparisonResult},`;
-          } else {
-            csvContent += `-,`;
-          }
-        }
-        csvContent = csvContent.slice(0, -1) + '\n'; // 마지막 쉼표 제거
-      }
-      
-      csvContent += '\n';
-      rowNumber++;
-    }
+         
+         // A.Q.L 계산 (모든 측정값이 유효하면 A, 아니면 N)
+         const validMeasurements = measurementData.filter(val => val !== '-').length;
+         const aql = validMeasurements >= 8 ? 'A' : 'N'; // 8개 이상 유효하면 A
+         
+         // 테이블 행 생성
+         csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
+       }
+     }
     
-    // 전체 통계 계산
+    // 전체 통계 계산 (채널 1개에 맞게)
     let totalTests = 0;
     let passedTests = 0;
     let failedTests = 0;
     
     for (let k = 0; k < 3; k++) {
-      for (let i = 0; i < 10; i++) {
-        for (let j = 0; j < 4; j++) {
-          // voltagTable 접근 시 안전한 검증
-          let voltageValue = '';
-          try {
-            if (reportData.voltagTable && 
-                reportData.voltagTable[k] && 
-                reportData.voltagTable[k][i] && 
-                reportData.voltagTable[k][i][j] !== undefined) {
-              voltageValue = reportData.voltagTable[k][i][j];
-            }
-          } catch (accessError) {
-            console.warn(`[SaveData] ⚠️ 통계 계산 중 voltagTable[${k}][${i}][${j}] 접근 오류:`, accessError.message);
-            voltageValue = '';
-          }
-          
-          if (voltageValue && voltageValue !== "-.-") {
+      for (let productIndex = 0; productIndex < data.ProductNumber.length; productIndex++) {
+        for (let i = 0; i < 10; i++) {
+          // 채널 1개의 데이터 확인
+          const voltageData = reportData.voltagTable[k][i][0];
+          if (voltageData && voltageData !== "-.-") {
             totalTests++;
-            if (voltageValue.includes('|G')) {
+            if (voltageData.includes('|G')) {
               passedTests++;
-            } else if (voltageValue.includes('|N')) {
+            } else {
               failedTests++;
             }
           }
@@ -727,14 +654,14 @@ export function testPowerTableReset() {
   }
 }
 
-// 페이지 단위 테스트 프로세스 실행
-export async function runSinglePageProcess() {
+// 페이지 단위 테스트 프로세스 실행 (readCount 반복 포함)
+export async function runSinglePageProcess(readCount = 1) {
   // 중단 보고서 생성을 위한 변수들
   let stopInfo = null;
   
   try {
     const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
-    console.log(`[SinglePageProcess] 🔧 단일 페이지 프로세스 시작 (${modeText})`);
+    console.log(`[SinglePageProcess] 🔧 단일 페이지 프로세스 시작 (${modeText}) - readCount: ${readCount}`);
     
     // 파워스위치 상태 확인
     const { getMachineRunningStatus } = await import('./backend-websocket-server.js');
@@ -779,7 +706,7 @@ export async function runSinglePageProcess() {
     
     const getTableOption = await getSafeGetTableOption();
     
-    // currentTable 변수 정의 - 테이블 데이터 저장용
+    // currentTable 변수 정의 - 테이블 데이터 저장용 (채널 1개)
     const currentTable = {
       modelName: getTableOption.modelName || 'Unknown Model',
       ProductNumber: getTableOption.ProductNumber || ['Unknown'],
@@ -790,7 +717,330 @@ export async function runSinglePageProcess() {
         TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
         voltagTable: Array(3).fill(null).map(() => 
           Array(10).fill(null).map(() => 
-            Array(4).fill("-.-")
+            Array(1).fill("-.-") // 채널 1개로 변경
+          )
+        )
+      }]
+    };
+    
+    // 딜레이 설정 로드
+    const onDelay = getTableOption.delaySettings.onDelay;
+    const offDelay = getTableOption.delaySettings.offDelay;
+    
+    // 3개 input 전압에 대해 각각 readCount만큼 Device 1~3 읽기
+    for (let voltageIndex = 0; voltageIndex < 3; voltageIndex++) {
+      // 중지 요청 확인 - 전압 테스트 시작 전
+      if (getProcessStopRequested()) {
+        console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 테스트 ${voltageIndex + 1}/3에서 중단`);
+        return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtPhase: 'voltage_test_start' };
+      }
+      
+      // 전압 설정
+      const inputVolt = getTableOption.outVoltSettings[voltageIndex];
+      console.log(`[SinglePageProcess] 전압 ${voltageIndex + 1}/3 설정: ${inputVolt}V`);
+      
+      // 전압 설정 재시도 로직
+      let voltSetSuccess = false;
+      let retryCount = 0;
+      const maxRetries = 5;
+      
+      while (!voltSetSuccess && retryCount < maxRetries) {
+        // 중지 요청 확인 - 전압 설정 중
+        if (getProcessStopRequested()) {
+          console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 설정 중 중단`);
+          return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtPhase: 'voltage_setting' };
+        }
+        
+        try {
+          if (SIMULATION_PROC === false) {
+            voltSetSuccess = await SendVoltCommand(inputVolt);
+          } else {
+            voltSetSuccess = true;
+          }
+
+          if (voltSetSuccess === true) {
+            console.log(`[SinglePageProcess] 전압 설정 성공: ${inputVolt}V`);
+          } else {
+            throw new Error('전압 설정 실패: 응답 없음');
+          }
+        } catch (error) {
+          retryCount++;
+          console.warn(`[SinglePageProcess] 전압 설정 실패 (${retryCount}/${maxRetries}): ${error}`);
+          if (retryCount < maxRetries) {
+            console.log(`[SinglePageProcess] 3초 후 재시도...`);
+            await sleep(3000);
+          } else {
+            return { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtPhase: 'before_voltage_setting' };
+          }
+        }
+      }
+
+      if (voltSetSuccess === false) {
+        return { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtPhase: 'before_voltage_setting' };
+      }
+      
+      // readCount만큼 Device 1~3 읽기 반복
+      for (let readIndex = 0; readIndex < readCount; readIndex++) {
+        // 중지 요청 확인
+        if (getProcessStopRequested()) {
+          console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - readCount ${readIndex + 1}/${readCount}에서 중단`);
+          return { 
+            status: 'stopped', 
+            message: '사용자에 의해 중지됨', 
+            stoppedAtRead: readIndex + 1,
+            stoppedAtVoltageTest: voltageIndex + 1,
+            stoppedAtPhase: 'read_count_loop'
+          };
+        }
+        
+        console.log(`[SinglePageProcess] 전압 ${inputVolt}V - readCount ${readIndex + 1}/${readCount} 실행 시작`);
+        
+        // Device 1~3 읽기
+        for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
+          // 중지 요청 확인 - 디바이스 처리 시작 전
+          if (getProcessStopRequested()) {
+            console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 디바이스 ${deviceIndex + 1}/3에서 중단`);
+            return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtDevice: deviceIndex + 1, stoppedAtPhase: 'device_start' };
+          }
+            
+          if (getTableOption.deviceStates[deviceIndex] === false) {
+            currentTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][0] = "-.-";
+          } else {
+            // 디바이스 선택 및 전압 읽기 로직
+            const deviceResult = await executeDeviceReading(getTableOption, voltageIndex, deviceIndex, inputVolt);
+            if (deviceResult.status === 'stopped') {
+              return deviceResult;
+            }
+            currentTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][0] = deviceResult.voltageWithComparison;
+          }
+        }
+        
+        console.log(`[SinglePageProcess] 전압 ${inputVolt}V - readCount ${readIndex + 1}/${readCount} 완료`);
+      }
+    }
+    
+    return { 
+      status: 'completed', 
+      message: `단일 페이지 프로세스 완료 (${readCount}회 실행)`,
+      data: currentTable,
+      readCount: readCount
+    };
+    
+  } catch (error) {
+    console.error('[SinglePageProcess] 예외 발생:', error);
+    
+    // 에러 발생 시에도 중단 보고서 생성하지 않음 - 상위 함수에서 처리
+    stopInfo = { 
+      status: 'error', 
+      message: `예외 발생: ${error.message}`,
+      errorType: 'exception',
+      stoppedAtPhase: 'unknown'
+    };
+    
+    return stopInfo;
+  }
+}
+
+// 디바이스 읽기 실행 함수
+async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, inputVolt) {
+  try {
+    const maxRetries = 5;
+    let retryCount = 0;
+    
+    // 디바이스 선택 재시도 로직
+    let deviceSelectSuccess = false;
+    
+    while (!deviceSelectSuccess && retryCount < maxRetries) {
+      // 중지 요청 확인 - 디바이스 선택 중
+      if (getProcessStopRequested()) {
+        console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 디바이스 ${deviceIndex + 1} 선택 중 중단`);
+        return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtDevice: deviceIndex + 1, stoppedAtPhase: 'device_selection' };
+      }
+      
+      try {
+        // 릴레이 동작 전 정지 신호 확인
+        if (getProcessStopRequested()) {
+          console.log(`[SinglePageProcess] 🛑 릴레이 동작 전 정지 신호 감지 - 디바이스 ${deviceIndex + 1} 선택 중단`);
+          return { status: 'stopped', message: '릴레이 동작 전 정지 신호 감지', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtDevice: deviceIndex + 1, stoppedAtPhase: 'before_relay_operation' };
+        }
+
+        let selectResult = true;
+
+        if (SIMULATION_PROC === false) {
+          selectResult = await SelectDeviceOn(deviceIndex + 1);  // 1부터 시작
+        }
+
+        if (selectResult === true || selectResult.success === true) {
+          deviceSelectSuccess = true;
+        } else {
+          throw new Error(selectResult?.message || selectResult?.error || '알 수 없는 오류');
+        }
+      } catch (error) {
+        retryCount++;
+        console.warn(`[SinglePageProcess] 디바이스 ${deviceIndex + 1} 선택 실패 (${retryCount}/${maxRetries}): ${error}`);
+        if (retryCount < maxRetries) {
+          console.log(`[SinglePageProcess] 2초 후 재시도...`);
+          await sleep(2000);
+        } else {
+          console.error(`[SinglePageProcess] 디바이스 ${deviceIndex + 1} 선택 최종 실패`);
+          return { status: 'stopped', message: '[SinglePageProcess] 디바이스선택 최종 실패', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtDevice: deviceIndex + 1, stoppedAtPhase: 'before_relay_operation' };
+        }
+      }
+    }
+
+    // 전압 읽기 로직
+    const channelResults = []; // 배열로 초기화
+    
+    // 채널 변경을 위한 충분한 시간 확보
+    await sleep(2000);
+    
+    // 전압 읽기 재시도 로직 (채널 1개만)
+    let voltReadSuccess = false;
+    retryCount = 0;
+    
+    while (!voltReadSuccess && retryCount < maxRetries) {
+      // 중지 요청 확인 - 전압 읽기 중
+      if (getProcessStopRequested()) {
+        console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 읽기 중 중단`);
+        return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtDevice: deviceIndex + 1, stoppedAtPhase: 'voltage_reading' };
+      }
+      
+      try {
+        let voltData = 0;
+        if (SIMULATION_PROC === false) {
+          voltData = await ReadVolt(1);     // 채널 하나만 읽는다
+        } else {
+          // 시뮬레이션 모드에서는 설정된 채널 전압값을 사용하고 약간의 변동 추가
+          const baseVoltage = getTableOption.channelVoltages[0];
+          let variation = (Math.random() - 0.5) * (baseVoltage * 0.05); // ±5% 변동  
+          voltData = baseVoltage + variation; // baseVoltage 5%이내의 변동값 적용
+        }
+        await sleep(100); // 시뮬레이션을 위한 짧은 대기
+        voltReadSuccess = true;
+      } catch (error) {
+        retryCount++;
+        console.warn(`[SinglePageProcess] Device ${deviceIndex + 1}, Channel 1 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
+        if (retryCount < maxRetries) {
+          console.log(`[SinglePageProcess] 2초 후 재시도...`);
+          await sleep(2000); // 재시도 대기 시간을 2초로 증가
+        } else {
+          console.error(`[SinglePageProcess] Device ${deviceIndex + 1}, Channel 1 전압 읽기 최종 실패`);
+          voltData = 'error';
+          return { status: 'stopped', message: '전압 읽기 최종 실패', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtDevice: deviceIndex + 1, stoppedAtChannel: 1, stoppedAtPhase: 'channel_start' };
+        }
+      }
+    }
+    
+    // 채널 읽기 완료 후 안정화를 위한 추가 대기 시간
+    if (voltReadSuccess && voltData !== 'error') {
+      await sleep(1000); // 채널 읽기 완료 후 1초 대기
+    }
+                      
+    const expectedVoltage = getTableOption.channelVoltages[0] || 0;
+    const comparisonResult = voltData === 'error' ? 'N' : compareVoltage(voltData, expectedVoltage);
+     
+    // 전압값과 비교 결과를 함께 저장 (예: "221V|G" 또는 "240V|N")
+    // 전압값을 소수점 이하로 자르기
+    const truncatedVoltData = voltData === 'error' ? voltData : Math.floor(voltData);
+    const voltageWithComparison = voltData === 'error' ? 'error|N' : `${truncatedVoltData}V|${comparisonResult}`;
+     
+    // 채널 결과 수집
+    channelResults.push({
+      device: deviceIndex + 1,
+      channel: 1,
+      voltage: voltData,
+      expected: expectedVoltage,
+      result: comparisonResult,
+      voltageWithComparison: voltageWithComparison
+    });            
+    
+    console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1} 전압 데이터 테이블에 저장`);
+    
+    // 채널 1개의 전압 데이터를 테이블에 업데이트
+    channelResults.forEach((channelResult, channelIndex) => {
+      if (channelResult && typeof channelResult.voltage === 'number') {
+        const channelNumber = channelIndex + 1;
+        updateTableData(deviceIndex + 1, voltageIndex + 1, channelNumber, channelResult.voltage, 'completed');
+      }
+    });
+    
+    // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송
+    console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
+    await broadcastTableData();
+    
+    // 디바이스 해제 재시도 로직
+    retryCount = 0;
+    while (retryCount < maxRetries) {
+      // 중지 요청 확인 - 디바이스 해제 중
+      if (getProcessStopRequested()) {
+        console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 디바이스 ${deviceIndex + 1} 해제 중 중단`);
+        // 디바이스 해제는 시도하되 즉시 반환
+        try {
+          if (SIMULATION_PROC === false) {
+            await SelectDeviceOff(deviceIndex + 1);
+          }
+        } catch (error) {
+          console.warn(`[SinglePageProcess] 디바이스 ${deviceIndex + 1} 해제 실패 (중지 요청으로 인한): ${error}`);
+        }
+        return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: voltageIndex + 1, stoppedAtDevice: deviceIndex + 1, stoppedAtPhase: 'device_release' };
+      }
+      
+      try {
+        if (SIMULATION_PROC === false) {
+          await SelectDeviceOff(deviceIndex + 1);
+        }
+        break; // 성공하면 루프 종료
+      } catch (error) {
+        retryCount++;
+        console.warn(`[SinglePageProcess] 디바이스 ${deviceIndex + 1} 해제 실패 (${retryCount}/${maxRetries}): ${error}`);
+        if (retryCount < maxRetries) {
+          console.log(`[SinglePageProcess] 1초 후 재시도...`);
+          await sleep(1000);
+        } else {
+          console.error(`[SinglePageProcess] 디바이스 ${deviceIndex + 1} 해제 최종 실패 - 계속 진행`);
+          break; // 해제 실패해도 계속 진행
+        }
+      }
+    }
+    
+    // 디바이스 해제 후 대기 시간
+    await sleep(offDelay);
+    
+    return { 
+      status: 'completed', 
+      voltageWithComparison: voltageWithComparison,
+      voltage: voltData,
+      expected: expectedVoltage,
+      result: comparisonResult
+    };
+    
+  } catch (error) {
+    console.error('[SinglePageProcess] 디바이스 읽기 예외 발생:', error);
+    
+    return { 
+      status: 'error', 
+      message: `예외 발생: ${error.message}`,
+      errorType: 'exception',
+      stoppedAtPhase: 'unknown'
+    };
+  }
+}
+
+// 단일 read 실행 함수 (기존 함수는 더 이상 사용하지 않음)
+async function executeSingleRead(getTableOption, readIndex) {
+  try {
+    // currentTable 변수 정의 - 테이블 데이터 저장용 (채널 1개)
+    const currentTable = {
+      modelName: getTableOption.modelName || 'Unknown Model',
+      ProductNumber: getTableOption.ProductNumber || ['Unknown'],
+      inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
+      reportTable: [{
+        TestDate: new Date().toLocaleDateString('en-US'),
+        TestTime: new Date().toLocaleTimeString('en-US'),
+        TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+        voltagTable: Array(3).fill(null).map(() => 
+          Array(10).fill(null).map(() => 
+            Array(1).fill("-.-") // 채널 1개로 변경
           )
         )
       }]
@@ -801,8 +1051,7 @@ export async function runSinglePageProcess() {
     // 중지 요청 확인 - 프로세스 시작 전
     if (getProcessStopRequested()) {
       console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 프로세스 시작 전 중단`);
-      stopInfo = { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtPhase: 'initialization' };
-      return stopInfo;
+      return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtPhase: 'initialization' };
     }
     
     // 딜레이 설정 로드
@@ -815,8 +1064,7 @@ export async function runSinglePageProcess() {
       // 강력한 중지 확인 - 전압 테스트 시작 전
       if (getProcessStopRequested()) {
         console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 테스트 ${k+1}/3에서 중단`);
-        stopInfo = { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'voltage_test_start' };
-        return stopInfo;
+        return { status: 'stopped', message: '사용자에 의해 중지됨', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'voltage_test_start' };
       }
       
       // 전압을 설정 한다. 
@@ -832,15 +1080,13 @@ export async function runSinglePageProcess() {
         // 중지 요청 확인 - 전압 설정 중
         if (getProcessStopRequested()) {
           console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 전압 설정 중 중단`);
-          stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'voltage_setting' };
-          return stopInfo;
+          return { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'voltage_setting' };
         }
         
         // 전압 설정 전 정지 신호 확인 - 릴레이 동작 전
         if (getProcessStopRequested()) {
           console.log(`[SinglePageProcess] 🛑 전압 설정 전 정지 신호 감지 - 전압 ${inputVolt}V 설정 중단`);
-          stopInfo = { status: 'stopped', message: '전압 설정 전 정지 신호 감지', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
-          return stopInfo;
+          return { status: 'stopped', message: '전압 설정 전 정지 신호 감지', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
         }
 
         try {
@@ -863,15 +1109,13 @@ export async function runSinglePageProcess() {
             await sleep(3000);
           } else {
             //throw new Error(`전압 설정 실패: ${error}`);
-            stopInfo = { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
-            return stopInfo;
+            return { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
           }
         }
       }
 
       if( voltSetSuccess === false ){
-        stopInfo = { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
-        return stopInfo;
+        return { status: 'stopped', message: '전압설정실패', stoppedAtVoltageTest: k+1, stoppedAtPhase: 'before_voltage_setting' };
       }
       
       for ( let i = 0; i < 3; i++) {
@@ -940,9 +1184,8 @@ export async function runSinglePageProcess() {
             return stopInfo;
           }
           
-          // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
-          // 4개의 채널이 한개의 채널로 변경할 것이다. 
-          const channelResults = 0;
+          // 채널 1개 전압 읽기 (기존 4개 채널에서 1개로 변경)
+          const channelResults = []; // 배열로 초기화
           
           //for ( let j = 0; j < 4 ; j++) {       // 채널 1 하나 만 읽는다. 
             // 채널 변경을 위한 충분한 시간 확보 (기존 1초에서 2초로 증가)
@@ -950,7 +1193,7 @@ export async function runSinglePageProcess() {
             
             // 중지 요청 확인 - 채널 처리 시작 전
             if (getProcessStopRequested()) {
-              console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 채널 ${j+1}/4에서 중단`);
+              console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 채널 1 읽기 시작 전 중단`);
               if( SIMULATION_PROC === false ){ 
                 await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
               }
@@ -1014,8 +1257,8 @@ export async function runSinglePageProcess() {
             const truncatedVoltData = voltData === 'error' ? voltData : Math.floor(voltData);
             const voltageWithComparison = voltData === 'error' ? 'error|N' : `${truncatedVoltData}V|${comparisonResult}`;
              
-            // 기존 voltagTable에도 저장 (호환성 유지)
-            currentTable.reportTable[0].voltagTable[k][i]= voltageWithComparison;
+            // voltagTable에 저장 (채널 1개만 사용하므로 [0] 인덱스 사용)
+            currentTable.reportTable[0].voltagTable[k][i][0] = voltageWithComparison;
              
             // 채널 결과 수집
             channelResults.push({
@@ -1026,10 +1269,10 @@ export async function runSinglePageProcess() {
               result: comparisonResult,
               voltageWithComparison: voltageWithComparison
             });            
-          //} // for (let j = 0; j < 4; j++) 루프 닫기
-          //console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1} 전압 데이터 테이블에 누적`);
           
-          // 각 채널의 전압 데이터를 테이블에 업데이트
+          console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1} 전압 데이터 테이블에 저장`);
+          
+          // 채널 1개의 전압 데이터를 테이블에 업데이트
           channelResults.forEach((channelResult, channelIndex) => {
             if (channelResult && typeof channelResult.voltage === 'number') {
               const channelNumber = channelIndex + 1;
@@ -1037,8 +1280,8 @@ export async function runSinglePageProcess() {
             }
           });
           
-          // 4개 채널 전압을 모두 읽은 후 클라이언트에 실시간 전송
-          console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 4개 채널 완료 - 클라이언트에 데이터 전송`);
+          // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송
+          console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
           await broadcastTableData();
           
           // 디바이스 해제 재시도 로직
@@ -1096,26 +1339,325 @@ export async function runSinglePageProcess() {
     // 모든 테스트가 완료된 후 테이블 완성 상태 확인
     console.log('[SinglePageProcess] 모든 테스트 완료 - 테이블 완성 상태 확인');
     
-    // SinglePageProcess에서는 최종 전송하지 않음 - 상위 프로세스에서 처리
-    
     return { 
       status: 'completed', 
-      message: '단일 페이지 프로세스 완료',
-      data: currentTable
+      message: '단일 read 실행 완료',
+      data: currentTable,
+      readIndex: readIndex
     };
     
   } catch (error) {
     console.error('[SinglePageProcess] 예외 발생:', error);
     
-    // 에러 발생 시에도 중단 보고서 생성하지 않음 - 상위 함수에서 처리
-    stopInfo = { 
+    return { 
       status: 'error', 
       message: `예외 발생: ${error.message}`,
       errorType: 'exception',
       stoppedAtPhase: 'unknown'
     };
+  }
+}
+
+// 여러 read 결과를 합치는 함수
+function combineReadResults(allReadResults, getTableOption) {
+  try {
+    console.log(`[CombineReadResults] ${allReadResults.length}개의 read 결과를 합치는 중...`);
     
-    return stopInfo;
+    // 기본 테이블 구조 생성 (채널 1개)
+    const combinedTable = {
+      modelName: getTableOption.modelName || 'Unknown Model',
+      ProductNumber: getTableOption.ProductNumber || ['Unknown'],
+      inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
+      reportTable: [{
+        TestDate: new Date().toLocaleDateString('en-US'),
+        TestTime: new Date().toLocaleTimeString('en-US'),
+        TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+        voltagTable: Array(3).fill(null).map(() => 
+          Array(10).fill(null).map(() => 
+            Array(1).fill("-.-") // 채널 1개로 변경
+          )
+        )
+      }]
+    };
+    
+    // 각 read 결과의 데이터를 합치기
+    for (let k = 0; k < 3; k++) { // 3개 전압 (18V, 24V, 30V)
+      for (let i = 0; i < 10; i++) { // 10개 디바이스
+        for (let j = 0; j < 1; j++) { // 1개 채널
+          const voltageValues = [];
+          const goodCounts = [];
+          
+          // 모든 read 결과에서 해당 위치의 데이터 수집
+          allReadResults.forEach((readResult, readIndex) => {
+            if (readResult.status === 'completed' && readResult.data && readResult.data.reportTable && readResult.data.reportTable[0]) {
+              const voltageData = readResult.data.reportTable[0].voltagTable[k][i][j];
+              if (voltageData && voltageData !== "-.-") {
+                // "5.2V|G" 형식에서 전압값과 비교결과 추출
+                const parts = voltageData.split('|');
+                if (parts.length === 2) {
+                  const voltageStr = parts[0].replace('V', '');
+                  const voltage = parseFloat(voltageStr);
+                  const isGood = parts[1] === 'G';
+                  
+                  if (!isNaN(voltage)) {
+                    voltageValues.push(voltage);
+                    goodCounts.push(isGood ? 1 : 0);
+                  }
+                }
+              }
+            }
+          });
+          
+          // 평균 계산 및 결과 저장
+          if (voltageValues.length > 0) {
+            const averageVoltage = voltageValues.reduce((sum, val) => sum + val, 0) / voltageValues.length;
+            const totalGood = goodCounts.reduce((sum, val) => sum + val, 0);
+            const averageGood = totalGood / goodCounts.length;
+            const comparisonResult = averageGood >= 0.5 ? 'G' : 'N'; // 50% 이상이 Good이면 Good
+            
+            // 소수점 2자리로 자르기
+            const truncatedVoltage = Math.floor(averageVoltage * 100) / 100;
+            combinedTable.reportTable[0].voltagTable[k][i][j] = `${truncatedVoltage}V|${comparisonResult}`;
+          } else {
+            combinedTable.reportTable[0].voltagTable[k][i][j] = "-.-";
+          }
+        }
+      }
+    }
+    
+    console.log(`[CombineReadResults] ${allReadResults.length}개의 read 결과 합치기 완료`);
+    return combinedTable;
+    
+  } catch (error) {
+    console.error('[CombineReadResults] 결과 합치기 실패:', error);
+    // 기본 테이블 반환 (채널 1개)
+    return {
+      modelName: getTableOption.modelName || 'Unknown Model',
+      ProductNumber: getTableOption.ProductNumber || ['Unknown'],
+      inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
+      reportTable: [{
+        TestDate: new Date().toLocaleDateString('en-US'),
+        TestTime: new Date().toLocaleTimeString('en-US'),
+        TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+        voltagTable: Array(3).fill(null).map(() => 
+          Array(10).fill(null).map(() => 
+            Array(1).fill("-.-") // 채널 1개로 변경
+          )
+        )
+      }]
+    };
+  }
+}
+
+/**
+ * 모든 결과리포트를 합쳐서 최종결과 테이블을 생성하는 함수
+ */
+function createFinalResultTable(allCycleResults, getTableOption) {
+  try {
+    console.log(`[CreateFinalResultTable] ${allCycleResults.length}개의 사이클 결과를 합쳐서 최종 테이블 생성 중...`);
+    
+    // 기본 테이블 구조 생성 (채널 1개)
+    const finalTable = {
+      modelName: getTableOption.modelName || 'Unknown Model',
+      ProductNumber: getTableOption.ProductNumber || ['Unknown'],
+      inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
+      reportTable: [{
+        TestDate: new Date().toLocaleDateString('en-US'),
+        TestTime: new Date().toLocaleTimeString('en-US'),
+        TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+        voltagTable: Array(3).fill(null).map(() => 
+          Array(10).fill(null).map(() => 
+            Array(1).fill("-.-") // 채널 1개로 변경
+          )
+        )
+      }]
+    };
+    
+    // 각 사이클 결과의 데이터를 합치기
+    for (let k = 0; k < 3; k++) { // 3개 전압 (18V, 24V, 30V)
+      for (let i = 0; i < 10; i++) { // 10개 디바이스
+        for (let j = 0; j < 1; j++) { // 1개 채널
+          const voltageValues = [];
+          const goodCounts = [];
+          
+          // 모든 사이클 결과에서 해당 위치의 데이터 수집
+          allCycleResults.forEach((cycleResult, cycleIndex) => {
+            if (cycleResult && cycleResult.reportTable && cycleResult.reportTable[0]) {
+              const voltageData = cycleResult.reportTable[0].voltagTable[k][i][j];
+              if (voltageData && voltageData !== "-.-") {
+                // "5.2V|G" 형식에서 전압값과 비교결과 추출
+                const parts = voltageData.split('|');
+                if (parts.length === 2) {
+                  const voltageStr = parts[0].replace('V', '');
+                  const voltage = parseFloat(voltageStr);
+                  const isGood = parts[1] === 'G';
+                  
+                  if (!isNaN(voltage)) {
+                    voltageValues.push(voltage);
+                    goodCounts.push(isGood ? 1 : 0);
+                  }
+                }
+              }
+            }
+          });
+          
+          // 평균 계산 및 결과 저장
+          if (voltageValues.length > 0) {
+            const averageVoltage = voltageValues.reduce((sum, val) => sum + val, 0) / voltageValues.length;
+            const totalGood = goodCounts.reduce((sum, val) => sum + val, 0);
+            const averageGood = totalGood / goodCounts.length;
+            const comparisonResult = averageGood >= 0.5 ? 'G' : 'N'; // 50% 이상이 Good이면 Good
+            
+            // 소수점 2자리로 자르기
+            const truncatedVoltage = Math.floor(averageVoltage * 100) / 100;
+            finalTable.reportTable[0].voltagTable[k][i][j] = `${truncatedVoltage}V|${comparisonResult}`;
+          } else {
+            finalTable.reportTable[0].voltagTable[k][i][j] = "-.-";
+          }
+        }
+      }
+    }
+    
+    console.log(`[CreateFinalResultTable] ${allCycleResults.length}개의 사이클 결과 합치기 완료`);
+    return finalTable;
+    
+  } catch (error) {
+    console.error('[CreateFinalResultTable] 최종 결과 테이블 생성 실패:', error);
+    // 기본 테이블 반환 (채널 1개)
+    return {
+      modelName: getTableOption.modelName || 'Unknown Model',
+      ProductNumber: getTableOption.ProductNumber || ['Unknown'],
+      inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
+      reportTable: [{
+        TestDate: new Date().toLocaleDateString('en-US'),
+        TestTime: new Date().toLocaleTimeString('en-US'),
+        TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
+        voltagTable: Array(3).fill(null).map(() => 
+          Array(10).fill(null).map(() => 
+            Array(1).fill("-.-") // 채널 1개로 변경
+          )
+        )
+      }]
+    };
+  }
+}
+
+/**
+ * 최종결과 테이블을 파일로 저장하는 함수
+ */
+function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
+  try {
+    console.log(`[SaveFinalResultTable] 최종결과 테이블 저장 시작...`);
+    
+    const filename = `${getFormattedDateTime()}_FinalResult_AllCycles.csv`;
+    
+    // 전역 변수에서 테스트 디렉토리 경로 사용
+    let dateFolderPath = currentTestDirectoryPath;
+    
+    if (!dateFolderPath) {
+      console.log(`[SaveFinalResultTable] 📁 전역 디렉토리 경로가 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+      
+      try {
+        const dataFolderPath = path.join(process.cwd(), 'Data');
+        const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
+          .filter(dirent => dirent.isDirectory())
+          .map(dirent => dirent.name)
+          .filter(name => /^\d{8}_\d{4}$/.test(name))
+          .sort()
+          .reverse();
+        
+        if (directories.length > 0) {
+          const dateDirectoryName = directories[0];
+          dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+          console.log(`[SaveFinalResultTable] 📁 자동으로 최근 테스트 디렉토리 발견: ${dateDirectoryName}`);
+        } else {
+          throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+        }
+      } catch (error) {
+        console.error(`[SaveFinalResultTable] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
+        throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+      }
+    }
+    
+    const filePath = path.join(dateFolderPath, filename);
+    
+    let csvContent = '';
+    const reportData = finalTable.reportTable[0];
+    
+    // Document header information
+    csvContent += `Document No.,K2-AD-110-A241023-001\n`;
+    csvContent += `Product Name,${finalTable.modelName || ''}\n`;
+    csvContent += `Product Number,${finalTable.ProductNumber.join(';') || ''}\n`;
+    csvContent += `Test Date,${reportData.TestDate || ''}\n`;
+    csvContent += `Test Time,${reportData.TestTime || ''}\n`;
+    csvContent += `Test Temperature,${reportData.TestTemperature || ''}℃\n`;
+    csvContent += `Total Cycles,${totalCycles}\n`;
+    csvContent += `Test Type,Final Result (All Cycles Combined)\n`;
+    csvContent += '\n';
+    
+    // 새로운 테이블 구조 (그림과 유사한 형태)
+    csvContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
+    
+    // Generate table for each input voltage and product number
+    for (let k = 0; k < 3; k++) {
+      const inputVoltage = finalTable.inputVolt[k] || 24;
+      
+      // 각 제품번호에 대해 테이블 생성
+      for (let productIndex = 0; productIndex < finalTable.ProductNumber.length; productIndex++) {
+        const productNumber = finalTable.ProductNumber[productIndex] || `C00${productIndex + 5}`;
+        
+        // 해당 제품번호의 1st-10th 데이터 생성 (채널 1개)
+        const measurementData = [];
+        for (let i = 0; i < 10; i++) {
+          // 채널 1개의 값 사용
+          const voltageData = reportData.voltagTable[k][i][0];
+          if (voltageData && voltageData !== "-.-") {
+            const parts = voltageData.split('|');
+            if (parts.length === 2) {
+              const voltageStr = parts[0].replace('V', '');
+              const voltage = parseFloat(voltageStr);
+              if (!isNaN(voltage)) {
+                // 소수점 없이 정수로 변환 (그림의 형태에 맞춤)
+                measurementData.push(Math.round(voltage));
+              } else {
+                measurementData.push('-');
+              }
+            } else {
+              measurementData.push('-');
+            }
+          } else {
+            measurementData.push('-');
+          }
+        }
+        
+        // A.Q.L 계산 (모든 측정값이 유효하면 A, 아니면 N)
+        const validMeasurements = measurementData.filter(val => val !== '-').length;
+        const aql = validMeasurements >= 8 ? 'A' : 'N'; // 8개 이상 유효하면 A
+        
+        // 테이블 행 생성
+        csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
+      }
+    }
+    
+    // Test results summary
+    csvContent += '\n';
+    csvContent += `=== Final Test Results Summary ===\n`;
+    csvContent += `Total Cycles,${totalCycles}\n`;
+    csvContent += `Test Result,All Cycles Completed\n`;
+    csvContent += `Operator,System\n`;
+    csvContent += `Document Version,PS-14(Rev.1)\n`;
+    csvContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
+    
+    // 파일에 저장
+    fs.writeFileSync(filePath, csvContent, 'utf8');
+    
+    console.log(`[SaveFinalResultTable] 최종결과 테이블 저장 완료: ${filename}`);
+    console.log(`[SaveFinalResultTable] 파일 경로: ${filePath}`);
+    
+    return { success: true, filename, filePath };
+  } catch (error) {
+    console.error('[SaveFinalResultTable] 최종결과 테이블 저장 실패:', error);
+    return { success: false, error: error.message };
   }
 }
 
@@ -1647,7 +2189,7 @@ export async function runNextTankEnviTestProcess() {
               
               while (!singlePageSuccess && retryCount < maxRetries) {
                 try {
-                  singlePageResult = await runSinglePageProcess();
+                  singlePageResult = await runSinglePageProcess(readCount);
                   
                   if ( singlePageResult.status === 'stopped') {
                     console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
@@ -2088,7 +2630,7 @@ export async function runNextTankEnviTestProcess() {
               
               while (!singlePageSuccess && retryCount < maxRetries) {
                 try {
-                  singlePageResult = await runSinglePageProcess();
+                  singlePageResult = await runSinglePageProcess(lowReadCount);
                   
                   if (singlePageResult.status === 'stopped') {
                     console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
@@ -2241,6 +2783,22 @@ export async function runNextTankEnviTestProcess() {
       }
     } catch (error) {
       console.error(`[NextTankEnviTestProcess] ❌ 종합 리포트 생성 실패:`, error.message);
+    }
+    
+    // 최종결과 테이블 생성 (모든 사이클 결과를 합쳐서)
+    console.log(`[NextTankEnviTestProcess] 📊 최종결과 테이블 생성 시작`);
+    try {
+      const getTableOption = await getSafeGetTableOption();
+      const finalTable = createFinalResultTable(cycleResults, getTableOption);
+      const finalTableResult = saveFinalResultTable(finalTable, getTableOption, cycleNumber);
+      
+      if (finalTableResult && finalTableResult.success) {
+        console.log(`[NextTankEnviTestProcess] ✅ 최종결과 테이블 생성 성공: ${finalTableResult.filename}`);
+      } else {
+        console.error(`[NextTankEnviTestProcess] ❌ 최종결과 테이블 생성 실패: ${finalTableResult?.error || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error(`[NextTankEnviTestProcess] ❌ 최종결과 테이블 생성 중 오류 발생:`, error);
     }
     
     // PowerSwitch 상태 OFF 설정
