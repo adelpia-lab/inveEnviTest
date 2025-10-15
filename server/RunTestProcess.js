@@ -874,7 +874,7 @@ export async function runSinglePageProcess() {
         return stopInfo;
       }
       
-      for ( let i = 0; i < 10; i++) {
+      for ( let i = 0; i < 3; i++) {
         // 중지 요청 확인 - 디바이스 처리 시작 전
         if (getProcessStopRequested()) {
           console.log(`[SinglePageProcess] 🛑 중지 요청 감지 - 디바이스 ${i+1}/10에서 중단`);
@@ -883,9 +883,7 @@ export async function runSinglePageProcess() {
         }
           
         if (getTableOption.deviceStates[i] === false) {
-          for ( let j = 0; j < 4 ; j++) {  // 입력 전압 24, 18, 30V default
-            currentTable.reportTable[0].voltagTable[k][i][j] = "-.-";
-          }
+            currentTable.reportTable[0].voltagTable[k][i] = "-.-";
         } else {
           // 디바이스 선택 재시도 로직
           let deviceSelectSuccess = false;
@@ -907,12 +905,11 @@ export async function runSinglePageProcess() {
                 return stopInfo;
               }
 
-              await sleep(2000);
-         
+              //await sleep(2000);         
               let selectResult = true;
 
               if( SIMULATION_PROC === false ){
-                selectResult = await SelectDeviceOn(i+1);  // 1 부터 시작 함
+                selectResult = await SelectDeviceOn(i+1);  // 1 부터 시작 함 debug_jsk 릴레이동작을 인버터의 입력과 출력을 같이 선택해야 함 
               }
 
               if (selectResult === true || selectResult.success === true) {
@@ -925,8 +922,8 @@ export async function runSinglePageProcess() {
               retryCount++;
               console.warn(`[SinglePageProcess] 디바이스 ${i+1} 선택 실패 (${retryCount}/${maxRetries}): ${error}`);
               if (retryCount < maxRetries) {
-                console.log(`[SinglePageProcess] 10초 후 재시도...`);
-                await sleep(5000); // 5초 대기로 증가
+                console.log(`[SinglePageProcess] 2초 후 재시도...`);
+                await sleep(2000); // 5초 대기로 증가
               } else {
                 console.error(`[SinglePageProcess] 디바이스 ${i+1} 선택 최종 실패`);
                 stopInfo = { status: 'stopped', message: '[SinglePageProcess] 디바이스선택 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtPhase: 'before_relay_operation' };
@@ -944,9 +941,10 @@ export async function runSinglePageProcess() {
           }
           
           // 4개 채널 전압을 모두 읽은 후 클라이언트에 결과 전송
-          const channelResults = [];
+          // 4개의 채널이 한개의 채널로 변경할 것이다. 
+          const channelResults = 0;
           
-          for ( let j = 0; j < 4 ; j++) {  // 입력 전압 18, 24, 30V default
+          //for ( let j = 0; j < 4 ; j++) {       // 채널 1 하나 만 읽는다. 
             // 채널 변경을 위한 충분한 시간 확보 (기존 1초에서 2초로 증가)
             await sleep(2000);
             
@@ -956,11 +954,9 @@ export async function runSinglePageProcess() {
               if( SIMULATION_PROC === false ){ 
                 await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
               }
-              stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'channel_start' };
+              stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: 1, stoppedAtPhase: 'channel_start' };
               return stopInfo;
             }
-            
-            //console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
              
             // 전압 읽기 재시도 로직
             let voltReadSuccess = false;
@@ -974,42 +970,32 @@ export async function runSinglePageProcess() {
                 if( SIMULATION_PROC === false ){ 
                   await SelectDeviceOff(i+1); // 안전을 위해 디바이스 끄기
                 }
-                stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'voltage_reading' };
+                stopInfo = { status: 'stopped', message: '사용자에 의해 중단됨', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: 1, stoppedAtPhase: 'voltage_reading' };
                 return stopInfo;
               }
               
-                          try {
+            try {
               if( SIMULATION_PROC === false ){
-                // 순차적 실행을 위한 로깅 추가
-                // console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 시작`);
-                voltData = await ReadVolt(j+1);
+                voltData = await ReadVolt(1);     // 채널 하나 만 읽는다.   debug_jsk
               } else {
                 // 시뮬레이션 모드에서는 설정된 채널 전압값을 사용하고 약간의 변동 추가
-                const baseVoltage = getTableOption.channelVoltages[j];
-                let variation = (Math.random() - 0.5) * 0.2; // ±0.1V 변동
-                
-                // 채널 3 (-15)의 경우 음수 값이 올바르게 생성되도록 보장
-                if (j === 2 && baseVoltage < 0) {
-                  // -15 채널의 경우 음수 값 유지
-                  voltData = baseVoltage + variation;
-                } else {
-                  voltData = baseVoltage + variation;
-                }
-                
-                await sleep(100); // 시뮬레이션을 위한 짧은 대기
+                const baseVoltage = getTableOption.channelVoltages[0];
+                let variation = (Math.random() - 0.5) * (baseVoltage * 0.05); // ±5% 변동  
+                voltData = baseVoltage + variation; // baseVoltage 5%이내의 변동값 적용
               }
+              await sleep(100); // 시뮬레이션을 위한 짧은 대기
               voltReadSuccess = true;
               //console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 성공: ${voltData}V`);
             } catch (error) {
                 retryCount++;
-                console.warn(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
+                console.warn(`[SinglePageProcess] Device ${i+1}, Channel 1 전압 읽기 실패 (${retryCount}/${maxRetries}): ${error}`);
                 if (retryCount < maxRetries) {
                   console.log(`[SinglePageProcess] 2초 후 재시도...`);
                   await sleep(2000); // 재시도 대기 시간을 2초로 증가
                 } else {
-                  console.error(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 전압 읽기 최종 실패`);
+                  console.error(`[SinglePageProcess] Device ${i+1}, Channel 1 전압 읽기 최종 실패`);
                   voltData = 'error';
-                  stopInfo = { status: 'stopped', message: '전압 읽기 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: j+1, stoppedAtPhase: 'channel_start' };
+                  stopInfo = { status: 'stopped', message: '전압 읽기 최종 실패', stoppedAtVoltageTest: k+1, stoppedAtDevice: i+1, stoppedAtChannel: 1, stoppedAtPhase: 'channel_start' };
                   return stopInfo;
                 }
               }
@@ -1019,45 +1005,28 @@ export async function runSinglePageProcess() {
             if (voltReadSuccess && voltData !== 'error') {
               await sleep(1000); // 채널 읽기 완료 후 1초 대기
             }
-             
-            // 채널 3 (j=2)의 경우 읽은 전압에 -1.0을 곱함
-            // 시뮬레이션인 경우는 통과한다. 
-            if( SIMULATION_PROC === false ){
-              if (j === 2 && voltData !== 'error' && typeof voltData === 'number') {
-                voltData = voltData * -1.0;
-              }
-            } else {
-              // 시뮬레이션 모드에서도 채널 3 (-15) 처리
-              if (j === 2 && voltData !== 'error' && typeof voltData === 'number') {
-                // 시뮬레이션에서는 이미 -15 근처의 값이 생성되므로 추가 변환 불필요
-              }
-            }
-             
-            const expectedVoltage = getTableOption.channelVoltages[j] || 0;
+                          
+            const expectedVoltage = getTableOption.channelVoltages[0] || 0;
             const comparisonResult = voltData === 'error' ? 'N' : compareVoltage(voltData, expectedVoltage);
              
-            // 전압값과 비교 결과를 함께 저장 (예: "5.2V|G" 또는 "5.2V|N")
-            // 전압값을 소수점 2자리로 자르기 (3자리 이하 버림)
-            const truncatedVoltData = voltData === 'error' ? voltData : Math.floor(voltData * 100) / 100;
+            // 전압값과 비교 결과를 함께 저장 (예: "221V|G" 또는 "240V|N")
+            // 전압값을 소수점 이하로 자르기
+            const truncatedVoltData = voltData === 'error' ? voltData : Math.floor(voltData);
             const voltageWithComparison = voltData === 'error' ? 'error|N' : `${truncatedVoltData}V|${comparisonResult}`;
              
             // 기존 voltagTable에도 저장 (호환성 유지)
-            currentTable.reportTable[0].voltagTable[k][i][j] = voltageWithComparison;
+            currentTable.reportTable[0].voltagTable[k][i]= voltageWithComparison;
              
             // 채널 결과 수집
             channelResults.push({
               device: i+1,
-              channel: j+1,
+              channel: 1,
               voltage: voltData,
               expected: expectedVoltage,
               result: comparisonResult,
               voltageWithComparison: voltageWithComparison
-            });
-            
-            // console.log(`[SinglePageProcess] Device ${i+1}, Channel ${j+1} 완료: ${voltageWithComparison}`);
-          } // for (let j = 0; j < 4; j++) 루프 닫기
-          
-          // 4개 채널 전압을 모두 읽은 후 테이블에 누적
+            });            
+          //} // for (let j = 0; j < 4; j++) 루프 닫기
           //console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1} 전압 데이터 테이블에 누적`);
           
           // 각 채널의 전압 데이터를 테이블에 업데이트
@@ -1121,8 +1090,8 @@ export async function runSinglePageProcess() {
           
           await sleep(offDelay);
         } // if (getTableOption.deviceStates[i] === false) else 블록 닫기
-      } // for (let i = 0; i < 10; i++) 루프 닫기
-    } // for (let k = 0; k < 3; k++) 루프 닫기
+      } // for (let i = 0; i < 3; i++) 디바이스 선택 루프 닫기
+    } // for (let k = 0; k < 3; k++) 전압 24,18,30V 테스트 루프 닫기
     
     // 모든 테스트가 완료된 후 테이블 완성 상태 확인
     console.log('[SinglePageProcess] 모든 테스트 완료 - 테이블 완성 상태 확인');
