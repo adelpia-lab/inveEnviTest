@@ -438,63 +438,83 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
      // 새로운 테이블 구조 (그림과 유사한 형태)
      csvContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
      
-     // Generate table for each input voltage and product number
+     // Generate table for each input voltage and product number (그림과 동일한 형태)
      for (let k = 0; k < 3; k++) {
        const inputVoltage = data.inputVolt[k] || 24;
        
-       // 각 제품번호에 대해 테이블 생성
-       for (let productIndex = 0; productIndex < data.ProductNumber.length; productIndex++) {
-         const productNumber = data.ProductNumber[productIndex] || `C00${productIndex + 5}`;
+       // 각 제품번호에 대해 테이블 생성 (C005, C006, C007)
+       for (let productIndex = 0; productIndex < 3; productIndex++) {
+         const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
          
-        // 해당 제품번호의 1st-10th 데이터 생성 (채널 1개)
-        const measurementData = [];
-        for (let i = 0; i < 10; i++) {
-          // 채널 1개의 값 사용
-          const voltageData = reportData.voltagTable[k][i][0];
-          if (voltageData && voltageData !== "-.-") {
-            const parts = voltageData.split('|');
-            if (parts.length === 2) {
-              const voltageStr = parts[0].replace('V', '');
-              const voltage = parseFloat(voltageStr);
-              if (!isNaN(voltage)) {
-                // 소수점 없이 정수로 변환 (그림의 형태에 맞춤)
-                measurementData.push(Math.round(voltage));
-              } else {
-                measurementData.push('-');
-              }
-            } else {
-              measurementData.push('-');
-            }
-          } else {
-            measurementData.push('-');
-          }
-        }
+         // 해당 제품번호의 1st-10th 데이터 생성 (Device별 readCount 측정값)
+         const measurementData = [];
          
-         // A.Q.L 계산 (모든 측정값이 유효하면 A, 아니면 N)
+         // 모든 Device의 모든 readCount 측정값을 순차적으로 저장
+         let measurementIndex = 0;
+         for (let deviceIndex = 0; deviceIndex < 3 && measurementIndex < 10; deviceIndex++) {
+           if (reportData.voltagTable[k] && reportData.voltagTable[k][deviceIndex]) {
+             const deviceReadCount = reportData.voltagTable[k][deviceIndex].length;
+             for (let readIndex = 0; readIndex < deviceReadCount && measurementIndex < 10; readIndex++) {
+               // 채널 1개의 값 사용
+               const voltageData = reportData.voltagTable[k][deviceIndex][readIndex][0];
+               if (voltageData && voltageData !== "-.-") {
+                 const parts = voltageData.split('|');
+                 if (parts.length === 2) {
+                   const voltageStr = parts[0].replace('V', '');
+                   const voltage = parseFloat(voltageStr);
+                   if (!isNaN(voltage)) {
+                     // 소수점 없이 정수로 변환 (그림의 형태에 맞춤)
+                     measurementData.push(Math.round(voltage));
+                   } else {
+                     measurementData.push('-');
+                   }
+                 } else {
+                   measurementData.push('-');
+                 }
+               } else {
+                 measurementData.push('-');
+               }
+               measurementIndex++;
+             }
+           }
+         }
+         
+         // 10개 미만이면 나머지를 '-'로 채움
+         while (measurementData.length < 10) {
+           measurementData.push('-');
+         }
+         
+         // A.Q.L 계산 (8개 이상 유효하면 A, 아니면 N)
          const validMeasurements = measurementData.filter(val => val !== '-').length;
-         const aql = validMeasurements >= 8 ? 'A' : 'N'; // 8개 이상 유효하면 A
+         const aql = validMeasurements >= 8 ? 'A' : 'N';
          
-         // 테이블 행 생성
+         // 테이블 행 생성 (그림과 동일한 형태)
          csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
        }
      }
     
-    // 전체 통계 계산 (채널 1개에 맞게)
+    // 전체 통계 계산 (채널 1개에 맞게, 그림과 동일한 구조)
     let totalTests = 0;
     let passedTests = 0;
     let failedTests = 0;
     
     for (let k = 0; k < 3; k++) {
-      for (let productIndex = 0; productIndex < data.ProductNumber.length; productIndex++) {
-        for (let i = 0; i < 10; i++) {
-          // 채널 1개의 데이터 확인
-          const voltageData = reportData.voltagTable[k][i][0];
-          if (voltageData && voltageData !== "-.-") {
-            totalTests++;
-            if (voltageData.includes('|G')) {
-              passedTests++;
-            } else {
-              failedTests++;
+      for (let productIndex = 0; productIndex < 3; productIndex++) { // C005, C006, C007
+        // 모든 Device의 모든 readCount 측정값을 확인
+        for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
+          if (reportData.voltagTable[k] && reportData.voltagTable[k][deviceIndex]) {
+            const deviceReadCount = reportData.voltagTable[k][deviceIndex].length;
+            for (let readIndex = 0; readIndex < deviceReadCount; readIndex++) {
+              // 채널 1개의 데이터 확인
+              const voltageData = reportData.voltagTable[k][deviceIndex][readIndex][0];
+              if (voltageData && voltageData !== "-.-") {
+                totalTests++;
+                if (voltageData.includes('|G')) {
+                  passedTests++;
+                } else {
+                  failedTests++;
+                }
+              }
             }
           }
         }
@@ -580,10 +600,10 @@ function combineTestResults(testResults) {
     }]
   };
   
-  // 모든 결과의 전압 데이터를 평균 계산
+  // 모든 결과의 전압 데이터를 평균 계산 (채널 1개)
   for (let k = 0; k < 3; k++) {
     for (let i = 0; i < 10; i++) {
-      for (let j = 0; j < 4; j++) {
+      for (let j = 0; j < 1; j++) { // 채널 1개로 변경
         let totalVoltage = 0;
         let validCount = 0;
         let totalGood = 0;
@@ -706,7 +726,7 @@ export async function runSinglePageProcess(readCount = 1) {
     
     const getTableOption = await getSafeGetTableOption();
     
-    // currentTable 변수 정의 - 테이블 데이터 저장용 (채널 1개)
+    // currentTable 변수 정의 - 테이블 데이터 저장용 (채널 1개, Device별 readCount 크기)
     const currentTable = {
       modelName: getTableOption.modelName || 'Unknown Model',
       ProductNumber: getTableOption.ProductNumber || ['Unknown'],
@@ -716,8 +736,10 @@ export async function runSinglePageProcess(readCount = 1) {
         TestTime: new Date().toLocaleTimeString('en-US'),
         TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
         voltagTable: Array(3).fill(null).map(() => 
-          Array(10).fill(null).map(() => 
-            Array(1).fill("-.-") // 채널 1개로 변경
+          Array(3).fill(null).map(() => // Device 1,2,3
+            Array(readCount).fill(null).map(() => 
+              Array(1).fill("-.-") // 채널 1개, readCount 크기
+            )
           )
         )
       }]
@@ -804,14 +826,14 @@ export async function runSinglePageProcess(readCount = 1) {
           }
             
           if (getTableOption.deviceStates[deviceIndex] === false) {
-            currentTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][0] = "-.-";
+            currentTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][readIndex][0] = "-.-";
           } else {
             // 디바이스 선택 및 전압 읽기 로직
             const deviceResult = await executeDeviceReading(getTableOption, voltageIndex, deviceIndex, inputVolt);
             if (deviceResult.status === 'stopped') {
               return deviceResult;
             }
-            currentTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][0] = deviceResult.voltageWithComparison;
+            currentTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][readIndex][0] = deviceResult.voltageWithComparison;
           }
         }
         
@@ -846,6 +868,10 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, i
   try {
     const maxRetries = 5;
     let retryCount = 0;
+    
+    // 딜레이 설정 로드
+    const onDelay = getTableOption.delaySettings.onDelay;
+    const offDelay = getTableOption.delaySettings.offDelay;
     
     // 디바이스 선택 재시도 로직
     let deviceSelectSuccess = false;
@@ -896,6 +922,7 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, i
     
     // 전압 읽기 재시도 로직 (채널 1개만)
     let voltReadSuccess = false;
+    let voltData = 0; // voltData 변수를 루프 밖에서 선언
     retryCount = 0;
     
     while (!voltReadSuccess && retryCount < maxRetries) {
@@ -906,7 +933,6 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, i
       }
       
       try {
-        let voltData = 0;
         if (SIMULATION_PROC === false) {
           voltData = await ReadVolt(1);     // 채널 하나만 읽는다
         } else {
@@ -1456,7 +1482,7 @@ function createFinalResultTable(allCycleResults, getTableOption) {
   try {
     console.log(`[CreateFinalResultTable] ${allCycleResults.length}개의 사이클 결과를 합쳐서 최종 테이블 생성 중...`);
     
-    // 기본 테이블 구조 생성 (채널 1개)
+    // 기본 테이블 구조 생성 (채널 1개) - runSinglePageProcess와 동일한 구조
     const finalTable = {
       modelName: getTableOption.modelName || 'Unknown Model',
       ProductNumber: getTableOption.ProductNumber || ['Unknown'],
@@ -1466,8 +1492,10 @@ function createFinalResultTable(allCycleResults, getTableOption) {
         TestTime: new Date().toLocaleTimeString('en-US'),
         TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
         voltagTable: Array(3).fill(null).map(() => 
-          Array(10).fill(null).map(() => 
-            Array(1).fill("-.-") // 채널 1개로 변경
+          Array(3).fill(null).map(() => // Device 1,2,3
+            Array(10).fill(null).map(() => 
+              Array(1).fill("-.-") // 채널 1개, 최대 10개 readCount
+            )
           )
         )
       }]
@@ -1475,44 +1503,52 @@ function createFinalResultTable(allCycleResults, getTableOption) {
     
     // 각 사이클 결과의 데이터를 합치기
     for (let k = 0; k < 3; k++) { // 3개 전압 (18V, 24V, 30V)
-      for (let i = 0; i < 10; i++) { // 10개 디바이스
-        for (let j = 0; j < 1; j++) { // 1개 채널
-          const voltageValues = [];
-          const goodCounts = [];
-          
-          // 모든 사이클 결과에서 해당 위치의 데이터 수집
-          allCycleResults.forEach((cycleResult, cycleIndex) => {
-            if (cycleResult && cycleResult.reportTable && cycleResult.reportTable[0]) {
-              const voltageData = cycleResult.reportTable[0].voltagTable[k][i][j];
-              if (voltageData && voltageData !== "-.-") {
-                // "5.2V|G" 형식에서 전압값과 비교결과 추출
-                const parts = voltageData.split('|');
-                if (parts.length === 2) {
-                  const voltageStr = parts[0].replace('V', '');
-                  const voltage = parseFloat(voltageStr);
-                  const isGood = parts[1] === 'G';
-                  
-                  if (!isNaN(voltage)) {
-                    voltageValues.push(voltage);
-                    goodCounts.push(isGood ? 1 : 0);
+      for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) { // Device 1,2,3
+        for (let readIndex = 0; readIndex < 10; readIndex++) { // readCount 최대 10
+          for (let j = 0; j < 1; j++) { // 1개 채널
+            const voltageValues = [];
+            const goodCounts = [];
+            
+            // 모든 사이클 결과에서 해당 위치의 데이터 수집
+            allCycleResults.forEach((cycleResult, cycleIndex) => {
+              if (cycleResult && cycleResult.reportTable && cycleResult.reportTable[0] && 
+                  cycleResult.reportTable[0].voltagTable && 
+                  cycleResult.reportTable[0].voltagTable[k] && 
+                  cycleResult.reportTable[0].voltagTable[k][deviceIndex] && 
+                  cycleResult.reportTable[0].voltagTable[k][deviceIndex][readIndex] && 
+                  cycleResult.reportTable[0].voltagTable[k][deviceIndex][readIndex][j]) {
+                
+                const voltageData = cycleResult.reportTable[0].voltagTable[k][deviceIndex][readIndex][j];
+                if (voltageData && voltageData !== "-.-") {
+                  // "5.2V|G" 형식에서 전압값과 비교결과 추출
+                  const parts = voltageData.split('|');
+                  if (parts.length === 2) {
+                    const voltageStr = parts[0].replace('V', '');
+                    const voltage = parseFloat(voltageStr);
+                    const isGood = parts[1] === 'G';
+                    
+                    if (!isNaN(voltage)) {
+                      voltageValues.push(voltage);
+                      goodCounts.push(isGood ? 1 : 0);
+                    }
                   }
                 }
               }
-            }
-          });
-          
-          // 평균 계산 및 결과 저장
-          if (voltageValues.length > 0) {
-            const averageVoltage = voltageValues.reduce((sum, val) => sum + val, 0) / voltageValues.length;
-            const totalGood = goodCounts.reduce((sum, val) => sum + val, 0);
-            const averageGood = totalGood / goodCounts.length;
-            const comparisonResult = averageGood >= 0.5 ? 'G' : 'N'; // 50% 이상이 Good이면 Good
+            });
             
-            // 소수점 2자리로 자르기
-            const truncatedVoltage = Math.floor(averageVoltage * 100) / 100;
-            finalTable.reportTable[0].voltagTable[k][i][j] = `${truncatedVoltage}V|${comparisonResult}`;
-          } else {
-            finalTable.reportTable[0].voltagTable[k][i][j] = "-.-";
+            // 평균 계산 및 결과 저장
+            if (voltageValues.length > 0) {
+              const averageVoltage = voltageValues.reduce((sum, val) => sum + val, 0) / voltageValues.length;
+              const totalGood = goodCounts.reduce((sum, val) => sum + val, 0);
+              const averageGood = totalGood / goodCounts.length;
+              const comparisonResult = averageGood >= 0.5 ? 'G' : 'N'; // 50% 이상이 Good이면 Good
+              
+              // 소수점 없이 정수로 변환
+              const truncatedVoltage = Math.floor(averageVoltage);
+              finalTable.reportTable[0].voltagTable[k][deviceIndex][readIndex][j] = `${truncatedVoltage}V|${comparisonResult}`;
+            } else {
+              finalTable.reportTable[0].voltagTable[k][deviceIndex][readIndex][j] = "-.-";
+            }
           }
         }
       }
@@ -1533,8 +1569,10 @@ function createFinalResultTable(allCycleResults, getTableOption) {
         TestTime: new Date().toLocaleTimeString('en-US'),
         TestTemperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
         voltagTable: Array(3).fill(null).map(() => 
-          Array(10).fill(null).map(() => 
-            Array(1).fill("-.-") // 채널 1개로 변경
+          Array(3).fill(null).map(() => // Device 1,2,3
+            Array(10).fill(null).map(() => 
+              Array(1).fill("-.-") // 채널 1개, 최대 10개 readCount
+            )
           )
         )
       }]
@@ -1584,7 +1622,7 @@ function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
     let csvContent = '';
     const reportData = finalTable.reportTable[0];
     
-    // Document header information
+    // Document header information (xxx_Cycle_HighTemp_Test.csv와 동일한 구조)
     csvContent += `Document No.,K2-AD-110-A241023-001\n`;
     csvContent += `Product Name,${finalTable.modelName || ''}\n`;
     csvContent += `Product Number,${finalTable.ProductNumber.join(';') || ''}\n`;
@@ -1598,52 +1636,95 @@ function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
     // 새로운 테이블 구조 (그림과 유사한 형태)
     csvContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
     
-    // Generate table for each input voltage and product number
+    // Generate table for each input voltage and product number (그림과 동일한 형태)
     for (let k = 0; k < 3; k++) {
       const inputVoltage = finalTable.inputVolt[k] || 24;
       
-      // 각 제품번호에 대해 테이블 생성
-      for (let productIndex = 0; productIndex < finalTable.ProductNumber.length; productIndex++) {
-        const productNumber = finalTable.ProductNumber[productIndex] || `C00${productIndex + 5}`;
+      // 각 제품번호에 대해 테이블 생성 (C005, C006, C007)
+      for (let productIndex = 0; productIndex < 3; productIndex++) {
+        const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
         
-        // 해당 제품번호의 1st-10th 데이터 생성 (채널 1개)
+        // 해당 제품번호의 1st-10th 데이터 생성 (Device별 readCount 측정값)
         const measurementData = [];
-        for (let i = 0; i < 10; i++) {
-          // 채널 1개의 값 사용
-          const voltageData = reportData.voltagTable[k][i][0];
-          if (voltageData && voltageData !== "-.-") {
-            const parts = voltageData.split('|');
-            if (parts.length === 2) {
-              const voltageStr = parts[0].replace('V', '');
-              const voltage = parseFloat(voltageStr);
-              if (!isNaN(voltage)) {
-                // 소수점 없이 정수로 변환 (그림의 형태에 맞춤)
-                measurementData.push(Math.round(voltage));
+        
+        // 모든 Device의 모든 readCount 측정값을 순차적으로 저장
+        let measurementIndex = 0;
+        for (let deviceIndex = 0; deviceIndex < 3 && measurementIndex < 10; deviceIndex++) {
+          if (reportData.voltagTable[k] && reportData.voltagTable[k][deviceIndex]) {
+            const deviceReadCount = reportData.voltagTable[k][deviceIndex].length;
+            for (let readIndex = 0; readIndex < deviceReadCount && measurementIndex < 10; readIndex++) {
+              // 채널 1개의 값 사용
+              const voltageData = reportData.voltagTable[k][deviceIndex][readIndex][0];
+              if (voltageData && voltageData !== "-.-") {
+                const parts = voltageData.split('|');
+                if (parts.length === 2) {
+                  const voltageStr = parts[0].replace('V', '');
+                  const voltage = parseFloat(voltageStr);
+                  if (!isNaN(voltage)) {
+                    // 소수점 없이 정수로 변환 (그림의 형태에 맞춤)
+                    measurementData.push(Math.round(voltage));
+                  } else {
+                    measurementData.push('-');
+                  }
+                } else {
+                  measurementData.push('-');
+                }
               } else {
                 measurementData.push('-');
               }
-            } else {
-              measurementData.push('-');
+              measurementIndex++;
             }
-          } else {
-            measurementData.push('-');
           }
         }
         
-        // A.Q.L 계산 (모든 측정값이 유효하면 A, 아니면 N)
-        const validMeasurements = measurementData.filter(val => val !== '-').length;
-        const aql = validMeasurements >= 8 ? 'A' : 'N'; // 8개 이상 유효하면 A
+        // 10개 미만이면 나머지를 '-'로 채움
+        while (measurementData.length < 10) {
+          measurementData.push('-');
+        }
         
-        // 테이블 행 생성
+        // A.Q.L 계산 (8개 이상 유효하면 A, 아니면 N)
+        const validMeasurements = measurementData.filter(val => val !== '-').length;
+        const aql = validMeasurements >= 8 ? 'A' : 'N';
+        
+        // 테이블 행 생성 (그림과 동일한 형태)
         csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
       }
     }
     
-    // Test results summary
+    // Test results summary (xxx_Cycle_HighTemp_Test.csv와 동일한 형태)
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = 0;
+    
+    // 모든 Device의 모든 readCount 측정값을 확인하여 통계 계산
+    for (let k = 0; k < 3; k++) {
+      for (let productIndex = 0; productIndex < 3; productIndex++) {
+        for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
+          if (reportData.voltagTable[k] && reportData.voltagTable[k][deviceIndex]) {
+            const deviceReadCount = reportData.voltagTable[k][deviceIndex].length;
+            for (let readIndex = 0; readIndex < deviceReadCount; readIndex++) {
+              const voltageData = reportData.voltagTable[k][deviceIndex][readIndex][0];
+              if (voltageData && voltageData !== "-.-") {
+                totalTests++;
+                if (voltageData.includes('|G')) {
+                  passedTests++;
+                } else {
+                  failedTests++;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
     csvContent += '\n';
-    csvContent += `=== Final Test Results Summary ===\n`;
-    csvContent += `Total Cycles,${totalCycles}\n`;
-    csvContent += `Test Result,All Cycles Completed\n`;
+    csvContent += `=== Test Results Summary ===\n`;
+    csvContent += `Total Tests,${totalTests}\n`;
+    csvContent += `Passed Tests,${passedTests}\n`;
+    csvContent += `Failed Tests,${failedTests}\n`;
+    csvContent += `Pass Rate,${totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : 0}%\n`;
+    csvContent += `Test Result,${passedTests > failedTests ? 'PASS' : 'FAIL'}\n`;
     csvContent += `Operator,System\n`;
     csvContent += `Document Version,PS-14(Rev.1)\n`;
     csvContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
@@ -1660,7 +1741,6 @@ function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
     return { success: false, error: error.message };
   }
 }
-
 
 // 중단 보고서 생성을 위한 통일된 함수
 async function generateStopReport(stopInfo) {
@@ -2117,107 +2197,106 @@ export async function runNextTankEnviTestProcess() {
               }
             }
             
-            // runSinglePageProcess 를 readCount 만큼 실행
-            for(let i = 0; i < readCount; i++) {
-              // 중지 요청 확인
-              if (getProcessStopRequested()) {
-                console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 고온 테스트 실행 중 중단 (${i+1}/${readCount})`);
-                
-                // 중지 시에도 PowerSwitch 상태를 off로 설정
-                setMachineRunningStatus(false);
-                console.log(`[NextTankEnviTestProcess] 🔌 중지로 인한 PowerSwitch 상태 OFF 설정`);
-                
-                // 클라이언트에게 파워스위치 OFF 상태 전송
-                if (globalWss) {
-                  const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - High temp test execution stopped`;
-                  let sentCount = 0;
-                  globalWss.clients.forEach(client => {
-                    if (client.readyState === 1) { // WebSocket.OPEN
-                      client.send(powerOffMessage);
-                      sentCount++;
-                    }
-                  });
-                  console.log(`[NextTankEnviTestProcess] 🔌 고온 테스트 실행 중단으로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
-                } else {
-                  console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 고온 테스트 실행 중단 시 파워스위치 OFF 메시지 전송 불가`);
-                }
-                
-                // 중단 보고서 생성은 최종 종료 시에만 생성하도록 수정
-                console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
-                
-                return { 
-                  status: 'stopped', 
-                  message: '사용자에 의해 중단됨', 
-                  stoppedAtCycle: cycle, 
-                  stoppedAtPhase: 'high_temp_test', 
-                  stoppedAtTest: i+1,
-                  totalCycles: cycle
-                };
-              }
+            // runSinglePageProcess 실행 (readCount는 함수 내부에서 처리)
+            // 중지 요청 확인
+            if (getProcessStopRequested()) {
+              console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 고온 테스트 실행 중 중단`);
               
-              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 ${i+1}/${readCount} 실행`);
+              // 중지 시에도 PowerSwitch 상태를 off로 설정
+              setMachineRunningStatus(false);
+              console.log(`[NextTankEnviTestProcess] 🔌 중지로 인한 PowerSwitch 상태 OFF 설정`);
               
-              // 현재 테스트 번호를 PowerTable에 업데이트
+              // 클라이언트에게 파워스위치 OFF 상태 전송
               if (globalWss) {
-                const testUpdateMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
-                  action: 'test_progress',
-                  cycle: cycle,
-                  totalCycles: cycleNumber,
-                  testPhase: 'high_temp',
-                  currentTestNumber: i + 1,
-                  totalTestCount: readCount,
-                  testStatus: 'ON',
-                  timestamp: new Date().toISOString(),
-                  message: `사이클 ${cycle}: 고온 테스트 ${i+1}/${readCount} 실행 중`
-                })}`;
-                
+                const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - High temp test execution stopped`;
                 let sentCount = 0;
                 globalWss.clients.forEach(client => {
                   if (client.readyState === 1) { // WebSocket.OPEN
-                    client.send(testUpdateMessage);
+                    client.send(powerOffMessage);
                     sentCount++;
                   }
                 });
-                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 진행 상황 업데이트 전송 완료 - 클라이언트 수: ${sentCount}`);
+                console.log(`[NextTankEnviTestProcess] 🔌 고온 테스트 실행 중단으로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+              } else {
+                console.warn(`[NextTankEnviTestProcess] 전역 WebSocket 서버가 설정되지 않음 - 고온 테스트 실행 중단 시 파워스위치 OFF 메시지 전송 불가`);
               }
               
-              // SinglePageProcess 재시도 로직 (최대 5회)
-              let singlePageSuccess = false;
-              let retryCount = 0;
-              const maxRetries = 5;
-              let singlePageResult = null;
+              // 중단 보고서 생성은 최종 종료 시에만 생성하도록 수정
+              console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
               
-              while (!singlePageSuccess && retryCount < maxRetries) {
-                try {
-                  singlePageResult = await runSinglePageProcess(readCount);
+              return { 
+                status: 'stopped', 
+                message: '사용자에 의해 중단됨', 
+                stoppedAtCycle: cycle, 
+                stoppedAtPhase: 'high_temp_test', 
+                stoppedAtTest: 1,
+                totalCycles: cycle
+              };
+            }
+            
+            console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 실행 (readCount: ${readCount})`);
+            
+            // 현재 테스트 번호를 PowerTable에 업데이트
+            if (globalWss) {
+              const testUpdateMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+                action: 'test_progress',
+                cycle: cycle,
+                totalCycles: cycleNumber,
+                testPhase: 'high_temp',
+                currentTestNumber: 1,
+                totalTestCount: readCount,
+                testStatus: 'ON',
+                timestamp: new Date().toISOString(),
+                message: `사이클 ${cycle}: 고온 테스트 실행 중 (readCount: ${readCount})`
+              })}`;
+              
+              let sentCount = 0;
+              globalWss.clients.forEach(client => {
+                if (client.readyState === 1) { // WebSocket.OPEN
+                  client.send(testUpdateMessage);
+                  sentCount++;
+                }
+              });
+              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 진행 상황 업데이트 전송 완료 - 클라이언트 수: ${sentCount}`);
+            }
+            
+            // SinglePageProcess 재시도 로직 (최대 5회)
+            let singlePageSuccess = false;
+            let retryCount = 0;
+            const maxRetries = 5;
+            let singlePageResult = null;
+            
+            while (!singlePageSuccess && retryCount < maxRetries) {
+              try {
+                singlePageResult = await runSinglePageProcess(readCount);
+                
+                if ( singlePageResult.status === 'stopped') {
+                  console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
+                  console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지로 인한 중단 보고서 생성`);
+                  // PowerSwitch 상태를 off로 설정
+                  setMachineRunningStatus(false);
                   
-                  if ( singlePageResult.status === 'stopped') {
-                    console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
-                    console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지로 인한 중단 보고서 생성`);
-                    // PowerSwitch 상태를 off로 설정
-                    setMachineRunningStatus(false);
-                    
-                    // 클라이언트에게 파워스위치 OFF 상태 전송
-                    if (globalWss) {
-                      const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - SinglePageProcess stopped`;
-                      let sentCount = 0;
-                      globalWss.clients.forEach(client => {
-                        if (client.readyState === 1) { // WebSocket.OPEN
-                          client.send(powerOffMessage);
-                          sentCount++;
-                        }
-                      });
-                      console.log(`[NextTankEnviTestProcess] 🔌 SinglePageProcess 중지로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
-                    }
-                    
-                    // 중단 보고서는 최종 종료 시에만 생성하도록 수정
-                    console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
-                    
-                    // 전역 디렉토리명 초기화
-                    currentTestDirectoryName = null;
-                    
-                    // 중단 상태로 프로세스 완료
-                                      return {
+                  // 클라이언트에게 파워스위치 OFF 상태 전송
+                  if (globalWss) {
+                    const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - SinglePageProcess stopped`;
+                    let sentCount = 0;
+                    globalWss.clients.forEach(client => {
+                      if (client.readyState === 1) { // WebSocket.OPEN
+                        client.send(powerOffMessage);
+                        sentCount++;
+                      }
+                    });
+                    console.log(`[NextTankEnviTestProcess] 🔌 SinglePageProcess 중지로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                  }
+                  
+                  // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+                  console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
+                  
+                  // 전역 디렉토리명 초기화
+                  currentTestDirectoryName = null;
+                  
+                  // 중단 상태로 프로세스 완료
+                  return {
                     status: 'stopped',
                     message: 'SinglePageProcess 중지로 인한 전체 프로세스 중단',
                     stoppedAtCycle: cycle,
@@ -2226,65 +2305,64 @@ export async function runNextTankEnviTestProcess() {
                     finalReportGenerated: true,
                     totalCycles: cycle
                   };
-                  }
-                  
-                  if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
-                    singlePageSuccess = true;
-                    console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 성공 (${retryCount + 1}번째 시도)`);
-                  } else {
-                    throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
-                  }
-                } catch (error) {
-                  retryCount++;
-                  console.warn(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 실패 (${retryCount}/${maxRetries}): ${error.message}`);
-                  
-                  if (retryCount < maxRetries) {
-                    console.log(`[NextTankEnviTestProcess] 3초 후 재시도...`);
-                    await sleep(3000);
-                  } else {
-                    console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 최종 실패 - 프로세스 중단`);
-                    
-                    // PowerSwitch 상태를 off로 설정
-                    setMachineRunningStatus(false);
-                    console.log(`[NextTankEnviTestProcess] 🔌 고온 테스트 실패로 인한 PowerSwitch 상태 OFF 설정`);
-                    
-                                        // 중단 보고서는 최종 종료 시에만 생성하도록 수정
-                    console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
-                    
-                    // 전역 디렉토리명 초기화
-                    currentTestDirectoryName = null;
-                    
-                    return { 
-                      status: 'error', 
-                      message: `고온 테스트 ${i+1}/${readCount} 실패 - 5회 재시도 후 최종 실패`, 
-                      stoppedAtCycle: cycle, 
-                      stoppedAtPhase: 'high_temp_test', 
-                      stoppedAtTest: i+1,
-                      errorType: 'high_temp_test_failed',
-                      finalReportGenerated: true
-                    };
-                  }
-                }
-              }
-              
-              // 각 실행 결과를 개별 파일로 저장
-              if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
-                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 결과 저장 시작`);
-                const saveResult = saveTotaReportTableToFile(
-                  singlePageResult.data, 
-                  getTableOption.channelVoltages, 
-                  cycle, 
-                  `HighTemp_Test${i+1}`
-                );
-                if (saveResult.success) {
-                  console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 결과 저장 완료: ${saveResult.filename}`);
-                } else {
-                  console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 결과 저장 실패: ${saveResult.error}`);
                 }
                 
-                // 결과 누적 (기존 로직 유지)
-                highTempResults.push(singlePageResult.data);
+                if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+                  singlePageSuccess = true;
+                  console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 성공 (readCount: ${readCount}, ${retryCount + 1}번째 시도)`);
+                } else {
+                  throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
+                }
+              } catch (error) {
+                retryCount++;
+                console.warn(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 실패 (${retryCount}/${maxRetries}): ${error.message}`);
+                
+                if (retryCount < maxRetries) {
+                  console.log(`[NextTankEnviTestProcess] 3초 후 재시도...`);
+                  await sleep(3000);
+                } else {
+                  console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 최종 실패 - 프로세스 중단`);
+                  
+                  // PowerSwitch 상태를 off로 설정
+                  setMachineRunningStatus(false);
+                  console.log(`[NextTankEnviTestProcess] 🔌 고온 테스트 실패로 인한 PowerSwitch 상태 OFF 설정`);
+                  
+                  // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+                  console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
+                  
+                  // 전역 디렉토리명 초기화
+                  currentTestDirectoryName = null;
+                  
+                  return { 
+                    status: 'error', 
+                    message: `고온 테스트 실패 - 5회 재시도 후 최종 실패 (readCount: ${readCount})`, 
+                    stoppedAtCycle: cycle, 
+                    stoppedAtPhase: 'high_temp_test', 
+                    stoppedAtTest: 1,
+                    errorType: 'high_temp_test_failed',
+                    finalReportGenerated: true
+                  };
+                }
               }
+            }
+            
+            // 실행 결과를 개별 파일로 저장
+            if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 시작 (readCount: ${readCount})`);
+              const saveResult = saveTotaReportTableToFile(
+                singlePageResult.data, 
+                getTableOption.channelVoltages, 
+                cycle, 
+                `HighTemp_Test`
+              );
+              if (saveResult.success) {
+                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 완료: ${saveResult.filename}`);
+              } else {
+                console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 결과 저장 실패: ${saveResult.error}`);
+              }
+              
+              // 결과 누적 (기존 로직 유지)
+              highTempResults.push(singlePageResult.data);
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 고온 테스트 완료 (${highTempResults.length}개 결과 누적)`);
             
@@ -2564,191 +2642,189 @@ export async function runNextTankEnviTestProcess() {
               }
             }
             
-            // runSinglePageProcess 를 readCount 만큼 실행
-            for(let i = 0; i < lowReadCount; i++) {
-              // 중지 요청 확인
-              if (getProcessStopRequested()) {
-                console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 저온 테스트 실행 중 중단 (${i+1}/${lowReadCount})`);
-                
-                // PowerSwitch 상태 OFF 설정
-                setMachineRunningStatus(false);
-                
-                // 클라이언트에게 파워스위치 OFF 상태 전송
-                if (globalWss) {
-                  const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Low temp test execution stopped`;
-                  globalWss.clients.forEach(client => {
-                    if (client.readyState === 1) {
-                      client.send(powerOffMessage);
-                    }
-                  });
-                }
-                
-                // 중단 보고서는 최종 종료 시에만 생성하도록 수정
-                console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
-                
-                return { 
-                  status: 'stopped', 
-                  message: '사용자에 의해 중단됨', 
-                  stoppedAtCycle: cycle, 
-                  stoppedAtPhase: 'low_temp_test', 
-                  stoppedAtTest: i+1,
-                  totalCycles: cycle
-                };
-              }
+            // runSinglePageProcess 실행 (lowReadCount는 함수 내부에서 처리)
+            // 중지 요청 확인
+            if (getProcessStopRequested()) {
+              console.log(`[NextTankEnviTestProcess] 🛑 중지 요청 감지 - 저온 테스트 실행 중 중단`);
               
-              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 ${i+1}/${lowReadCount} 실행`);
+              // PowerSwitch 상태 OFF 설정
+              setMachineRunningStatus(false);
               
-              // 현재 테스트 번호를 PowerTable에 업데이트
+              // 클라이언트에게 파워스위치 OFF 상태 전송
               if (globalWss) {
-                const testUpdateMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
-                  action: 'test_progress',
-                  cycle: cycle,
-                  totalCycles: cycleNumber,
-                  testPhase: 'low_temp',
-                  currentTestNumber: i + 1,
-                  totalTestCount: lowReadCount,
-                  testStatus: 'ON',
-                  timestamp: new Date().toISOString(),
-                  message: `사이클 ${cycle}: 저온 테스트 ${i+1}/${lowReadCount} 실행 중`
-                })}`;
-                
-                let sentCount = 0;
+                const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Low temp test execution stopped`;
                 globalWss.clients.forEach(client => {
-                  if (client.readyState === 1) { // WebSocket.OPEN
-                    client.send(testUpdateMessage);
-                    sentCount++;
+                  if (client.readyState === 1) {
+                    client.send(powerOffMessage);
                   }
                 });
-                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 진행 상황 업데이트 전송 완료 - 클라이언트 수: ${sentCount}`);
               }
               
-              // SinglePageProcess 재시도 로직 (최대 5회)
-              let singlePageSuccess = false;
-              let retryCount = 0;
-              const maxRetries = 5;
-              let singlePageResult = null;
+              // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+              console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
               
-              while (!singlePageSuccess && retryCount < maxRetries) {
-                try {
-                  singlePageResult = await runSinglePageProcess(lowReadCount);
-                  
-                  if (singlePageResult.status === 'stopped') {
-                    console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
-                    console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지로 인한 중단 보고서 생성`);
-                    
-                    // PowerSwitch 상태를 off로 설정
-                    setMachineRunningStatus(false);
-                    
-                    // 클라이언트에게 파워스위치 OFF 상태 전송
-                    if (globalWss) {
-                      const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - SinglePageProcess stopped`;
-                      let sentCount = 0;
-                      globalWss.clients.forEach(client => {
-                        if (client.readyState === 1) { // WebSocket.OPEN
-                          client.send(powerOffMessage);
-                          sentCount++;
-                        }
-                      });
-                      console.log(`[NextTankEnviTestProcess] 🔌 SinglePageProcess 중지로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
-                    }
-                    
-                    // 중단 보고서는 최종 종료 시에만 생성하도록 수정
-                    console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
-                    
-                    // 전역 디렉토리명 초기화
-                    currentTestDirectoryName = null;
-                    
-                    // 중단 상태로 프로세스 완료
-                    return { 
-                      status: 'stopped', 
-                      message: 'SinglePageProcess 중지로 인한 전체 프로세스 중단',
-                      stoppedAtCycle: cycle,
-                      stoppedAtPhase: 'low_temp_test',
-                      stopReason: 'SinglePageProcess_stopped',
-                      finalReportGenerated: true
-                    };
-                  }
-                  
-                  if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
-                    singlePageSuccess = true;
-                    console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 성공 (${retryCount + 1}번째 시도)`);
-                  } else {
-                    throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
-                  }
-                } catch (error) {
-                  retryCount++;
-                  console.warn(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 실패 (${retryCount}/${maxRetries}): ${error.message}`);
-                  
-                  if (retryCount < maxRetries) {
-                    console.log(`[NextTankEnviTestProcess] 3초 후 재시도...`);
-                    await sleep(3000);
-                  } else {
-                    console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 최종 실패 - 프로세스 중단`);
-                    
-                    // PowerSwitch 상태를 off로 설정
-                    setMachineRunningStatus(false);
-                    console.log(`[NextTankEnviTestProcess] 🔌 저온 테스트 실패로 인한 PowerSwitch 상태 OFF 설정`);
-                    
-                    // 최종 실패 시에도 중단 보고서 생성
-                    try {
-                      const testSettings = {
-                        modelName: getTableOption.productInput?.modelName || 'N/A',
-                        productNumber: getTableOption.productInput?.productNumber || 'N/A',
-                        temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
-                        totalCycles: cycleNumber
-                      };
-                      
-                      const reportResult = await generateInterruptedTestResultFile({
-                        stopReason: 'low_temp_test_failed',
-                        stoppedAtCycle: cycle,
-                        stoppedAtPhase: 'low_temp_test',
-                        errorMessage: `저온 테스트 ${i+1}/${lowReadCount} 실패 - 5회 재시도 후 최종 실패`,
-                        testSettings: testSettings
-                      });
-                      
-                      if (reportResult && reportResult.success) {
-                        console.log(`[NextTankEnviTestProcess] ✅ 최종 실패로 인한 중단 보고서 생성 성공: ${reportResult.filename}`);
-                      } else {
-                        console.error(`[NextTankEnviTestProcess] ❌ 최종 실패로 인한 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
-                      }
-                    } catch (reportError) {
-                      console.error(`[NextTankEnviTestProcess] ❌ 최종 실패로 인한 중단 보고서 생성 실패:`, reportError.message);
-                    }
-                    
-                    // 전역 디렉토리명 초기화
-                    currentTestDirectoryName = null;
-                    
-                    return { 
-                      status: 'error', 
-                      message: `저온 테스트 ${i+1}/${lowReadCount} 실패 - 5회 재시도 후 최종 실패`, 
-                      stoppedAtCycle: cycle, 
-                      stoppedAtPhase: 'low_temp_test', 
-                      stoppedAtTest: i+1,
-                      errorType: 'low_temp_test_failed',
-                      finalReportGenerated: true
-                    };
-                  }
+              return { 
+                status: 'stopped', 
+                message: '사용자에 의해 중단됨', 
+                stoppedAtCycle: cycle, 
+                stoppedAtPhase: 'low_temp_test', 
+                stoppedAtTest: 1,
+                totalCycles: cycle
+              };
+            }
+            
+            console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 실행 (lowReadCount: ${lowReadCount})`);
+            
+            // 현재 테스트 번호를 PowerTable에 업데이트
+            if (globalWss) {
+              const testUpdateMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+                action: 'test_progress',
+                cycle: cycle,
+                totalCycles: cycleNumber,
+                testPhase: 'low_temp',
+                currentTestNumber: 1,
+                totalTestCount: lowReadCount,
+                testStatus: 'ON',
+                timestamp: new Date().toISOString(),
+                message: `사이클 ${cycle}: 저온 테스트 실행 중 (lowReadCount: ${lowReadCount})`
+              })}`;
+              
+              let sentCount = 0;
+              globalWss.clients.forEach(client => {
+                if (client.readyState === 1) { // WebSocket.OPEN
+                  client.send(testUpdateMessage);
+                  sentCount++;
                 }
-              }
-              
-              // 각 실행 결과를 개별 파일로 저장
-              if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
-                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 결과 저장 시작`);
-                const saveResult = saveTotaReportTableToFile(
-                  singlePageResult.data, 
-                  getTableOption.channelVoltages, 
-                  cycle, 
-                  `LowTemp_Test${i+1}`
-                );
-                if (saveResult.success) {
-                  console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 결과 저장 완료: ${saveResult.filename}`);
-                } else {
-                  console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 결과 저장 실패: ${saveResult.error}`);
+              });
+              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 진행 상황 업데이트 전송 완료 - 클라이언트 수: ${sentCount}`);
+            }
+            
+            // SinglePageProcess 재시도 로직 (최대 5회)
+            let singlePageSuccess = false;
+            let retryCount = 0;
+            const maxRetries = 5;
+            let singlePageResult = null;
+            
+            while (!singlePageSuccess && retryCount < maxRetries) {
+              try {
+                singlePageResult = await runSinglePageProcess(lowReadCount);
+                
+                if (singlePageResult.status === 'stopped') {
+                  console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지됨: ${singlePageResult.message}`);
+                  console.log(`[NextTankEnviTestProcess] 🛑 SinglePageProcess 중지로 인한 중단 보고서 생성`);
+                  
+                  // PowerSwitch 상태를 off로 설정
+                  setMachineRunningStatus(false);
+                  
+                  // 클라이언트에게 파워스위치 OFF 상태 전송
+                  if (globalWss) {
+                    const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - SinglePageProcess stopped`;
+                    let sentCount = 0;
+                    globalWss.clients.forEach(client => {
+                      if (client.readyState === 1) { // WebSocket.OPEN
+                        client.send(powerOffMessage);
+                        sentCount++;
+                      }
+                    });
+                    console.log(`[NextTankEnviTestProcess] 🔌 SinglePageProcess 중지로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+                  }
+                  
+                  // 중단 보고서는 최종 종료 시에만 생성하도록 수정
+                  console.log(`[NextTankEnviTestProcess] 📄 중단 보고서는 최종 종료 시에 생성됩니다.`);
+                  
+                  // 전역 디렉토리명 초기화
+                  currentTestDirectoryName = null;
+                  
+                  // 중단 상태로 프로세스 완료
+                  return { 
+                    status: 'stopped', 
+                    message: 'SinglePageProcess 중지로 인한 전체 프로세스 중단',
+                    stoppedAtCycle: cycle,
+                    stoppedAtPhase: 'low_temp_test',
+                    stopReason: 'SinglePageProcess_stopped',
+                    finalReportGenerated: true
+                  };
                 }
                 
-                // 결과 누적 (기존 로직 유지)
-                lowTempResults.push(singlePageResult.data);
+                if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+                  singlePageSuccess = true;
+                  console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 성공 (lowReadCount: ${lowReadCount}, ${retryCount + 1}번째 시도)`);
+                } else {
+                  throw new Error(`SinglePageProcess 실패: ${singlePageResult?.message || '알 수 없는 오류'}`);
+                }
+              } catch (error) {
+                retryCount++;
+                console.warn(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 실패 (${retryCount}/${maxRetries}): ${error.message}`);
+                
+                if (retryCount < maxRetries) {
+                  console.log(`[NextTankEnviTestProcess] 3초 후 재시도...`);
+                  await sleep(3000);
+                } else {
+                  console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 최종 실패 - 프로세스 중단`);
+                  
+                  // PowerSwitch 상태를 off로 설정
+                  setMachineRunningStatus(false);
+                  console.log(`[NextTankEnviTestProcess] 🔌 저온 테스트 실패로 인한 PowerSwitch 상태 OFF 설정`);
+                  
+                  // 최종 실패 시에도 중단 보고서 생성
+                  try {
+                    const testSettings = {
+                      modelName: getTableOption.productInput?.modelName || 'N/A',
+                      productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                      temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
+                      totalCycles: cycleNumber
+                    };
+                    
+                    const reportResult = await generateInterruptedTestResultFile({
+                      stopReason: 'low_temp_test_failed',
+                      stoppedAtCycle: cycle,
+                      stoppedAtPhase: 'low_temp_test',
+                      errorMessage: `저온 테스트 실패 - 5회 재시도 후 최종 실패 (lowReadCount: ${lowReadCount})`,
+                      testSettings: testSettings
+                    });
+                    
+                    if (reportResult && reportResult.success) {
+                      console.log(`[NextTankEnviTestProcess] ✅ 최종 실패로 인한 중단 보고서 생성 성공: ${reportResult.filename}`);
+                    } else {
+                      console.error(`[NextTankEnviTestProcess] ❌ 최종 실패로 인한 중단 보고서 생성 실패:`, reportResult?.error || '알 수 없는 오류');
+                    }
+                  } catch (reportError) {
+                    console.error(`[NextTankEnviTestProcess] ❌ 최종 실패로 인한 중단 보고서 생성 실패:`, reportError.message);
+                  }
+                  
+                  // 전역 디렉토리명 초기화
+                  currentTestDirectoryName = null;
+                  
+                  return { 
+                    status: 'error', 
+                    message: `저온 테스트 실패 - 5회 재시도 후 최종 실패 (lowReadCount: ${lowReadCount})`, 
+                    stoppedAtCycle: cycle, 
+                    stoppedAtPhase: 'low_temp_test', 
+                    stoppedAtTest: 1,
+                    errorType: 'low_temp_test_failed',
+                    finalReportGenerated: true
+                  };
+                }
               }
+            }
+            
+            // 실행 결과를 개별 파일로 저장
+            if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
+              console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 시작 (lowReadCount: ${lowReadCount})`);
+              const saveResult = saveTotaReportTableToFile(
+                singlePageResult.data, 
+                getTableOption.channelVoltages, 
+                cycle, 
+                `LowTemp_Test`
+              );
+              if (saveResult.success) {
+                console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 완료: ${saveResult.filename}`);
+              } else {
+                console.error(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 결과 저장 실패: ${saveResult.error}`);
+              }
+              
+              // 결과 누적 (기존 로직 유지)
+              lowTempResults.push(singlePageResult.data);
             }
             console.log(`[NextTankEnviTestProcess] 사이클 ${cycle}: 저온 테스트 완료 (${lowTempResults.length}개 결과 누적)`);
             
@@ -3280,51 +3356,86 @@ export async function generateFinalDeviceReport(cycleNumber) {
     const reportFilePath = path.join(dateFolderPath, reportFilename);
     
     let reportContent = '';
-     reportContent += `=== Device Comprehensive Test Report ===\n`;
-     reportContent += `Generated Date,${new Date().toLocaleString('en-US')}\n`;
-     reportContent += `Total Cycles,${cycleNumber}\n`;
-     reportContent += `Analyzed Files,${processedFiles}\n`;
-    reportContent += `\n`;
     
-     // Device summary
-     reportContent += `Device,Final Result,Total Tests,Passed,Failed,Pass Rate,Detailed Results\n`;
+    // Document header information (xxx_Cycle_HighTemp_Test.csv와 동일한 구조)
+    reportContent += `Document No.,K2-AD-110-A241023-001\n`;
+    reportContent += `Product Name,Device Comprehensive Test Report\n`;
+    reportContent += `Product Number,Device 1-10\n`;
+    reportContent += `Test Date,${new Date().toLocaleDateString('en-US')}\n`;
+    reportContent += `Test Time,${new Date().toLocaleTimeString('en-US')}\n`;
+    reportContent += `Test Temperature,Comprehensive Analysis\n`;
+    reportContent += `Total Cycles,${cycleNumber}\n`;
+    reportContent += `Test Type,Device Comprehensive Test Report\n`;
+    reportContent += `Analyzed Files,${processedFiles}\n`;
+    reportContent += '\n';
     
-    if (Object.keys(finalConclusions).length > 0) {
-      for (const [deviceName, conclusion] of Object.entries(finalConclusions)) {
-        reportContent += `${deviceName},${conclusion.conclusion},${conclusion.totalTests},${conclusion.passedTests},${conclusion.failedTests},${conclusion.passRate}%,`;
+    // 새로운 테이블 구조 (xxx_Cycle_HighTemp_Test.csv와 동일한 형태)
+    reportContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
+    
+    // 3개 input 전압에 대해 각각 Device별 측정값 표시 (xxx_Cycle_HighTemp_Test.csv와 동일한 구조)
+    for (let k = 0; k < 3; k++) {
+      const inputVoltage = [18, 24, 30][k]; // 18V, 24V, 30V
+      
+      // 각 제품번호에 대해 테이블 생성 (C005, C006, C007)
+      for (let productIndex = 0; productIndex < 3; productIndex++) {
+        const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
         
-         // Channel detailed results
-        const channelDetails = [];
-        for (const [channelName, channelResult] of Object.entries(conclusion.channels)) {
-          if (channelResult.total > 0) {
-            const channelPassRate = ((channelResult.passed / channelResult.total) * 100).toFixed(1);
-            channelDetails.push(`${channelName}: ${channelResult.passed}/${channelResult.total} (${channelPassRate}%)`);
+        // 해당 제품번호의 1st-10th 데이터 생성 (Device별 측정값)
+        const measurementData = [];
+        let validMeasurements = 0;
+        
+        // Device 1-10의 측정값을 순차적으로 저장
+        for (let deviceIndex = 0; deviceIndex < 10; deviceIndex++) {
+          const deviceName = `Device ${deviceIndex + 1}`;
+          if (finalConclusions[deviceName] && finalConclusions[deviceName].totalTests > 0) {
+            // 실제 측정값이 있는 경우
+            const deviceResult = finalConclusions[deviceName];
+            if (deviceResult.conclusion === 'G') {
+              measurementData.push('G');
+              validMeasurements++;
+            } else {
+              measurementData.push('N');
+              validMeasurements++;
+            }
+          } else {
+            // 측정값이 없는 경우
+            measurementData.push('-');
           }
         }
-        reportContent += channelDetails.join('; ') + '\n';
-      }
-    } else {
-      // finalConclusions가 비어있을 때 모든 디바이스를 N으로 표시
-      console.log(`[FinalDeviceReport] finalConclusions가 비어있음 - 모든 디바이스를 N으로 표시`);
-      for (let device = 1; device <= 10; device++) {
-        const deviceName = `Device ${device}`;
-        reportContent += `${deviceName},N,0,0,0,0%,No data available\n`;
+        
+        // A.Q.L 계산 (8개 이상 유효하면 A, 아니면 N)
+        const aql = validMeasurements >= 8 ? 'A' : 'N';
+        
+        // 테이블 행 생성 (xxx_Cycle_HighTemp_Test.csv와 동일한 형태)
+        reportContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
       }
     }
     
-     // Overall statistics
-     const totalDevices = Object.keys(finalConclusions).length > 0 ? Object.keys(finalConclusions).length : 10; // finalConclusions가 비어있으면 10개 디바이스로 가정
-     const goodDevices = Object.values(finalConclusions).filter(c => c.conclusion === 'G').length;
-     const notGoodDevices = Object.keys(finalConclusions).length > 0 ? Object.values(finalConclusions).filter(c => c.conclusion === 'N').length : 10; // finalConclusions가 비어있으면 모든 디바이스를 N으로 간주
-     
-     reportContent += `\n`;
-     reportContent += `=== Overall Summary ===\n`;
-     reportContent += `Total Devices,${totalDevices}\n`;
-     reportContent += `Good(G) Devices,${goodDevices}\n`;
-     reportContent += `Bad(N) Devices,${notGoodDevices}\n`;
-     const overallPassRate = totalDevices > 0 ? ((goodDevices / totalDevices) * 100).toFixed(2) : 0;
-     reportContent += `Overall Pass Rate,${overallPassRate}%\n`;
-     reportContent += `\n`;
+    // Test results summary (xxx_Cycle_HighTemp_Test.csv와 동일한 형태)
+    let totalTests = 0;
+    let passedTests = 0;
+    let failedTests = 0;
+    
+    // 모든 Device의 모든 측정값을 확인하여 통계 계산
+    for (const [deviceName, conclusion] of Object.entries(finalConclusions)) {
+      if (conclusion.totalTests > 0) {
+        totalTests += conclusion.totalTests;
+        passedTests += conclusion.passedTests;
+        failedTests += conclusion.failedTests;
+      }
+    }
+    
+    reportContent += '\n';
+    reportContent += `=== Test Results Summary ===\n`;
+    reportContent += `Total Tests,${totalTests}\n`;
+    reportContent += `Passed Tests,${passedTests}\n`;
+    reportContent += `Failed Tests,${failedTests}\n`;
+    reportContent += `Pass Rate,${totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : 0}%\n`;
+    reportContent += `Test Result,${passedTests > failedTests ? 'PASS' : 'FAIL'}\n`;
+    reportContent += `Operator,System\n`;
+    reportContent += `Document Version,PS-14(Rev.1)\n`;
+    reportContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
+    reportContent += '\n';
      
      // Include all test files sequentially
      reportContent += `=== Test Files Details ===\n`;
@@ -3393,6 +3504,11 @@ export async function generateFinalDeviceReport(cycleNumber) {
      reportContent += `Author,System\n`;
      reportContent += `Document Version,PS-14(Rev.1)\n`;
      reportContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
+    
+    // 통계 계산
+    const totalDevices = Object.keys(finalConclusions).length > 0 ? Object.keys(finalConclusions).length : 10;
+    const goodDevices = Object.values(finalConclusions).filter(c => c.conclusion === 'G').length;
+    const notGoodDevices = Object.keys(finalConclusions).length > 0 ? Object.values(finalConclusions).filter(c => c.conclusion === 'N').length : 10;
     
     // 파일 저장
     fs.writeFileSync(reportFilePath, reportContent, 'utf8');
@@ -3866,13 +3982,13 @@ export async function generateInterruptedTestResultFile(options) {
   }
 }
 
-// 전역 테이블 데이터 저장소 추가
+// 전역 테이블 데이터 저장소 추가 (채널 1개)
 let globalTableData = {
   devices: Array.from({ length: 10 }, (_, deviceIndex) => ({
     deviceNumber: deviceIndex + 1,
     tests: Array.from({ length: 3 }, (_, testIndex) => ({
       testNumber: testIndex + 1,
-      channels: Array.from({ length: 4 }, (_, channelIndex) => ({
+      channels: Array.from({ length: 1 }, (_, channelIndex) => ({ // 채널 1개로 변경
         channelNumber: channelIndex + 1,
         voltage: null,
         timestamp: null,
@@ -3889,7 +4005,7 @@ export function updateTableData(deviceNumber, testNumber, channelNumber, voltage
   try {
     if (deviceNumber >= 1 && deviceNumber <= 10 && 
         testNumber >= 1 && testNumber <= 3 && 
-        channelNumber >= 1 && channelNumber <= 4) {
+        channelNumber >= 1 && channelNumber <= 1) { // 채널 1개로 변경
       
       globalTableData.devices[deviceNumber - 1].tests[testNumber - 1].channels[channelNumber - 1] = {
         channelNumber,
@@ -3955,7 +4071,7 @@ export async function broadcastTableData() {
       timestamp: globalTableData.lastUpdate || new Date().toISOString(),
       totalDevices: 10,
       totalTests: 3,
-      totalChannels: 4,
+      totalChannels: 1, // 채널 1개로 변경
       completionPercentage: completionPercentage,
       completedCells: completedCells,
       totalCells: totalCells,
@@ -4016,7 +4132,7 @@ export function resetTableData() {
       deviceNumber: deviceIndex + 1,
       tests: Array.from({ length: 3 }, (_, testIndex) => ({
         testNumber: testIndex + 1,
-        channels: Array.from({ length: 4 }, (_, channelIndex) => ({
+        channels: Array.from({ length: 1 }, (_, channelIndex) => ({ // 채널 1개로 변경
           channelNumber: channelIndex + 1,
           voltage: null,
           timestamp: null,
