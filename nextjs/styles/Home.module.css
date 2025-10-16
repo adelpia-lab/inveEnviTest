@@ -44,7 +44,7 @@
 
 /* 바디 스타일 */
 .bodyContent {
-  height: calc(100vh - 10vh - 21vh - 30px); /* 푸터 높이를 21vh로 변경 */
+  height: calc(100vh - 10vh - 22vh - 30px); /* 푸터 높이를 22vh로 변경 */
   min-height: 0; /* flex 아이템 최소 높이 설정 */
   display: grid;
   grid-template-columns: 160px 1fr; /* 반응형 그리드 */
@@ -69,8 +69,8 @@
 
 /* 푸터 스타일 */
 .footer {
-  height: calc(21vh + 30px); /* 뷰포트 높이의 21% + 30px로 변경 */
-  min-height: 200px; /* 최소 높이 보장 (기존 250px에서 200px로 줄임) */
+  height: calc(22vh + 30px); /* 뷰포트 높이의 21% + 30px로 변경 */
+  min-height: 250px; /* 최소 높이 보장 (기존 250px에서 250px로 늘임) */
   max-height: 300px; /* 최대 높이 제한 (기존 350px에서 300px로 줄임) */
   display: grid;
   /* 반응형 그리드 - 화면 크기에 따라 조정 */

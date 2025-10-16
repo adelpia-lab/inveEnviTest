@@ -35,10 +35,35 @@ interface AccumulatedTableData {
   };
 }
 
-export default function PowerTable({ groups, wsConnection, channelVoltages = [220], selectedDevices = [0] }: PowerTableProps) {
+export default function PowerTable({ groups, wsConnection, channelVoltages = [220], selectedDevices = [1, 2, 3] }: PowerTableProps) {
+  // selectedDevices props 검증 및 정규화
+  const normalizedSelectedDevices = React.useMemo(() => {
+    // props로 전달된 selectedDevices가 유효하지 않으면 기본값 사용
+    if (!selectedDevices || !Array.isArray(selectedDevices) || selectedDevices.length === 0) {
+      console.warn('🔌 PowerTable: selectedDevices가 유효하지 않음, 기본값 [1,2,3] 사용');
+      return [1, 2, 3];
+    }
+    
+    // [0]이 포함되어 있으면 [1,2,3]으로 변환
+    if (selectedDevices.includes(0)) {
+      console.warn('🔌 PowerTable: selectedDevices에 0이 포함됨, [1,2,3]으로 변환');
+      return [1, 2, 3];
+    }
+    
+    // 1,2,3 범위 내의 값만 필터링
+    const validDevices = selectedDevices.filter(device => device >= 1 && device <= 3);
+    if (validDevices.length === 0) {
+      console.warn('🔌 PowerTable: 유효한 디바이스가 없음, 기본값 [1,2,3] 사용');
+      return [1, 2, 3];
+    }
+    
+    return validDevices;
+  }, [selectedDevices]);
+  
   // 디버깅을 위한 로그
   console.log('🔌 PowerTable: 컴포넌트 렌더링, channelVoltages:', channelVoltages);
-  console.log('🔌 PowerTable: 선택된 디바이스:', selectedDevices);
+  console.log('🔌 PowerTable: 원본 selectedDevices:', selectedDevices);
+  console.log('🔌 PowerTable: 정규화된 selectedDevices:', normalizedSelectedDevices);
   // 누적 전압 데이터 상태
   const [accumulatedVoltageData, setAccumulatedVoltageData] = useState<AccumulatedTableData>({});
   
@@ -83,55 +108,101 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
   // 테이블 완성도 계산 함수 개선
   const calculateTableCompletion = (data: AccumulatedTableData) => {
     try {
-      // Device 1-3만 사용하므로 총 셀 수 계산
-      const totalCells = 3 * 3 * 1; // Device 3개 * Test 3개 * Channel 1개
+      // 3 x 선택된 기기수 x ON/Off 횟수로 총 셀 수 계산
+      const testCount = 3; // 3개 전압 테스트 (24V, 18V, 30V)
+      const selectedDeviceCount = normalizedSelectedDevices.length; // 정규화된 선택된 기기 수
+      const onOffCount = 10; // ON/Off 횟수 (1st~10th)
+      const totalCells = testCount * selectedDeviceCount * onOffCount;
       let filledCells = 0;
       let validDataCount = 0;
       
-      // 데이터 구조 검증
-      if (!data || typeof data !== 'object') {
-        console.warn('PowerTable: 잘못된 데이터 구조:', data);
-        return {
-          totalCells,
-          filledCells: 0,
-          completionPercentage: 0,
-          isComplete: false
-        };
-      }
-      
-      // Device 1-3만 처리
-      for (let deviceIndex = 1; deviceIndex <= 3; deviceIndex++) {
-        const deviceKey = `device${deviceIndex}`;
-        const deviceData = data[deviceKey];
+      // voltagTableData가 있으면 이를 기준으로 계산 (실제 테이블 구조와 일치)
+      if (voltagTableData && Array.isArray(voltagTableData)) {
+        console.log('🔌 PowerTable: voltagTableData 기준으로 진행상황 계산');
         
-        if (deviceData && typeof deviceData === 'object') {
-          Object.values(deviceData).forEach(testData => {
-            if (testData && typeof testData === 'object') {
-              Object.values(testData).forEach(channelData => {
-                if (channelData && channelData !== '-.-' && channelData !== '') {
-                  filledCells++;
-                  // 유효한 전압 데이터인지 확인 (숫자+V 형식)
-                  if (typeof channelData === 'string' && channelData.match(/^[\d.-]+V$/)) {
-                    // 전압값 범위 검증 (0.1V ~ 300V)
-                    const voltageValue = parseFloat(channelData.replace('V', ''));
-                    if (!isNaN(voltageValue) && voltageValue >= 0.1 && voltageValue <= 300) {
-                      validDataCount++;
+        voltagTableData.forEach((voltageData: any[], voltageIndex: number) => {
+          voltageData.forEach((productData: any[], productIndex: number) => {
+            // 정규화된 선택된 기기에 해당하는 제품만 처리
+            if (normalizedSelectedDevices.includes(productIndex + 1)) {
+              productData.forEach((measurementData: any[], measurementIndex: number) => {
+                measurementData.forEach((channelData: any, channelIndex: number) => {
+                  if (channelData && typeof channelData === 'string' && channelData !== '' && channelData !== '-.-') {
+                    filledCells++;
+                    
+                    // 유효한 전압 데이터인지 확인
+                    if (channelData.includes('|')) {
+                      // "221V|G" 형식에서 전압값 추출
+                      const voltageMatch = channelData.match(/^([\d.-]+)V/);
+                      if (voltageMatch) {
+                        const voltageValue = parseFloat(voltageMatch[1]);
+                        if (!isNaN(voltageValue) && voltageValue >= 0.1 && voltageValue <= 300) {
+                          validDataCount++;
+                        }
+                      }
+                    } else if (channelData.endsWith('V')) {
+                      // "221V" 형식
+                      const voltageValue = parseFloat(channelData.replace('V', ''));
+                      if (!isNaN(voltageValue) && voltageValue >= 0.1 && voltageValue <= 300) {
+                        validDataCount++;
+                      }
                     }
                   }
-                }
+                });
               });
             }
           });
+        });
+      } else {
+        // voltagTableData가 없으면 기존 방식으로 계산 (fallback)
+        console.log('🔌 PowerTable: accumulatedVoltageData 기준으로 진행상황 계산 (fallback)');
+        
+        // 데이터 구조 검증
+        if (!data || typeof data !== 'object') {
+          console.warn('PowerTable: 잘못된 데이터 구조:', data);
+          return {
+            totalCells,
+            filledCells: 0,
+            completionPercentage: 0,
+            isComplete: false
+          };
         }
+        
+        // 정규화된 선택된 기기들만 처리
+        normalizedSelectedDevices.forEach(deviceIndex => {
+          const deviceKey = `device${deviceIndex}`;
+          const deviceData = data[deviceKey];
+          
+          if (deviceData && typeof deviceData === 'object') {
+            Object.values(deviceData).forEach(testData => {
+              if (testData && typeof testData === 'object') {
+                Object.values(testData).forEach(channelData => {
+                  if (channelData && channelData !== '-.-' && channelData !== '') {
+                    filledCells++;
+                    // 유효한 전압 데이터인지 확인 (숫자+V 형식)
+                    if (typeof channelData === 'string' && channelData.match(/^[\d.-]+V$/)) {
+                      // 전압값 범위 검증 (0.1V ~ 300V)
+                      const voltageValue = parseFloat(channelData.replace('V', ''));
+                      if (!isNaN(voltageValue) && voltageValue >= 0.1 && voltageValue <= 300) {
+                        validDataCount++;
+                      }
+                    }
+                  }
+                });
+              }
+            });
+          }
+        });
       }
       
-      // 완성도 계산 개선: 유효한 데이터가 90% 이상이고 최소 선택된 디바이스의 80% 이상의 셀이 채워져야 완성으로 간주
-      const completionPercentage = (filledCells / totalCells) * 100;
-      const validDataPercentage = (validDataCount / totalCells) * 100;
+      // 완성도 계산
+      const completionPercentage = totalCells > 0 ? (filledCells / totalCells) * 100 : 0;
+      const validDataPercentage = totalCells > 0 ? (validDataCount / totalCells) * 100 : 0;
       
-      // 완성 조건 강화: 95% 이상의 셀이 채워지고, 90% 이상이 유효한 데이터여야 함
+      // 완성 조건: 95% 이상의 셀이 채워지고, 90% 이상이 유효한 데이터여야 함
       const minRequiredCells = Math.ceil(totalCells * 0.8); // 최소 80% 이상의 셀이 채워져야 함
       const isComplete = completionPercentage >= 95 && validDataPercentage >= 90 && filledCells >= minRequiredCells;
+      
+      console.log(`🔌 PowerTable: 진행상황 계산 결과 - 총 셀: ${totalCells}, 채워진 셀: ${filledCells}, 완성도: ${completionPercentage.toFixed(1)}%`);
       
       return {
         totalCells,
@@ -142,7 +213,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     } catch (error) {
       console.error('PowerTable: calculateTableCompletion 오류:', error);
       return {
-        totalCells: 3 * 3 * 1, // Device 3개 * Test 3개 * Channel 1개
+        totalCells: 3 * normalizedSelectedDevices.length * 10, // 3 x 정규화된 선택된 기기수 x ON/Off 횟수
         filledCells: 0,
         completionPercentage: 0,
         isComplete: false
@@ -272,7 +343,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
         }
       }, 5000);
     }
-  }, [accumulatedVoltageData, isTableStable]);
+  }, [accumulatedVoltageData, voltagTableData, isTableStable, normalizedSelectedDevices]);
 
   // channelVoltages 변경 추적 및 테이블 강제 업데이트
   useEffect(() => {
@@ -292,15 +363,15 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     }
   }, [channelVoltages, accumulatedVoltageData]);
 
-  // selectedDevices 변경 추적 및 테이블 강제 업데이트
+  // normalizedSelectedDevices 변경 추적 및 테이블 강제 업데이트
   useEffect(() => {
-    console.log('🔌 PowerTable: selectedDevices 변경됨:', selectedDevices);
-    // 선택된 디바이스가 변경되면 테이블을 강제로 다시 렌더링하여 GOOD/NO GOOD 판단 업데이트
+    console.log('🔌 PowerTable: normalizedSelectedDevices 변경됨:', normalizedSelectedDevices);
+    // 정규화된 선택된 디바이스가 변경되면 테이블을 강제로 다시 렌더링하여 GOOD/NO GOOD 판단 업데이트
     setLastTableUpdate(Date.now());
     
-    // 선택된 디바이스가 변경되면 기존 테이블 데이터를 새로운 선택 기준으로 재계산
+    // 정규화된 선택된 디바이스가 변경되면 기존 테이블 데이터를 새로운 선택 기준으로 재계산
     if (Object.keys(accumulatedVoltageData).length > 0) {
-      console.log('🔄 PowerTable: 선택된 디바이스 변경으로 인한 테이블 데이터 재계산');
+      console.log('🔄 PowerTable: 정규화된 선택된 디바이스 변경으로 인한 테이블 데이터 재계산');
       // 테이블 상태를 강제로 업데이트하여 GOOD/NO GOOD 판단을 새로 수행
       setTableCompletionStatus(prev => ({
         ...prev,
@@ -308,7 +379,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
         lastUpdate: Date.now()
       }));
     }
-  }, [selectedDevices, accumulatedVoltageData]);
+  }, [normalizedSelectedDevices, accumulatedVoltageData]);
   
   // 컴포넌트 마운트 시 초기 상태 강제 설정
   useEffect(() => {
@@ -422,6 +493,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
       return 'NO GOOD';
     }
   }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
+
 
   // 누적된 전압 데이터 표시 함수 개선
   const getAccumulatedVoltageDisplay = (device: number, test: number, channel: number) => {
@@ -811,8 +883,11 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
             // 테이블 완성도 정보 업데이트 (POWER_TABLE_UPDATE와 POWER_TABLE_COMPLETE에서만)
             if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
                 tableData.completionPercentage !== undefined) {
-              // Device 1-3, Test 3개, Channel 1개로 계산
-              const dynamicTotalCells = 3 * 3 * 1; // Device 3개 * Test 3개 * Channel 1개
+              // 3 x 정규화된 선택된 기기수 x ON/Off 횟수로 계산
+              const testCount = 3; // 3개 전압 테스트
+              const selectedDeviceCount = normalizedSelectedDevices.length; // 정규화된 선택된 기기 수
+              const onOffCount = 10; // ON/Off 횟수 (1st~10th)
+              const dynamicTotalCells = testCount * selectedDeviceCount * onOffCount;
               setTableCompletionStatus({
                 totalCells: tableData.totalCells || dynamicTotalCells,
                 filledCells: tableData.completedCells || 0,
@@ -1004,7 +1079,7 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
   const generateDemoCompleteTable = useCallback(() => {
     console.log('🧪 PowerTable: 데모 테이블 생성 시작 (새로운 voltagTable 포맷)');
     console.log('🧪 PowerTable: 현재 channelVoltages prop:', channelVoltages);
-    console.log('🧪 PowerTable: 선택된 디바이스:', selectedDevices);
+    console.log('🧪 PowerTable: 정규화된 선택된 디바이스:', normalizedSelectedDevices);
     
     // channelVoltages가 유효한지 확인 (채널 1개로 변경)
     if (!channelVoltages || !Array.isArray(channelVoltages) || channelVoltages.length < 1) {
@@ -1018,20 +1093,25 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     console.log('🧪 PowerTable: 단일 채널 전압값 사용:', singleChannelVoltage);
     
     // 순차적 voltagTable 포맷으로 데모 데이터 생성
+    const testCount = 3; // 3개 전압 테스트
+    const selectedDeviceCount = normalizedSelectedDevices.length; // 정규화된 선택된 기기 수
+    const onOffCount = 10; // ON/Off 횟수 (1st~10th)
+    const totalCells = testCount * selectedDeviceCount * onOffCount;
+    
     const demoTableData = {
       timestamp: new Date().toISOString(),
-      totalDevices: 3, // Device 1,2,3
-      totalTests: 3,   // 3개 전압 테스트
+      totalDevices: selectedDeviceCount, // 선택된 기기 수
+      totalTests: testCount,   // 3개 전압 테스트
       totalChannels: 1, // 채널 1개
       completionPercentage: 100.0,
-      completedCells: 3 * 3 * 10, // Device 3개 * Test 3개 * measurementIndex 10개
-      totalCells: 3 * 3 * 10,
+      completedCells: totalCells, // 3 x 선택된 기기수 x ON/Off 횟수
+      totalCells: totalCells,
       // 순차적 voltagTable 포맷: [voltageIndex][productIndex][measurementIndex][channel]
       // voltageIndex: 테스트 번호 (0=24V, 1=18V, 2=30V)
       // productIndex: 제품 번호 (0=C005, 1=C006, 2=C007)
       // measurementIndex: 측정 순서 (0=1st, 1=2nd, ..., 9=10th)
       voltagTable: Array(3).fill(null).map((_, voltageIndex) => 
-        Array(3).fill(null).map((_, productIndex) => 
+        Array(selectedDeviceCount).fill(null).map((_, productIndex) => 
           Array(10).fill(null).map((_, measurementIndex) => 
             Array(1).fill(null).map((_, channelIndex) => {
               // 단일 채널 전압값을 사용하여 랜덤한 전압값 생성
@@ -1046,8 +1126,8 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
         )
       ),
       summary: {
-        totalCells: 3 * 3 * 10,
-        completedCells: 3 * 3 * 10,
+        totalCells: totalCells,
+        completedCells: totalCells,
         status: 'completed'
       }
     };
@@ -1101,10 +1181,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     // voltagTable 데이터도 저장
     setVoltagTableData(demoTableData.voltagTable);
     
-    // 테이블 완성도 상태도 업데이트 (채널 1개로 변경)
+    // 테이블 완성도 상태도 업데이트 (3 x 선택된 기기수 x ON/Off 횟수)
     setTableCompletionStatus({
-      totalCells: 3 * 3 * 1, // Device 3개 * Test 3개 * Channel 1개
-      filledCells: 3 * 3 * 1,
+      totalCells: totalCells, // 3 x 선택된 기기수 x ON/Off 횟수
+      filledCells: totalCells,
       completionPercentage: 100,
       isComplete: true
     });
@@ -1112,7 +1192,98 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     console.log('🧪 PowerTable: 데모 테이블 데이터 생성 완료 (새로운 voltagTable 포맷)');
     console.log('🧪 PowerTable: 사용된 channelVoltages:', channelVoltages);
     console.log('🧪 PowerTable: 생성된 누적 데이터 샘플:', Object.keys(newAccumulatedData).slice(0, 2));
-  }, [channelVoltages, selectedDevices]); // channelVoltages와 selectedDevices가 변경될 때마다 함수 재생성
+  }, [channelVoltages, normalizedSelectedDevices]); // channelVoltages와 normalizedSelectedDevices가 변경될 때마다 함수 재생성
+
+  // A.Q.L 판단 함수 - 한 행의 모든 전압값을 검사하여 채널 전압 설정값의 ±5% 범위 확인
+  const determineAQL = useCallback((inputVoltage: string, productIndex: number) => {
+    try {
+      // channelVoltages prop에서 채널 전압 설정값 가져오기
+      const channelVoltage = channelVoltages && channelVoltages.length > 0 ? channelVoltages[0] : 221;
+      
+      if (!channelVoltage || channelVoltage <= 0) {
+        return 'A'; // 유효하지 않은 채널 전압
+      }
+
+      // 5% 허용 오차 계산
+      const tolerance = channelVoltage * 0.05;
+      const minAllowedVoltage = channelVoltage - tolerance; // 전압설정값 - (전압설정값 x 0.05)
+      const maxAllowedVoltage = channelVoltage + tolerance; // 전압설정값 + (전압설정값 x 0.05)
+
+      // 해당 행의 모든 측정값(1st~10th) 검사
+      for (let measurementIndex = 0; measurementIndex < 10; measurementIndex++) {
+        let displayValue = '-.-';
+        
+        // voltagTable 데이터가 있으면 직접 사용
+        if (voltagTableData && voltagTableData.length > 0) {
+          // INPUT 전압에 따른 테스트 번호 결정
+          let testNumber = 1;
+          if (inputVoltage === '24V') testNumber = 1;
+          else if (inputVoltage === '18V') testNumber = 2;
+          else if (inputVoltage === '30V') testNumber = 3;
+          
+          if (voltagTableData[testNumber - 1] && 
+              voltagTableData[testNumber - 1][productIndex] && 
+              voltagTableData[testNumber - 1][productIndex][measurementIndex]) {
+            const channelData = voltagTableData[testNumber - 1][productIndex][measurementIndex][0];
+            
+            if (typeof channelData === 'string' && channelData !== '' && channelData !== '-.-') {
+              if (channelData.includes('|')) {
+                // "221V|G" 형식에서 전압값만 추출
+                const voltageMatch = channelData.match(/^([\d.-]+)V/);
+                if (voltageMatch) {
+                  const voltageValue = parseFloat(voltageMatch[1]);
+                  if (!isNaN(voltageValue)) {
+                    displayValue = voltageValue.toString();
+                  }
+                }
+              } else if (channelData.endsWith('V')) {
+                const voltageValue = parseFloat(channelData.replace('V', ''));
+                if (!isNaN(voltageValue)) {
+                  displayValue = voltageValue.toString();
+                }
+              }
+            }
+          }
+        } else {
+          // voltagTable 데이터가 없으면 기존 누적 데이터 사용 (fallback)
+          const deviceNumber = productIndex + 1;
+          let testNumber = 1;
+          if (inputVoltage === '24V') testNumber = 1;
+          else if (inputVoltage === '18V') testNumber = 2;
+          else if (inputVoltage === '30V') testNumber = 3;
+          
+          const accumulatedVoltage = getAccumulatedVoltageDisplay(deviceNumber, testNumber, 1);
+          
+          if (accumulatedVoltage && accumulatedVoltage !== '-.-' && accumulatedVoltage !== '') {
+            const voltageMatch = accumulatedVoltage.match(/^([\d.-]+)V$/);
+            if (voltageMatch) {
+              const voltageValue = parseFloat(voltageMatch[1]);
+              if (!isNaN(voltageValue)) {
+                displayValue = voltageValue.toString();
+              }
+            }
+          }
+        }
+
+        // 전압값이 유효하고 허용 범위를 벗어나는지 확인
+        if (displayValue !== '-.-' && displayValue !== '') {
+          const measuredVoltage = parseFloat(displayValue);
+          if (!isNaN(measuredVoltage)) {
+            // 측정값이 허용 범위(전압설정값 ± 5%)를 벗어나면 NG
+            if (measuredVoltage < minAllowedVoltage || measuredVoltage > maxAllowedVoltage) {
+              return 'NG'; // 허용 범위를 벗어나는 값이 하나라도 있으면 NG
+            }
+          }
+        }
+      }
+
+      // 모든 측정값이 허용 범위 내에 있거나 유효하지 않은 경우
+      return 'G';
+    } catch (error) {
+      console.error(`PowerTable: A.Q.L 판단 오류 - inputVoltage: ${inputVoltage}, productIndex: ${productIndex}`, error);
+      return 'A'; // 오류 시 기본값
+    }
+  }, [voltagTableData, getAccumulatedVoltageDisplay, channelVoltages]); // voltagTableData, getAccumulatedVoltageDisplay, channelVoltages가 변경될 때마다 함수 재생성
 
   return (
     <div className="w-full h-full bg-[#181A20] rounded-lg shadow-md p-2" style={{ 
@@ -1464,9 +1635,19 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
                       })}
                       
                       {/* A.Q.L 열 */}
-                      <td className="px-1 py-0 whitespace-nowrap text-center" style={{ fontSize: '16px', height: '31px' }}>
-                        A
-                      </td>
+                      {(() => {
+                        const aqlResult = determineAQL(inputVoltage, productIndex);
+                        return (
+                          <td className="px-1 py-0 whitespace-nowrap text-center" style={{ 
+                            fontSize: '16px', 
+                            height: '31px',
+                            color: aqlResult === 'NG' ? '#EF4444' : '#10B981',
+                            fontWeight: 'bold'
+                          }}>
+                            {aqlResult}
+                          </td>
+                        );
+                      })()}
                     </tr>
                   );
                 });

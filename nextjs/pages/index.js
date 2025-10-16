@@ -732,7 +732,7 @@ const sendMessage = () => {
 
 	const [deviceSelectedValue, setDeviceSelectedValue] = useState('#1 Device');
 	const [voltSelectValue, setVoltSelectedValue] = useState('PowerOff');
-	const [selectedDevices, setSelectedDevices] = useState([0]); // 선택된 디바이스 인덱스 배열 (기본값: #1 Device)
+	const [selectedDevices, setSelectedDevices] = useState([1, 2, 3]); // 선택된 디바이스 인덱스 배열 (기본값: 모든 디바이스)
 
   const handleSelectionFromDeviceSelect = (selectedDeviceIndices) => {
     console.log("DeviceSelect: 선택된 디바이스 인덱스:", selectedDeviceIndices);
