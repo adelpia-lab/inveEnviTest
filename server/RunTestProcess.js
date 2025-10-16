@@ -424,6 +424,26 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
     let csvContent = '';
     const reportData = data.reportTable[0];
     
+    // 디버깅을 위한 데이터 구조 로그
+    console.log(`[SaveData] 📊 데이터 구조 확인:`);
+    console.log(`[SaveData] - inputVolt: ${JSON.stringify(data.inputVolt)}`);
+    console.log(`[SaveData] - voltagTable 구조: ${reportData.voltagTable ? reportData.voltagTable.length : 'undefined'} x ${reportData.voltagTable?.[0]?.length || 'undefined'} x ${reportData.voltagTable?.[0]?.[0]?.length || 'undefined'}`);
+    
+    // 각 voltageIndex별 데이터 확인
+    for (let v = 0; v < 3; v++) {
+      if (reportData.voltagTable && reportData.voltagTable[v]) {
+        console.log(`[SaveData] - Voltage ${v}: ${reportData.voltagTable[v].length} devices`);
+        for (let d = 0; d < 3; d++) {
+          if (reportData.voltagTable[v][d]) {
+            console.log(`[SaveData]   - Device ${d}: ${reportData.voltagTable[v][d].length} reads`);
+            if (reportData.voltagTable[v][d].length > 0) {
+              console.log(`[SaveData]     - Sample data: ${JSON.stringify(reportData.voltagTable[v][d][0])}`);
+            }
+          }
+        }
+      }
+    }
+    
      // Document header information (similar to image format)
      csvContent += `Document No.,K2-AD-110-A241023-001\n`;
      csvContent += `Product Name,${data.modelName || ''}\n`;
@@ -438,45 +458,37 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
      // 새로운 테이블 구조 (그림과 유사한 형태)
      csvContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
      
-     // Generate table for each input voltage and product number (그림과 동일한 형태)
-     for (let k = 0; k < 3; k++) {
-       const inputVoltage = data.inputVolt[k] || 24;
+     // Generate table for each input voltage (3개 전압 × 3개 디바이스 × 4회 측정 = 36개 데이터)
+     // globalTableData를 사용하여 클라이언트 파워테이블과 동일한 데이터 사용
+     for (let voltageIndex = 0; voltageIndex < 3; voltageIndex++) {
+       const inputVoltage = data.inputVolt[voltageIndex] || 24;
        
-       // 각 제품번호에 대해 테이블 생성 (C005, C006, C007)
-       for (let productIndex = 0; productIndex < 3; productIndex++) {
-         const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
+       // 각 전압별로 3개의 행 생성 (C005, C006, C007) - 각 디바이스별로 별도 행
+       for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
+         const productNumber = `C00${deviceIndex + 5}`; // C005, C006, C007
          
-         // 해당 제품번호의 1st-10th 데이터 생성 (Device별 readCount 측정값)
+         // 해당 디바이스의 측정 데이터 수집 (4회 측정)
          const measurementData = [];
          
-         // 모든 Device의 모든 readCount 측정값을 순차적으로 저장
-         let measurementIndex = 0;
-         for (let deviceIndex = 0; deviceIndex < 3 && measurementIndex < 10; deviceIndex++) {
-           if (reportData.voltagTable[k] && reportData.voltagTable[k][deviceIndex]) {
-             const deviceReadCount = reportData.voltagTable[k][deviceIndex].length;
-             for (let readIndex = 0; readIndex < deviceReadCount && measurementIndex < 10; readIndex++) {
-               // 채널 1개의 값 사용
-               const voltageData = reportData.voltagTable[k][deviceIndex][readIndex][0];
-               if (voltageData && voltageData !== "-.-") {
-                 const parts = voltageData.split('|');
-                 if (parts.length === 2) {
-                   const voltageStr = parts[0].replace('V', '');
-                   const voltage = parseFloat(voltageStr);
-                   if (!isNaN(voltage)) {
-                     // 소수점 없이 정수로 변환 (그림의 형태에 맞춤)
-                     measurementData.push(Math.round(voltage));
-                   } else {
-                     measurementData.push('-');
-                   }
-                 } else {
-                   measurementData.push('-');
-                 }
-               } else {
-                 measurementData.push('-');
-               }
-               measurementIndex++;
+         // globalTableData에서 해당 디바이스의 실제 측정 데이터 가져오기
+         if (globalTableData.devices[deviceIndex] && globalTableData.devices[deviceIndex].tests[voltageIndex]) {
+           const deviceReads = globalTableData.devices[deviceIndex].tests[voltageIndex].reads;
+           console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - Device ${deviceIndex + 1}: ${deviceReads.length} reads`);
+           
+           for (let readIndex = 0; readIndex < deviceReads.length && readIndex < 10; readIndex++) {
+             const read = deviceReads[readIndex];
+             if (read && read.channels[0] && read.channels[0].voltage !== null) {
+               const voltage = read.channels[0].voltage;
+               const truncatedVoltage = Math.floor(voltage); // 클라이언트와 동일하게 버림 처리
+               measurementData.push(truncatedVoltage);
+               console.log(`[SaveData] ✅ ${inputVoltage}V ${productNumber} - Device ${deviceIndex + 1}, Read ${readIndex + 1}: ${truncatedVoltage}V (원본: ${voltage}V)`);
+             } else {
+               measurementData.push('-');
+               console.log(`[SaveData] ❌ ${inputVoltage}V ${productNumber} - Device ${deviceIndex + 1}, Read ${readIndex + 1}: 빈 데이터`);
              }
            }
+         } else {
+           console.log(`[SaveData] ❌ ${inputVoltage}V ${productNumber} - Device ${deviceIndex + 1}: 데이터 없음`);
          }
          
          // 10개 미만이면 나머지를 '-'로 채움
@@ -484,42 +496,70 @@ function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24
            measurementData.push('-');
          }
          
-         // A.Q.L 계산 (8개 이상 유효하면 A, 아니면 N)
-         const validMeasurements = measurementData.filter(val => val !== '-').length;
-         const aql = validMeasurements >= 8 ? 'A' : 'N';
+         // A.Q.L 계산 (4회 측정값 모두 기준값의 ±5% 변동 내에 있으면 G, 아니면 NG)
+         const validMeasurements = measurementData.filter(val => val !== '-');
+         const totalExpectedMeasurements = 4; // 4회 측정
+         
+         // 기준값 설정 (채널 전압 설정값)
+         const expectedVoltage = channelVoltages[0] || 24; // 첫 번째 채널 전압을 기준값으로 사용
+         
+         // ±5% 허용 오차 계산
+         const tolerance = expectedVoltage * 0.05;
+         const minVoltage = expectedVoltage - tolerance;
+         const maxVoltage = expectedVoltage + tolerance;
+         
+         // 모든 측정값이 기준값의 ±5% 범위 내에 있는지 확인
+         let allWithinTolerance = true;
+         for (const measurement of validMeasurements) {
+           if (measurement < minVoltage || measurement > maxVoltage) {
+             allWithinTolerance = false;
+             break;
+           }
+         }
+         
+         const aql = allWithinTolerance ? 'G' : 'NG';
          
          // 테이블 행 생성 (그림과 동일한 형태)
+         console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - 최종 측정값: [${measurementData.join(', ')}], AQL: ${aql} (기준값: ${expectedVoltage}V ±5%, 범위: ${minVoltage.toFixed(1)}V~${maxVoltage.toFixed(1)}V)`);
          csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
        }
      }
     
-    // 전체 통계 계산 (채널 1개에 맞게, 그림과 동일한 구조)
+    // 전체 통계 계산 (3개 전압 × 3개 디바이스 × 4회 측정 = 36개 데이터)
+    // globalTableData를 사용하여 클라이언트 파워테이블과 동일한 데이터 사용
     let totalTests = 0;
     let passedTests = 0;
     let failedTests = 0;
     
-    for (let k = 0; k < 3; k++) {
-      for (let productIndex = 0; productIndex < 3; productIndex++) { // C005, C006, C007
-        // 모든 Device의 모든 readCount 측정값을 확인
-        for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
-          if (reportData.voltagTable[k] && reportData.voltagTable[k][deviceIndex]) {
-            const deviceReadCount = reportData.voltagTable[k][deviceIndex].length;
-            for (let readIndex = 0; readIndex < deviceReadCount; readIndex++) {
-              // 채널 1개의 데이터 확인
-              const voltageData = reportData.voltagTable[k][deviceIndex][readIndex][0];
-              if (voltageData && voltageData !== "-.-") {
-                totalTests++;
-                if (voltageData.includes('|G')) {
-                  passedTests++;
-                } else {
-                  failedTests++;
-                }
+    for (let voltageIndex = 0; voltageIndex < 3; voltageIndex++) {
+      // 모든 Device의 모든 readCount 측정값을 확인
+      for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
+        // globalTableData 구조: devices[deviceIndex].tests[voltageIndex].reads[readIndex].channels[channelIndex]
+        if (globalTableData.devices[deviceIndex] && globalTableData.devices[deviceIndex].tests[voltageIndex]) {
+          const deviceReads = globalTableData.devices[deviceIndex].tests[voltageIndex].reads;
+          for (let readIndex = 0; readIndex < deviceReads.length; readIndex++) {
+            const read = deviceReads[readIndex];
+            if (read && read.channels[0] && read.channels[0].voltage !== null) {
+              totalTests++;
+              // 기준값과 비교하여 G/NG 판정
+              const voltage = read.channels[0].voltage;
+              const expectedVoltage = channelVoltages[0] || 24;
+              const tolerance = expectedVoltage * 0.05;
+              const minVoltage = expectedVoltage - tolerance;
+              const maxVoltage = expectedVoltage + tolerance;
+              
+              if (voltage >= minVoltage && voltage <= maxVoltage) {
+                passedTests++;
+              } else {
+                failedTests++;
               }
             }
           }
         }
       }
     }
+    
+    console.log(`[SaveData] 📊 통계 계산 완료: 총 ${totalTests}개, 통과 ${passedTests}개, 실패 ${failedTests}개`);
     
      // Test results summary (similar to image bottom)
      csvContent += '\n';
