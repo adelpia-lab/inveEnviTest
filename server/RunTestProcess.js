@@ -1543,6 +1543,7 @@ function combineReadResults(allReadResults, getTableOption) {
 function createFinalResultTable(allCycleResults, getTableOption) {
   try {
     console.log(`[CreateFinalResultTable] ${allCycleResults.length}개의 사이클 결과를 합쳐서 최종 테이블 생성 중...`);
+    console.log(`[CreateFinalResultTable] globalTableData를 사용하여 실제 측정 데이터 추출`);
     
     // 기본 테이블 구조 생성 (채널 1개) - runSinglePageProcess와 동일한 구조
     const finalTable = {
@@ -1563,40 +1564,43 @@ function createFinalResultTable(allCycleResults, getTableOption) {
       }]
     };
     
-    // 각 사이클 결과의 데이터를 합치기
-    for (let k = 0; k < 3; k++) { // 3개 전압 (18V, 24V, 30V)
+    // globalTableData에서 실제 측정 데이터를 가져와서 최종 테이블 생성
+    for (let voltageIndex = 0; voltageIndex < 3; voltageIndex++) { // 3개 전압 (18V, 24V, 30V)
       for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) { // Device 1,2,3
         for (let readIndex = 0; readIndex < 10; readIndex++) { // readCount 최대 10
-          for (let j = 0; j < 1; j++) { // 1개 채널
+          for (let channelIndex = 0; channelIndex < 1; channelIndex++) { // 1개 채널
             const voltageValues = [];
             const goodCounts = [];
             
-            // 모든 사이클 결과에서 해당 위치의 데이터 수집
-            allCycleResults.forEach((cycleResult, cycleIndex) => {
-              if (cycleResult && cycleResult.reportTable && cycleResult.reportTable[0] && 
-                  cycleResult.reportTable[0].voltagTable && 
-                  cycleResult.reportTable[0].voltagTable[k] && 
-                  cycleResult.reportTable[0].voltagTable[k][deviceIndex] && 
-                  cycleResult.reportTable[0].voltagTable[k][deviceIndex][readIndex] && 
-                  cycleResult.reportTable[0].voltagTable[k][deviceIndex][readIndex][j]) {
-                
-                const voltageData = cycleResult.reportTable[0].voltagTable[k][deviceIndex][readIndex][j];
-                if (voltageData && voltageData !== "-.-") {
-                  // "5.2V|G" 형식에서 전압값과 비교결과 추출
-                  const parts = voltageData.split('|');
-                  if (parts.length === 2) {
-                    const voltageStr = parts[0].replace('V', '');
-                    const voltage = parseFloat(voltageStr);
-                    const isGood = parts[1] === 'G';
+            // globalTableData에서 해당 위치의 실제 측정 데이터 수집
+            if (globalTableData.devices[deviceIndex] && globalTableData.devices[deviceIndex].tests[voltageIndex]) {
+              const deviceReads = globalTableData.devices[deviceIndex].tests[voltageIndex].reads;
+              
+              // 모든 사이클에서 해당 readIndex의 데이터 수집
+              for (let cycleIndex = 0; cycleIndex < allCycleResults.length; cycleIndex++) {
+                if (deviceReads[readIndex] && deviceReads[readIndex].channels[channelIndex]) {
+                  const channel = deviceReads[readIndex].channels[channelIndex];
+                  
+                  if (channel && channel.voltage !== null && channel.status === 'completed') {
+                    const voltage = channel.voltage;
+                    const truncatedVoltage = Math.floor(voltage); // 정수로 변환
                     
-                    if (!isNaN(voltage)) {
-                      voltageValues.push(voltage);
-                      goodCounts.push(isGood ? 1 : 0);
-                    }
+                    // 기준값과 비교하여 G/N 판정 (saveTotaReportTableToFile과 동일한 로직)
+                    const expectedVoltage = getTableOption.channelVoltages?.[0] || 24; // 첫 번째 채널 전압을 기준값으로 사용
+                    const tolerance = expectedVoltage * 0.05; // ±5% 허용 오차
+                    const minVoltage = expectedVoltage - tolerance;
+                    const maxVoltage = expectedVoltage + tolerance;
+                    
+                    const isGood = (truncatedVoltage >= minVoltage && truncatedVoltage <= maxVoltage);
+                    
+                    voltageValues.push(truncatedVoltage);
+                    goodCounts.push(isGood ? 1 : 0);
+                    
+                    console.log(`[CreateFinalResultTable] Device ${deviceIndex + 1}, Voltage ${voltageIndex + 1}, Read ${readIndex + 1}: ${truncatedVoltage}V (${isGood ? 'G' : 'N'}) - 기준값: ${expectedVoltage}V ±5%`);
                   }
                 }
               }
-            });
+            }
             
             // 평균 계산 및 결과 저장
             if (voltageValues.length > 0) {
@@ -1607,16 +1611,19 @@ function createFinalResultTable(allCycleResults, getTableOption) {
               
               // 소수점 없이 정수로 변환
               const truncatedVoltage = Math.floor(averageVoltage);
-              finalTable.reportTable[0].voltagTable[k][deviceIndex][readIndex][j] = `${truncatedVoltage}V|${comparisonResult}`;
+              finalTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][readIndex][channelIndex] = `${truncatedVoltage}V|${comparisonResult}`;
+              
+              console.log(`[CreateFinalResultTable] 최종 결과 - Device ${deviceIndex + 1}, Voltage ${voltageIndex + 1}, Read ${readIndex + 1}: ${truncatedVoltage}V|${comparisonResult} (${voltageValues.length}개 측정값 평균)`);
             } else {
-              finalTable.reportTable[0].voltagTable[k][deviceIndex][readIndex][j] = "-.-";
+              finalTable.reportTable[0].voltagTable[voltageIndex][deviceIndex][readIndex][channelIndex] = "-.-";
+              console.log(`[CreateFinalResultTable] 데이터 없음 - Device ${deviceIndex + 1}, Voltage ${voltageIndex + 1}, Read ${readIndex + 1}`);
             }
           }
         }
       }
     }
     
-    console.log(`[CreateFinalResultTable] ${allCycleResults.length}개의 사이클 결과 합치기 완료`);
+    console.log(`[CreateFinalResultTable] ${allCycleResults.length}개의 사이클 결과 합치기 완료 (globalTableData 기반)`);
     return finalTable;
     
   } catch (error) {
@@ -3202,31 +3209,22 @@ export async function generateFinalDeviceReport(cycleNumber) {
     
     console.log(`[FinalDeviceReport] 검색된 디렉토리: ${csvFiles.map(f => f.directory || 'current_test_dir').join(', ')}`);
     
-    // 디바이스별 G/N 카운트 초기화 (10개 디바이스, 4개 채널)
+    // 디바이스별 G/N 카운트 초기화 (3개 디바이스, 1개 채널) - saveTotaReportTableToFile 패턴에 맞춤
     const deviceResults = {};
-    for (let device = 1; device <= 10; device++) {
+    for (let device = 1; device <= 3; device++) {
       deviceResults[`Device ${device}`] = {
         totalTests: 0,
         passedTests: 0,
         failedTests: 0,
         channels: {
-          'Channel 1 (5V)': { total: 0, passed: 0, failed: 0 },
-          'Channel 2 (15V)': { total: 0, passed: 0, failed: 0 },
-          'Channel 3 (-15V)': { total: 0, passed: 0, failed: 0 },
-          'Channel 4 (24V)': { total: 0, passed: 0, failed: 0 }
+          'Channel 1': { total: 0, passed: 0, failed: 0 }
         }
       };
     }
     
-    // 채널명 매핑 함수
+    // 채널명 매핑 함수 (1개 채널)
     const getChannelName = (channelIndex) => {
-      const channelNames = [
-        'Channel 1 (5V)',
-        'Channel 2 (15V)', 
-        'Channel 3 (-15V)',
-        'Channel 4 (24V)'
-      ];
-      return channelNames[channelIndex] || `Channel ${channelIndex + 1}`;
+      return 'Channel 1';
     };
 
     // 안전한 속성 접근 함수
@@ -3271,75 +3269,81 @@ export async function generateFinalDeviceReport(cycleNumber) {
           : path.join(testDirectoryPath, filename);
         const fileContent = fs.readFileSync(filePath, 'utf8');
         
-        // 파일명에서 사이클 번호와 테스트 유형 추출
+        // 파일명에서 사이클 번호와 테스트 유형 추출 (saveTotaReportTableToFile 패턴에 맞춤)
         console.log(`[FinalDeviceReport] 파일명 분석 중: ${filename}`);
         const cycleMatch = filename.match(/Cycle(\d+)/);
-        const testTypeMatch = filename.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+|TimeMode_high_temp_Test\d+|TimeMode_low_temp_Test\d+|TimeMode.*Test\d+)/);
+        const testTypeMatch = filename.match(/(HighTemp_Test|LowTemp_Test|TimeMode_Test)/);
         
         console.log(`[FinalDeviceReport] Cycle 매치 결과:`, cycleMatch);
         console.log(`[FinalDeviceReport] TestType 매치 결과:`, testTypeMatch);
         
         if (!cycleMatch || !testTypeMatch) {
           console.warn(`[FinalDeviceReport] 파일명 형식 오류: ${filename}`);
-          console.warn(`[FinalDeviceReport] 예상 형식: Cycle숫자_TimeMode_high_temp_Test숫자 또는 Cycle숫자_TimeMode_low_temp_Test숫자`);
+          console.warn(`[FinalDeviceReport] 예상 형식: Cycle숫자_HighTemp_Test 또는 Cycle숫자_LowTemp_Test`);
           continue;
         }
         
         const cycle = parseInt(cycleMatch[1]);
         const testType = testTypeMatch[1];
         
-        //console.log(`[FinalDeviceReport] 분석 중: ${filename} (사이클 ${cycle}, ${testType})`);
+        console.log(`[FinalDeviceReport] 분석 중: ${filename} (사이클 ${cycle}, ${testType})`);
         
-        // CSV 내용에서 G/N 결과 추출
+        // CSV 내용에서 A.Q.L 컬럼의 G/N 결과 추출 (saveTotaReportTableToFile 패턴)
         const lines = fileContent.split('\n');
-        let inComparisonSection = false;
-        let channelIndex = 0;
-        let sectionCount = 0;
+        let inTableSection = false;
+        let headerFound = false;
+        let processedRows = 0;
         
-        //console.log(`[FinalDeviceReport] ${filename} 분석 시작 - 총 ${lines.length}줄`);
+        console.log(`[FinalDeviceReport] ${filename} 분석 시작 - 총 ${lines.length}줄`);
         
         for (const line of lines) {
-          if (line.includes('비교결과 (G=Good, N=Not Good)') || line.includes('Result (G=Good, N=Not Good)')) {
-            inComparisonSection = true;
-            channelIndex = 0;
-            sectionCount++;
-            console.log(`[FinalDeviceReport] 비교결과 섹션 ${sectionCount} 발견: ${filename}`);
+          // 테이블 헤더 찾기
+          if (line.includes('INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L')) {
+            inTableSection = true;
+            headerFound = true;
+            console.log(`[FinalDeviceReport] 테이블 헤더 발견: ${filename}`);
             continue;
           }
           
-          if (inComparisonSection && line.startsWith('Channel')) {
-            const channelName = getChannelName(channelIndex);
-            const results = line.split(',').slice(1); // Device 1~10 결과
-            
-            console.log(`[FinalDeviceReport] 섹션 ${sectionCount} 채널 ${channelIndex + 1} 분석: ${channelName}, 결과 수: ${results.length}`);
-            console.log(`[FinalDeviceReport] 결과 데이터:`, results);
-            
-            for (let deviceIndex = 0; deviceIndex < Math.min(10, results.length); deviceIndex++) {
-              const deviceName = `Device ${deviceIndex + 1}`;
-              const result = results[deviceIndex];
+          // 테이블 데이터 행 처리 (saveTotaReportTableToFile 패턴)
+          if (inTableSection && headerFound && line.includes('V,C00')) {
+            const parts = line.split(',');
+            if (parts.length >= 13) { // INPUT,제품번호,1st~10th,A.Q.L = 13개 컬럼
+              const inputVoltage = parts[0]; // 18V, 24V, 30V
+              const productNumber = parts[1]; // C005, C006, C007
+              const aqlResult = parts[12]; // A.Q.L 컬럼의 G/N 결과
               
-              if (result && (result === 'G' || result === 'N')) {
-                console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: ${result} - 업데이트 중`);
-                safeUpdateChannel(deviceName, channelName, result);
-              } else if (result && result !== '-') {
-                console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: 알 수 없는 결과값 '${result}'`);
-              } else {
-                console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: 빈 값 또는 '-' - 스킵`);
+              // 제품번호에서 디바이스 번호 추출 (C005 -> Device 1, C006 -> Device 2, C007 -> Device 3)
+              const deviceMatch = productNumber.match(/C00(\d+)/);
+              if (deviceMatch) {
+                const deviceNumber = parseInt(deviceMatch[1]) - 4; // C005=1, C006=2, C007=3
+                const deviceName = `Device ${deviceNumber}`;
+                const channelName = 'Channel 1';
+                
+                if (aqlResult && (aqlResult === 'G' || aqlResult === 'NG')) {
+                  const result = aqlResult === 'G' ? 'G' : 'N';
+                  console.log(`[FinalDeviceReport] ${deviceName} ${channelName} (${inputVoltage} ${productNumber}): ${result} - 업데이트 중`);
+                  safeUpdateChannel(deviceName, channelName, result);
+                  processedRows++;
+                } else {
+                  console.log(`[FinalDeviceReport] ${deviceName} ${channelName} (${inputVoltage} ${productNumber}): 알 수 없는 AQL 결과 '${aqlResult}'`);
+                }
               }
             }
-            channelIndex++;
-            
-            if (channelIndex >= 4) {
-              inComparisonSection = false;
-              //console.log(`[FinalDeviceReport] 섹션 ${sectionCount} 완료: ${filename}`);
-            }
+          }
+          
+          // 테이블 섹션 종료 조건
+          if (inTableSection && line.trim() === '') {
+            inTableSection = false;
+            headerFound = false;
+            console.log(`[FinalDeviceReport] 테이블 섹션 종료: ${filename}`);
           }
         }
         
-        if (sectionCount === 0) {
-          console.warn(`[FinalDeviceReport] ${filename}에서 비교결과 섹션을 찾을 수 없음`);
+        if (processedRows === 0) {
+          console.warn(`[FinalDeviceReport] ${filename}에서 A.Q.L 결과를 찾을 수 없음`);
         } else {
-          console.log(`[FinalDeviceReport] ${filename}에서 총 ${sectionCount}개의 비교결과 섹션 처리 완료`);
+          console.log(`[FinalDeviceReport] ${filename}에서 총 ${processedRows}개의 A.Q.L 결과 처리 완료`);
         }
         
         processedFiles++;
@@ -3419,10 +3423,10 @@ export async function generateFinalDeviceReport(cycleNumber) {
     
     let reportContent = '';
     
-    // Document header information (xxx_Cycle_HighTemp_Test.csv와 동일한 구조)
+    // Document header information (saveTotaReportTableToFile 패턴에 맞춤)
     reportContent += `Document No.,K2-AD-110-A241023-001\n`;
     reportContent += `Product Name,Device Comprehensive Test Report\n`;
-    reportContent += `Product Number,Device 1-10\n`;
+    reportContent += `Product Number,Device 1-3\n`;
     reportContent += `Test Date,${new Date().toLocaleDateString('en-US')}\n`;
     reportContent += `Test Time,${new Date().toLocaleTimeString('en-US')}\n`;
     reportContent += `Test Temperature,Comprehensive Analysis\n`;
@@ -3431,27 +3435,28 @@ export async function generateFinalDeviceReport(cycleNumber) {
     reportContent += `Analyzed Files,${processedFiles}\n`;
     reportContent += '\n';
     
-    // 새로운 테이블 구조 (xxx_Cycle_HighTemp_Test.csv와 동일한 형태)
+    // 새로운 테이블 구조 (saveTotaReportTableToFile 패턴에 맞춤)
     reportContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
     
-    // 3개 input 전압에 대해 각각 Device별 측정값 표시 (xxx_Cycle_HighTemp_Test.csv와 동일한 구조)
+    // 3개 input 전압에 대해 각각 Device별 측정값 표시 (saveTotaReportTableToFile 패턴)
     for (let k = 0; k < 3; k++) {
       const inputVoltage = [18, 24, 30][k]; // 18V, 24V, 30V
       
-      // 각 제품번호에 대해 테이블 생성 (C005, C006, C007)
+      // 각 제품번호에 대해 테이블 생성 (C005, C006, C007) - 3개 디바이스만
       for (let productIndex = 0; productIndex < 3; productIndex++) {
         const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
+        const deviceName = `Device ${productIndex + 1}`; // Device 1, Device 2, Device 3
         
-        // 해당 제품번호의 1st-10th 데이터 생성 (Device별 측정값)
+        // 해당 디바이스의 1st-10th 데이터 생성 (실제 측정값 기반)
         const measurementData = [];
         let validMeasurements = 0;
         
-        // Device 1-10의 측정값을 순차적으로 저장
-        for (let deviceIndex = 0; deviceIndex < 10; deviceIndex++) {
-          const deviceName = `Device ${deviceIndex + 1}`;
-          if (finalConclusions[deviceName] && finalConclusions[deviceName].totalTests > 0) {
-            // 실제 측정값이 있는 경우
-            const deviceResult = finalConclusions[deviceName];
+        // Device별 측정값을 순차적으로 저장 (최대 10개)
+        if (finalConclusions[deviceName] && finalConclusions[deviceName].totalTests > 0) {
+          const deviceResult = finalConclusions[deviceName];
+          
+          // 실제 측정값이 있는 경우 (G/N 결과를 전압값으로 변환)
+          for (let i = 0; i < 10; i++) {
             if (deviceResult.conclusion === 'G') {
               measurementData.push('G');
               validMeasurements++;
@@ -3459,16 +3464,18 @@ export async function generateFinalDeviceReport(cycleNumber) {
               measurementData.push('N');
               validMeasurements++;
             }
-          } else {
-            // 측정값이 없는 경우
+          }
+        } else {
+          // 측정값이 없는 경우
+          for (let i = 0; i < 10; i++) {
             measurementData.push('-');
           }
         }
         
-        // A.Q.L 계산 (8개 이상 유효하면 A, 아니면 N)
-        const aql = validMeasurements >= 8 ? 'A' : 'N';
+        // A.Q.L 계산 (모든 측정값이 G이면 G, 하나라도 N이면 N)
+        const aql = validMeasurements > 0 && measurementData.every(val => val === 'G') ? 'G' : 'N';
         
-        // 테이블 행 생성 (xxx_Cycle_HighTemp_Test.csv와 동일한 형태)
+        // 테이블 행 생성 (saveTotaReportTableToFile 패턴)
         reportContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
       }
     }
