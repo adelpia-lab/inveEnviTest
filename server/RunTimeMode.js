@@ -5,7 +5,7 @@ import { ReadVolt } from './ReadVolt.js';
 
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
-import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData, updateTableData } from './RunTestProcess.js';
+import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData, updateTableData, getCurrentTableData, resetTableData } from './RunTestProcess.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -57,6 +57,17 @@ let lastTableDataBroadcast = 0;
 export function setWebSocketServer(wss) {
   globalWss = wss;
   console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
+}
+
+// 전역 변수를 설정하는 함수
+export function setCurrentTestDirectoryPath(path) {
+  currentTestDirectoryPath = path;
+  console.log(`[RunTimeMode] 현재 테스트 디렉토리 경로 설정: ${path}`);
+}
+
+// 전역 변수를 가져오는 함수
+export function getCurrentTestDirectoryPath() {
+  return currentTestDirectoryPath;
 }
 
 // 디바운싱된 테이블 데이터 전송 함수 (TimeMode 최적화)
@@ -552,7 +563,29 @@ export async function runSinglePageProcess(readCount = 1) {
     }
 
     // runSinglePageProcess 시작 시마다 테이블 데이터 초기화 (각 단계마다 새로 시작)
+    // 초기화 전 상태 로깅
+    const beforeReset = getCurrentTableData();
+    const beforeCompletedCells = beforeReset.devices.reduce((total, device) => {
+      return total + device.tests.reduce((testTotal, test) => {
+        return testTotal + test.reads.reduce((readTotal, read) => {
+          return readTotal + read.channels.filter(channel => channel.status === 'completed').length;
+        }, 0);
+      }, 0);
+    }, 0);
+    console.log(`[SinglePageProcess] 🔍 초기화 전 상태 - 완료된 셀: ${beforeCompletedCells}, Device 1 Test 1 Read 1: ${beforeReset.devices[0]?.tests[0]?.reads[0]?.channels[0]?.voltage || 'null'}`);
+    
     resetTableData();
+    
+    // 초기화 후 상태 로깅
+    const afterReset = getCurrentTableData();
+    const afterCompletedCells = afterReset.devices.reduce((total, device) => {
+      return total + device.tests.reduce((testTotal, test) => {
+        return testTotal + test.reads.reduce((readTotal, read) => {
+          return readTotal + read.channels.filter(channel => channel.status === 'completed').length;
+        }, 0);
+      }, 0);
+    }, 0);
+    console.log(`[SinglePageProcess] 🔍 초기화 후 상태 - 완료된 셀: ${afterCompletedCells}, Device 1 Test 1 Read 1: ${afterReset.devices[0]?.tests[0]?.reads[0]?.channels[0]?.voltage || 'null'}`);
     console.log(`[SinglePageProcess] ✅ 단일 페이지 프로세스 시작 - 테이블 데이터 초기화 완료`);
     
     // PowerTable 초기화 메시지 전송 (각 단계마다 테이블 리셋)
@@ -573,10 +606,22 @@ export async function runSinglePageProcess(readCount = 1) {
       console.log(`[SinglePageProcess] PowerTable 초기화 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
       
       // 초기화 메시지 전송 후 잠시 대기 (클라이언트가 처리할 시간 확보)
-      await sleep(1000);
+      await sleep(2000);
       
       // 초기화 후 빈 테이블 상태를 클라이언트에 전송하여 리셋 확인
       console.log(`[SinglePageProcess] 초기화된 빈 테이블 상태 전송 시작`);
+      
+      // 전송 전 상태 로깅
+      const beforeBroadcast = getCurrentTableData();
+      const beforeBroadcastCells = beforeBroadcast.devices.reduce((total, device) => {
+        return total + device.tests.reduce((testTotal, test) => {
+          return testTotal + test.reads.reduce((readTotal, read) => {
+            return readTotal + read.channels.filter(channel => channel.status === 'completed').length;
+          }, 0);
+        }, 0);
+      }, 0);
+      console.log(`[SinglePageProcess] 🔍 전송 전 상태 - 완료된 셀: ${beforeBroadcastCells}, Device 1 Test 1 Read 1: ${beforeBroadcast.devices[0]?.tests[0]?.reads[0]?.channels[0]?.voltage || 'null'}`);
+      
       await debouncedBroadcastTableData(true);
       console.log(`[SinglePageProcess] 초기화된 빈 테이블 상태 전송 완료`);
     } else {
@@ -2584,30 +2629,4 @@ export async function runNextTankEnviTestProcess() {
   }
 }
 
-/**
- * 테이블 데이터를 초기화하는 함수
- */
-export function resetTableData() {
-  // 전역 테이블 데이터 초기화
-  globalTableData = {
-    devices: Array.from({ length: 10 }, (_, deviceIndex) => ({
-      deviceNumber: deviceIndex + 1,
-      tests: Array.from({ length: 3 }, (_, testIndex) => ({
-        testNumber: testIndex + 1,
-        reads: Array.from({ length: 10 }, (_, readIndex) => ({
-          readIndex: readIndex + 1,
-          channels: Array.from({ length: 1 }, (_, channelIndex) => ({
-            channelNumber: channelIndex + 1,
-            voltage: null,
-            timestamp: null,
-            status: 'pending'
-          }))
-        }))
-      }))
-    })),
-    lastUpdate: null,
-    isComplete: false
-  };
-  
-  console.log(`[TableData] 테이블 데이터 초기화 완료`);
-}
+// resetTableData 함수는 RunTestProcess.js에서 import하여 사용

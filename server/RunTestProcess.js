@@ -3429,9 +3429,56 @@ export async function generateFinalDeviceReport(cycleNumber) {
       dateFolderPath = currentTestDirectoryPath;
       console.log(`[FinalDeviceReport] 📁 전역 변수에서 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
     } else {
-      // 전역 변수가 없으면 기본 경로 사용
-      dateFolderPath = path.join(process.cwd(), 'Data', 'default');
-      console.log(`[FinalDeviceReport] 📁 기본 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
+      // RunTimeMode.js의 currentTestDirectoryPath도 확인
+      try {
+        const { getCurrentTestDirectoryPath } = await import('./RunTimeMode.js');
+        const timeModePath = getCurrentTestDirectoryPath();
+        if (timeModePath) {
+          dateFolderPath = timeModePath;
+          console.log(`[FinalDeviceReport] 📁 RunTimeMode에서 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
+        } else {
+          // 전역 변수가 없으면 자동으로 최근 테스트 디렉토리 검색
+          console.warn(`[FinalDeviceReport] ⚠️ 현재 테스트 디렉토리 경로가 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+          
+          try {
+            const dataFolderPath = path.join(process.cwd(), 'Data');
+            if (fs.existsSync(dataFolderPath)) {
+              const dataFolders = fs.readdirSync(dataFolderPath)
+                .filter(folder => fs.statSync(path.join(dataFolderPath, folder)).isDirectory())
+                .sort()
+                .reverse(); // 최신 순으로 정렬
+              
+              if (dataFolders.length > 0) {
+                const latestFolder = dataFolders[0];
+                dateFolderPath = path.join(dataFolderPath, latestFolder);
+                console.log(`[FinalDeviceReport] 📁 자동으로 최근 테스트 디렉토리 선택: ${dateFolderPath}`);
+              } else {
+                // Data 폴더에 디렉토리가 없으면 default 디렉토리 생성
+                dateFolderPath = path.join(dataFolderPath, 'default');
+                if (!fs.existsSync(dateFolderPath)) {
+                  fs.mkdirSync(dateFolderPath, { recursive: true });
+                  console.log(`[FinalDeviceReport] 📁 기본 테스트 디렉토리 생성: ${dateFolderPath}`);
+                } else {
+                  console.log(`[FinalDeviceReport] 📁 기본 테스트 디렉토리 사용: ${dateFolderPath}`);
+                }
+              }
+            } else {
+              // Data 폴더가 없으면 생성하고 default 디렉토리도 생성
+              const dataFolderPath = path.join(process.cwd(), 'Data');
+              fs.mkdirSync(dataFolderPath, { recursive: true });
+              dateFolderPath = path.join(dataFolderPath, 'default');
+              fs.mkdirSync(dateFolderPath, { recursive: true });
+              console.log(`[FinalDeviceReport] 📁 Data 폴더 및 기본 테스트 디렉토리 생성: ${dateFolderPath}`);
+            }
+          } catch (error) {
+            console.error(`[FinalDeviceReport] ❌ 최근 테스트 디렉토리 검색 실패:`, error.message);
+            return { success: false, error: `최근 테스트 디렉토리 검색 실패: ${error.message}` };
+          }
+        }
+      } catch (error) {
+        console.error(`[FinalDeviceReport] ❌ RunTimeMode 경로 확인 실패:`, error.message);
+        return { success: false, error: `RunTimeMode 경로 확인 실패: ${error.message}` };
+      }
     }
     
     const reportFilePath = path.join(dateFolderPath, reportFilename);
@@ -4133,6 +4180,16 @@ export async function broadcastTableData() {
     // globalTableData의 깊은 복사본 생성 (데이터 경합 상태 방지)
     const tableDataSnapshot = JSON.parse(JSON.stringify(globalTableData));
     
+    // 전송할 데이터 상태 로깅
+    const snapshotCompletedCells = tableDataSnapshot.devices.reduce((total, device) => {
+      return total + device.tests.reduce((testTotal, test) => {
+        return testTotal + test.reads.reduce((readTotal, read) => {
+          return readTotal + read.channels.filter(channel => channel.status === 'completed').length;
+        }, 0);
+      }, 0);
+    }, 0);
+    console.log(`[BroadcastTableData] 🔍 전송할 데이터 상태 - 완료된 셀: ${snapshotCompletedCells}, Device 1 Test 1 Read 1: ${tableDataSnapshot.devices[0]?.tests[0]?.reads[0]?.channels[0]?.voltage || 'null'}`);
+    
     // 선택된 디바이스 상태 가져오기
     const getTableOption = await getSafeGetTableOption();
     const deviceStates = getTableOption.deviceStates || [];
@@ -4143,12 +4200,13 @@ export async function broadcastTableData() {
     let currentReadCount = 0;
     let maxReadCount = 10; // 최대 readCount (설정에서 가져올 수 있음)
     
-    // 현재 진행 중인 readCount 찾기 (가장 높은 readIndex)
+    // 현재 진행 중인 readCount 찾기 (실제 완료된 측정만 카운트)
     tableDataSnapshot.devices.forEach((device, deviceIndex) => {
       if (deviceStates[deviceIndex]) {
         device.tests.forEach(test => {
           test.reads.forEach((read, readIndex) => {
-            if (read.channels.some(channel => channel.status === 'completed' || channel.status === 'pending')) {
+            // 실제로 완료된 채널이 있는 경우만 카운트
+            if (read.channels.some(channel => channel.status === 'completed' && channel.voltage !== null)) {
               currentReadCount = Math.max(currentReadCount, readIndex + 1);
             }
           });
@@ -4184,7 +4242,6 @@ export async function broadcastTableData() {
       totalDevices: 3, // Device 1,2,3만 사용
       totalTests: 3,   // 3개 전압 테스트
       totalChannels: 1, // 채널 1개
-      completionPercentage: completionPercentage,
       completedCells: completedCells,
       totalCells: totalCells,
       // 순차적 테이블 채우기를 위한 새로운 voltagTable 포맷: [voltageIndex][productIndex][measurementIndex][channel]
@@ -4241,7 +4298,7 @@ export async function broadcastTableData() {
       }
     });
     
-    console.log(`[TableData] 테이블 데이터 전송 완료 - 클라이언트 수: ${sentCount}, 완성도: ${completionPercentage.toFixed(1)}%`);
+    console.log(`[TableData] 테이블 데이터 전송 완료 - 클라이언트 수: ${sentCount}, 완료된 셀: ${completedCells}/${totalCells}`);
     
     // TimeMode에서는 완성 메시지 전송하지 않음 (단계별 진행상황만 표시)
     // 각 runSinglePageProcess 완료는 runTimeModeTestProcess에서 관리

@@ -310,6 +310,11 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
    // 테이블 초기화 함수 개선
    const resetTable = () => {
      console.log('🔄 PowerTable: 테이블 초기화 실행');
+     
+     // 리셋 전 상태 로깅
+     const beforeResetKeys = Object.keys(accumulatedVoltageData).length;
+     console.log(`[PowerTable] 🔍 resetTable 호출 전 - 데이터 키 수: ${beforeResetKeys}`);
+     
      setAccumulatedVoltageData({});
      setVoltagTableData(null);
      setTableCompletionStatus({
@@ -324,6 +329,8 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
      
      // 1초 후 테이블 상태를 안정화
      setTimeout(() => {
+       const afterResetKeys = Object.keys(accumulatedVoltageData).length;
+       console.log(`[PowerTable] 🔍 resetTable 완료 후 - 데이터 키 수: ${afterResetKeys}`);
        setIsTableStable(true);
      }, 1000);
    };
@@ -629,12 +636,26 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                 console.log('✅ PowerTable: 사이클 초기화 완료 (테이블 데이터 보존됨)');
                 break;
                 
-              case 'single_page_reset':
-                // 단일 페이지 프로세스 - 강건한 완전 리셋 (각 단계마다 0%에서 시작)
-                console.log('🔄 PowerTable: 단일 페이지 프로세스 강건한 리셋 시작');
-                
-                // 1. 테이블 데이터 완전 초기화
-                resetTable();
+        case 'single_page_reset':
+          // 단일 페이지 프로세스 - 강건한 완전 리셋 (각 단계마다 0%에서 시작)
+          console.log('🔄 PowerTable: 단일 페이지 프로세스 강건한 리셋 시작');
+          
+          // 리셋 전 상태 로깅
+          const beforeReset = Object.keys(accumulatedVoltageData).length;
+          const sampleData = Object.keys(accumulatedVoltageData).slice(0, 3).map(key => `${key}: ${accumulatedVoltageData[key]?.voltage || 'null'}`);
+          console.log(`[PowerTable] 🔍 리셋 전 상태 - 데이터 키 수: ${beforeReset}, 샘플: [${sampleData.join(', ')}]`);
+          
+          // 1. 테이블 데이터 완전 초기화
+          resetTable();
+          
+          // 리셋 후 상태 로깅 및 안정화 대기
+          setTimeout(() => {
+            const afterReset = Object.keys(accumulatedVoltageData).length;
+            console.log(`[PowerTable] 🔍 리셋 후 상태 - 데이터 키 수: ${afterReset}`);
+            
+            // 리셋 후 추가 안정화 시간 확보 (POWER_TABLE_UPDATE 메시지 처리 전)
+            console.log(`[PowerTable] ⏳ 리셋 후 안정화 대기 중... (2초)`);
+          }, 2000);
                 
                 // 2. 모든 상태 완전 초기화
                 setCurrentCycle(null);
@@ -897,23 +918,32 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
               console.log(`✅ PowerTable: ${messageType}으로 누적 데이터 업데이트 완료`);
             }
             
-             // 테이블 데이터 기반 진행상황 업데이트 (완성도 계산 제거)
-             if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
-                 tableData.summary) {
-               
-               // 서버에서 전송된 실제 데이터 기반 진행상황 사용 (완성도 계산 제거)
-               const newStatus = {
-                 totalCells: tableData.summary.totalCells || 0,
-                 filledCells: tableData.summary.completedCells || 0,
-                 currentReadCount: tableData.summary.currentReadCount || 0,
-                 maxReadCount: tableData.summary.maxReadCount || 10,
-                 isComplete: false // TimeMode에서는 항상 진행 중으로 표시
-               };
-               
-               // 실제 데이터 기반 진행상황 업데이트 (완성도 계산 없음)
-               setTableCompletionStatus(newStatus);
-               console.log(`📊 PowerTable: 데이터 기반 진행상황 - ${newStatus.filledCells}/${newStatus.totalCells} 셀 완성 (readCount: ${newStatus.currentReadCount}/${newStatus.maxReadCount}) - 완성도 계산 제거`);
-             }
+        // 테이블 데이터 기반 진행상황 업데이트 (완성도 계산 제거)
+        if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
+            tableData.summary) {
+          
+          // 수신된 데이터 로깅
+          console.log(`[PowerTable] 🔍 POWER_TABLE_UPDATE 수신 - 서버 데이터:`, {
+            totalCells: tableData.summary.totalCells,
+            completedCells: tableData.summary.completedCells,
+            currentReadCount: tableData.summary.currentReadCount,
+            maxReadCount: tableData.summary.maxReadCount,
+            voltagTableLength: tableData.voltagTable?.length || 0
+          });
+          
+          // 서버에서 전송된 실제 데이터 기반 진행상황 사용 (완성도 계산 제거)
+          const newStatus = {
+            totalCells: tableData.summary.totalCells || 0,
+            filledCells: tableData.summary.completedCells || 0,
+            currentReadCount: tableData.summary.currentReadCount || 0,
+            maxReadCount: tableData.summary.maxReadCount || 10,
+            isComplete: false // TimeMode에서는 항상 진행 중으로 표시
+          };
+          
+          // 실제 데이터 기반 진행상황 업데이트 (완성도 계산 없음)
+          setTableCompletionStatus(newStatus);
+          console.log(`📊 PowerTable: 데이터 기반 진행상황 - ${newStatus.filledCells}/${newStatus.totalCells} 셀 완성 (readCount: ${newStatus.currentReadCount}/${newStatus.maxReadCount}) - 완성도 계산 제거`);
+        }
           }
           
         } catch (error) {
