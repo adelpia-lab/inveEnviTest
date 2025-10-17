@@ -2,6 +2,7 @@
 'use client';
 import React, { useState, useEffect, useCallback, JSX } from 'react';
 import type { PowerDataGroup } from '../../lib/parsePowerData';
+import FolderSelectModal from '../FolderSelectModal/FolderSelectModal';
 
 interface PowerTableProps {
   groups: PowerDataGroup[];
@@ -104,6 +105,9 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
   // 테이블 상태 관리 개선
   const [isTableStable, setIsTableStable] = useState<boolean>(true);
   const [lastTableUpdate, setLastTableUpdate] = useState<number>(Date.now());
+  
+  // 폴더 선택 모달 상태
+  const [isFolderSelectModalOpen, setIsFolderSelectModalOpen] = useState<boolean>(false);
   
   // 테이블 완성도 계산 함수 개선
   const calculateTableCompletion = (data: AccumulatedTableData) => {
@@ -1075,15 +1079,26 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     }
   };
 
-  // 보고서 생성 함수
+  // 보고서 생성 함수 - 폴더 선택 모달 열기
   const handleGenerateReport = () => {
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      const generateReportMessage = `[GENERATE_REPORT]`;
-      wsConnection.send(generateReportMessage);
-      console.log('📄 PowerTable: 보고서 생성 요청 전송');
+      setIsFolderSelectModalOpen(true);
+      console.log('📄 PowerTable: 폴더 선택 모달 열기');
     } else {
       console.warn('📄 PowerTable: 보고서 생성: WebSocket 연결이 없습니다.');
+      alert('서버 연결이 없습니다. 연결을 확인해주세요.');
     }
+  };
+
+  // 폴더 선택 모달 닫기
+  const handleFolderSelectModalClose = () => {
+    setIsFolderSelectModalOpen(false);
+  };
+
+  // 폴더 선택 완료 (실제로는 모달 내부에서 처리됨)
+  const handleFolderSelect = (folderName: string) => {
+    console.log('📄 PowerTable: 선택된 폴더:', folderName);
+    // 실제 보고서 생성은 모달 내부에서 처리됨
   };
 
   // 데모 테이블 완성 데이터 생성 함수 - 새로운 voltagTable 포맷 적용
@@ -1684,6 +1699,14 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
           </tbody>
         </table>
       </div>
+
+      {/* 폴더 선택 모달 */}
+      <FolderSelectModal
+        isOpen={isFolderSelectModalOpen}
+        onClose={handleFolderSelectModalClose}
+        onSelectFolder={handleFolderSelect}
+        wsConnection={wsConnection}
+      />
     </div>
   );
 }

@@ -14,7 +14,11 @@ import { runTimeModeTestProcess, setWebSocketServer as setTimeModeWebSocketServe
 // 테이블 데이터 관련 함수들을 import
 import { updateTableData, broadcastTableData, getCurrentTableData, resetTableData } from './RunTestProcess.js';
 
+// FinalReportGenerator import
+import { generateFinalReportFromDirectory } from './FinalReportGenerator.js';
+
 const LOCAL_WS_PORT = 8081; // WebSocket 서버가 사용할 포트
+const DATA_FOLDER_PATH = './Data'; // Data 폴더 경로
 const DELAY_SETTINGS_FILE = 'delay_settings.json'; // 딜레이 설정 저장 파일
 const DEVICE_STATES_FILE = 'device_states.json'; // 기기 상태 저장 파일
 const HIGH_TEMP_SETTINGS_FILE = 'high_temp_settings.json'; // 고온 설정 저장 파일
@@ -204,6 +208,71 @@ function setMachineRunningStatus(status) {
     machineRunning = status;
     console.log(`🔌 [Backend WS Server] Machine running status set to: ${status}`);
     // 상태 변경 알림은 개별 Power Switch 명령 처리에서만 전송하므로 여기서는 제거
+}
+
+// Data 폴더 목록을 가져오는 함수
+async function getDataFolderList() {
+    try {
+        console.log('📁 [Backend WS Server] Data 폴더 목록 조회 중...');
+        
+        const dataPath = path.resolve(DATA_FOLDER_PATH);
+        const folders = await fs.readdir(dataPath, { withFileTypes: true });
+        
+        // 폴더만 필터링하고 이름으로 정렬
+        const folderList = folders
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name)
+            .sort();
+        
+        console.log('📁 [Backend WS Server] Data 폴더 목록:', folderList);
+        return folderList;
+    } catch (error) {
+        console.error('❌ [Backend WS Server] Data 폴더 목록 조회 실패:', error);
+        return [];
+    }
+}
+
+// 선택된 폴더에서 CSV 보고서를 생성하는 함수
+async function generateReportFromFolder(folderName) {
+    try {
+        console.log(`📄 [Backend WS Server] 보고서 생성 시작 - 폴더: ${folderName}`);
+        
+        const folderPath = path.resolve(DATA_FOLDER_PATH, folderName);
+        
+        // 폴더 존재 여부 확인
+        try {
+            await fs.access(folderPath);
+        } catch (error) {
+            throw new Error(`폴더를 찾을 수 없습니다: ${folderName}`);
+        }
+        
+        // FinalReportGenerator 함수 호출
+        const result = await generateFinalReportFromDirectory(folderPath);
+        
+        if (result.success) {
+            console.log(`✅ [Backend WS Server] 보고서 생성 완료 - 파일: ${result.filePath}`);
+            return {
+                success: true,
+                message: `보고서가 성공적으로 생성되었습니다: ${result.fileName}`,
+                filePath: result.filePath,
+                fileName: result.fileName
+            };
+        } else {
+            console.error(`❌ [Backend WS Server] 보고서 생성 실패: ${result.error}`);
+            return {
+                success: false,
+                message: `보고서 생성에 실패했습니다: ${result.error}`,
+                error: result.error
+            };
+        }
+    } catch (error) {
+        console.error(`❌ [Backend WS Server] 보고서 생성 오류:`, error);
+        return {
+            success: false,
+            message: `보고서 생성 중 오류가 발생했습니다: ${error.message}`,
+            error: error.message
+        };
+    }
 }
 
 // 프로세스 완료 시 클라이언트에게 알림을 보내는 함수
@@ -1267,6 +1336,46 @@ function setupWebSocketEventHandlers(wss) {
                 } catch (error) {
                     console.error(`❌ [Backend WS Server] Table data reset error: ${error.message}`);
                     ws.send(`Error: Table data reset failed - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[GENERATE_REPORT]') {
+                console.log("=== Generate Report Process: OK ===");
+                try {
+                    // Data 폴더 목록을 가져와서 클라이언트에 전송
+                    const folderList = await getDataFolderList();
+                    const responseMessage = `[DATA_FOLDER_LIST] ${JSON.stringify(folderList)}`;
+                    ws.send(responseMessage);
+                    console.log("✅ [Backend WS Server] Data folder list sent to client");
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Generate report error: ${error.message}`);
+                    ws.send(`Error: Failed to get data folder list - ${error.message}`);
+                }
+            } else if(decodeWebSocket[0] === '[SELECT_FOLDER_FOR_REPORT]') {
+                console.log("=== Select Folder For Report Process: OK ===");
+                try {
+                    // 선택된 폴더 이름 추출
+                    const folderName = decodedMessage.replace('[SELECT_FOLDER_FOR_REPORT] ', '');
+                    console.log(`📁 [Backend WS Server] Selected folder for report: ${folderName}`);
+                    
+                    // 보고서 생성
+                    const result = await generateReportFromFolder(folderName);
+                    
+                    if (result.success) {
+                        const successMessage = `[REPORT_GENERATED] ${JSON.stringify(result)}`;
+                        ws.send(successMessage);
+                        console.log("✅ [Backend WS Server] Report generated successfully");
+                    } else {
+                        const errorMessage = `[REPORT_ERROR] ${JSON.stringify(result)}`;
+                        ws.send(errorMessage);
+                        console.error("❌ [Backend WS Server] Report generation failed");
+                    }
+                } catch (error) {
+                    console.error(`❌ [Backend WS Server] Select folder for report error: ${error.message}`);
+                    const errorResult = {
+                        success: false,
+                        message: `보고서 생성 중 오류가 발생했습니다: ${error.message}`,
+                        error: error.message
+                    };
+                    ws.send(`[REPORT_ERROR] ${JSON.stringify(errorResult)}`);
                 }
             } else if(decodeWebSocket[0] === '[DEVICE_READ]') {
                 console.log("=== Device Read Process: OK ===");
