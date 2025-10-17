@@ -322,33 +322,20 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
     });
     setIsTableStable(false);
     
+    // 테이블 업데이트 시간도 초기화하여 강제 리렌더링 유발
+    setLastTableUpdate(Date.now());
+    
     // 1초 후 테이블 상태를 안정화
     setTimeout(() => {
       setIsTableStable(true);
     }, 1000);
   };
 
-  // 테이블 완성도 모니터링 개선
+  // 테이블 완성도 모니터링 개선 - 서버 완성도만 사용
   useEffect(() => {
-    const completion = calculateTableCompletion(accumulatedVoltageData);
-    setTableCompletionStatus(completion);
-    
-    // 테이블이 완성되고 안정적인 상태일 때만 초기화 고려
-    if (completion.isComplete && isTableStable) {
-      console.log('✅ PowerTable: 테이블 완성! 초기화 대기 중...');
-      
-      // 테이블 완성 후 5초 대기 (기존 2초에서 증가)
-      setTimeout(() => {
-        // 테이블이 여전히 완성된 상태인지 재확인
-        const currentCompletion = calculateTableCompletion(accumulatedVoltageData);
-        if (currentCompletion.isComplete) {
-          console.log('✅ PowerTable: 테이블 완성 상태 유지 확인됨. 초기화 실행');
-          resetTable();
-        } else {
-          console.log('⚠️ PowerTable: 테이블 완성 상태가 변경됨. 초기화 취소');
-        }
-      }, 5000);
-    }
+    // TimeMode에서는 서버에서 전송된 완성도만 사용하고, 클라이언트 자체 계산은 비활성화
+    // 서버에서 POWER_TABLE_UPDATE 메시지로 완성도를 전송하므로 여기서는 계산하지 않음
+    console.log('🔌 PowerTable: TimeMode - 서버 완성도만 사용, 클라이언트 자체 계산 비활성화');
   }, [accumulatedVoltageData, voltagTableData, isTableStable, normalizedSelectedDevices]);
 
   // channelVoltages 변경 추적 및 테이블 강제 업데이트
@@ -626,14 +613,15 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
             // 액션 타입에 따른 처리
             switch (resetData.action) {
               case 'reset':
-                // 일반 초기화 - 모든 상태 초기화 (테스트 진행상황 메시지는 보호)
-                resetTable();
+                // 일반 초기화 - TimeMode에서는 테이블 데이터 보존
+                console.log('🔄 PowerTable: 일반 초기화 메시지 수신 (TimeMode: 테이블 데이터 보존)');
                 setCycleMessage(resetData.message || '');
+                console.log('✅ PowerTable: 일반 초기화 완료 (테이블 데이터 보존됨)');
                 break;
                 
               case 'cycle_reset':
-                // 사이클 시작 - 전압 데이터 초기화하고 사이클 정보 설정
-                resetTable();
+                // 사이클 시작 - TimeMode에서는 테이블 데이터 보존
+                console.log('🔄 PowerTable: 사이클 초기화 메시지 수신 (TimeMode: 테이블 데이터 보존)');
                 setCurrentCycle(resetData.cycle || null);
                 setTotalCycles(resetData.totalCycles || 0);
                 setCycleMessage(resetData.message || '');
@@ -641,11 +629,14 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                 setCurrentTestNumber(0);
                 setTotalTestCount(0);
                 setTestStatus('none');
+                console.log('✅ PowerTable: 사이클 초기화 완료 (테이블 데이터 보존됨)');
                 break;
                 
               case 'single_page_reset':
-                // 단일 페이지 프로세스 - 전압 데이터 초기화
+                // 단일 페이지 프로세스 - 항상 테이블 초기화 (각 단계마다 새로 시작)
+                console.log('🔄 PowerTable: 단일 페이지 프로세스 초기화 메시지 수신 - 테이블 초기화 실행');
                 resetTable();
+                
                 setCurrentCycle(null);
                 setTotalCycles(0);
                 setCycleMessage(resetData.message || '');
@@ -653,6 +644,7 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                 setCurrentTestNumber(0);
                 setTotalTestCount(0);
                 setTestStatus('none');
+                console.log('✅ PowerTable: 단일 페이지 프로세스 초기화 완료 - 테이블 리셋됨');
                 break;
                 
               case 'test_start':
@@ -690,11 +682,10 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                 break;
                 
               default:
-                // 알 수 없는 액션 - 기본 초기화 (테스트 진행상황 메시지는 보호)
-                console.log('🔄 PowerTable: 알 수 없는 액션 - 기본 초기화 실행');
-                resetTable();
+                // 알 수 없는 액션 - TimeMode에서는 테이블 데이터 보존
+                console.log('🔄 PowerTable: 알 수 없는 액션 (TimeMode: 테이블 데이터 보존)');
                 setCycleMessage(resetData.message || '');
-                console.log('✅ PowerTable: 기본 초기화 완료');
+                console.log('✅ PowerTable: 기본 초기화 완료 (테이블 데이터 보존됨)');
                 break;
             }
             
@@ -894,18 +885,21 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
             
             // 테이블 완성도 정보 업데이트 (POWER_TABLE_UPDATE와 POWER_TABLE_COMPLETE에서만)
             if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
-                tableData.completionPercentage !== undefined) {
-              // 3 x 정규화된 선택된 기기수 x ON/Off 횟수로 계산
-              const testCount = 3; // 3개 전압 테스트
-              const selectedDeviceCount = normalizedSelectedDevices.length; // 정규화된 선택된 기기 수
-              const onOffCount = 10; // ON/Off 횟수 (1st~10th)
-              const dynamicTotalCells = testCount * selectedDeviceCount * onOffCount;
-              setTableCompletionStatus({
-                totalCells: tableData.totalCells || dynamicTotalCells,
-                filledCells: tableData.completedCells || 0,
-                completionPercentage: tableData.completionPercentage || 0,
-                isComplete: tableData.completionPercentage >= 95
-              });
+                tableData.summary && tableData.summary.completionPercentage !== undefined) {
+              
+              // 서버에서 전송된 동적 완성도 정보 사용 (TimeMode: 95% 제한)
+              const newStatus = {
+                totalCells: tableData.summary.totalCells || 0,
+                filledCells: tableData.summary.completedCells || 0,
+                completionPercentage: tableData.summary.completionPercentage || 0,
+                currentReadCount: tableData.summary.currentReadCount || 0,
+                maxReadCount: tableData.summary.maxReadCount || 10,
+                isComplete: false // TimeMode에서는 항상 진행 중으로 표시
+              };
+              
+              // 서버 완성도 정보 강제 업데이트 (TimeMode에서는 서버 완성도만 사용)
+              setTableCompletionStatus(newStatus);
+              console.log(`📊 PowerTable: 서버 완성도 적용 - ${newStatus.completionPercentage.toFixed(1)}% (readCount: ${newStatus.currentReadCount}/${newStatus.maxReadCount})`);
             }
           }
           
@@ -978,7 +972,14 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
       
       // 5. 파워스위치 메시지 처리
       if (typeof message === 'string' && message.includes('[POWER_SWITCH]')) {
-        if (message.includes('STOPPING - Processing stop request')) {
+        if (message.includes('ON - Voltage data reset')) {
+          // 파워스위치 ON 시 테이블 초기화 (새로운 테스트 시작)
+          console.log('🔌 PowerTable: 파워스위치 ON 감지 - 테이블 초기화 시작');
+          resetTable();
+          setTestProgressMessage('');
+          setIsTestProgressActive(false);
+          console.log('✅ PowerTable: 파워스위치 ON - 테이블 초기화 완료');
+        } else if (message.includes('STOPPING - Processing stop request')) {
           // 중지 처리 중 메시지 표시
           setTestProgressMessage('중지 처리중...');
           setIsTestProgressActive(true);
@@ -1519,9 +1520,9 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
             <span style={{ color: '#60A5FA', marginLeft: '10px' }}>
               ({tableCompletionStatus.completionPercentage?.toFixed(1)}%)
             </span>
-            {tableCompletionStatus.isComplete && (
+            {tableCompletionStatus.completionPercentage >= 90 && (
               <span style={{ color: '#10B981', marginLeft: '10px' }}>
-                ✅ 완성! {isTableStable ? '5초 후 초기화' : '초기화 대기 중...'}
+                🔄 진행 중... (TimeMode: 단계별 진행상황)
               </span>
             )}
           </span>

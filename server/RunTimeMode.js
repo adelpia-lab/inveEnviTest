@@ -59,10 +59,10 @@ export function setWebSocketServer(wss) {
   console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
 }
 
-// 디바운싱된 테이블 데이터 전송 함수
+// 디바운싱된 테이블 데이터 전송 함수 (TimeMode 최적화)
 async function debouncedBroadcastTableData(force = false) {
   const now = Date.now();
-  const minInterval = 1000; // TimeMode용 최소 1초 간격 (단계별 전송이므로 더 빠르게)
+  const minInterval = 1000; // TimeMode용 최소 1초 간격 (더 빠른 업데이트)
   
   // 강제 전송이거나 최소 간격이 지났을 때만 전송
   if (force || (now - lastTableDataBroadcast) >= minInterval) {
@@ -403,6 +403,33 @@ function compareVoltage(readVoltage, expectedVoltage) {
 }
 
 /**
+ * 전압값을 소수점 2자리로 자르는 함수
+ * @param {string} voltageValue - 전압값 문자열 (예: "221V|G")
+ * @returns {string} 소수점 2자리로 자른 전압값
+ */
+function truncateVoltageToTwoDecimals(voltageValue) {
+  if (!voltageValue || typeof voltageValue !== 'string') {
+    return voltageValue;
+  }
+  
+  const parts = voltageValue.split('|');
+  if (parts.length >= 2) {
+    const voltagePart = parts[0];
+    const comparisonPart = parts[1];
+    
+    // 전압값에서 V 제거하고 숫자로 변환
+    const voltage = parseFloat(voltagePart.replace('V', ''));
+    if (!isNaN(voltage)) {
+      // 소수점 2자리로 자르기 (3자리 이하 버림)
+      const truncatedVoltage = Math.floor(voltage * 100) / 100;
+      return `${truncatedVoltage}V|${comparisonPart}`;
+    }
+  }
+  
+  return voltageValue;
+}
+
+/**
  * 여러 테스트 결과를 하나로 결합
  * @param {Array} testResults - 테스트 결과 배열
  * @returns {Object} 결합된 테스트 데이터
@@ -524,11 +551,37 @@ export async function runSinglePageProcess(readCount = 1) {
       return stopInfo;
     }
 
-    // 테이블 데이터 초기화는 runTimeModeTestProcess에서 한 번만 수행
-    console.log(`[SinglePageProcess] ✅ 단일 페이지 프로세스 시작`);
+    // runSinglePageProcess 시작 시마다 테이블 데이터 초기화 (각 단계마다 새로 시작)
+    resetTableData();
+    console.log(`[SinglePageProcess] ✅ 단일 페이지 프로세스 시작 - 테이블 데이터 초기화 완료`);
     
-    // PowerTable 초기화 메시지 전송 제거 - 클라이언트 테이블 리셋 방지
-    console.log(`[SinglePageProcess] PowerTable 초기화 메시지 전송 생략 - 테이블 리셋 방지`);
+    // PowerTable 초기화 메시지 전송 (각 단계마다 테이블 리셋)
+    if (globalWss) {
+      const resetMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+        action: 'single_page_reset',
+        timestamp: new Date().toISOString(),
+        message: '단일 페이지 프로세스 시작 - 전압 데이터 초기화'
+      })}`;
+      
+      let sentCount = 0;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(resetMessage);
+          sentCount++;
+        }
+      });
+      console.log(`[SinglePageProcess] PowerTable 초기화 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
+      
+      // 초기화 메시지 전송 후 잠시 대기 (클라이언트가 처리할 시간 확보)
+      await sleep(1000);
+      
+      // 초기화 후 빈 테이블 상태를 클라이언트에 전송하여 리셋 확인
+      console.log(`[SinglePageProcess] 초기화된 빈 테이블 상태 전송 시작`);
+      await debouncedBroadcastTableData(true);
+      console.log(`[SinglePageProcess] 초기화된 빈 테이블 상태 전송 완료`);
+    } else {
+      console.warn(`[SinglePageProcess] 전역 WebSocket 서버가 설정되지 않음 - PowerTable 초기화 메시지 전송 불가`);
+    }
     
     const getTableOption = await getSafeGetTableOption();
     
@@ -644,6 +697,9 @@ export async function runSinglePageProcess(readCount = 1) {
             // 전압 데이터를 테이블에 업데이트 (RunTestProcess.js와 동일한 방식)
             if (deviceResult.voltage && typeof deviceResult.voltage === 'number') {
               updateTableData(deviceIndex + 1, voltageIndex + 1, readIndex + 1, 1, deviceResult.voltage, 'completed');
+              console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}, Read ${readIndex + 1}: ${deviceResult.voltage}V 테이블 업데이트 완료`);
+            } else {
+              console.warn(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}, Read ${readIndex + 1}: 전압 데이터가 유효하지 않음 - ${deviceResult.voltage}`);
             }
           }
         }
@@ -652,8 +708,8 @@ export async function runSinglePageProcess(readCount = 1) {
       }
     }
     
-    // runSinglePageProcess 완료 시에만 테이블 데이터 전송 (TimeMode 최적화)
-    console.log(`[SinglePageProcess] 모든 측정 완료 - 테이블 데이터 전송`);
+    // runSinglePageProcess 완료 시 최종 테이블 데이터 전송 (강제 전송)
+    console.log(`[SinglePageProcess] 모든 측정 완료 - 최종 테이블 데이터 전송`);
     await debouncedBroadcastTableData(true);
     
     return { 
@@ -800,12 +856,9 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, r
     // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송 (디바운싱 적용)
     console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
     
-    // TimeMode에서는 개별 측정마다 전송하지 않고 단계별로만 전송
-    // 개별 측정 시에는 전송 생략하여 과도한 WebSocket 전송 방지
-    // await debouncedBroadcastTableData(); // 제거: 개별 측정마다 전송 방지
-    
-    // 실시간 업데이트 메시지 전송 최소화 (디바운싱된 테이블 업데이트로 대체)
-    // REALTIME_VOLTAGE_UPDATE는 제거하고 debouncedBroadcastTableData만 사용
+    // TimeMode에서도 개별 측정마다 디바운싱된 전송으로 실시간 업데이트 제공
+    // 디바운싱으로 과도한 전송 방지하면서도 실시간성 확보
+    await debouncedBroadcastTableData();
     
     // 디바이스 해제 재시도 로직
     retryCount = 0;
@@ -972,9 +1025,9 @@ export async function runTimeModeTestProcess() {
     const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[TimeModeTestProcess] 🔄 TimeMode 테스트 프로세스 시작 (${modeText})`);
     
-    // 전체 테스트 프로세스 시작 시 테이블 데이터 초기화 (한 번만)
-    resetTableData();
-    console.log(`[TimeModeTestProcess] ✅ 테이블 데이터 초기화 완료`);
+    // 전체 테스트 프로세스 시작 시 테이블 데이터 초기화 제거
+    // 각 runSinglePageProcess에서 개별적으로 초기화하므로 여기서는 초기화하지 않음
+    console.log(`[TimeModeTestProcess] ✅ TimeMode 테스트 프로세스 시작 - 각 단계별 개별 초기화 방식 사용`);
     
     // TIME_PROGRESS 메시지 첫 번째 전송 플래그 초기화
     isFirstTimeProgressSent = false;
@@ -1162,6 +1215,20 @@ export async function runTimeModeTestProcess() {
       // b. runSinglePageProcess() 호출 및 결과저장
       console.log(`[TimeModeTestProcess] 🔥 ${phase.type} 테스트 시작 - readCount: ${phase.readCount}`);
       
+      // 단계별 진행상황 알림 (테이블 초기화 후)
+      if (globalWss) {
+        const phaseProgressMessage = `[TEST_PROGRESS] 단계 ${phaseIndex + 1}/4: ${phase.type} 테스트 시작 (${phase.readCount}회 측정)`;
+        console.log(`[TimeModeTestProcess] 📤 단계 진행상황 메시지 전송: ${phaseProgressMessage}`);
+        let sentCount = 0;
+        globalWss.clients.forEach(client => {
+          if (client.readyState === 1) { // WebSocket.OPEN
+            client.send(phaseProgressMessage);
+            sentCount++;
+          }
+        });
+        console.log(`[TimeModeTestProcess] 📤 ${sentCount}개 클라이언트에게 메시지 전송 완료`);
+      }
+      
       try {
         // runSinglePageProcess() 실행
         const result = await runSinglePageProcess(phase.readCount);
@@ -1196,10 +1263,9 @@ export async function runTimeModeTestProcess() {
         
         console.log(`[TimeModeTestProcess] ✅ ${phase.type} 테스트 완료`);
         
-        // 테스트 완료 시 강제로 테이블 데이터 전송 (클라이언트 초기화 방지)
-        // TimeMode에서는 단계별로만 전송하여 과도한 전송 방지
-        // runSinglePageProcess에서 이미 전송했으므로 중복 전송 방지
-        // await debouncedBroadcastTableData(true); // 제거: runSinglePageProcess에서 이미 전송
+        // 테스트 완료 시 최종 확인용 테이블 데이터 전송 (강제 전송)
+        // runSinglePageProcess에서 이미 개별 전송했지만 최종 확인을 위해 한 번 더 전송
+        await debouncedBroadcastTableData(true);
         
       } catch (error) {
         console.error(`[TimeModeTestProcess] ❌ ${phase.type} 테스트 실행 중 오류:`, error.message);
@@ -1352,6 +1418,14 @@ export async function runNextTankEnviTestProcess() {
   try {
     const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
+    
+    // 전체 테스트 프로세스 시작 시 테이블 데이터 초기화 (한 번만)
+    resetTableData();
+    console.log(`[NextTankEnviTestProcess] ✅ 테이블 데이터 초기화 완료`);
+    
+    // 초기화 후 즉시 빈 테이블을 클라이언트에 전송하여 테이블 리셋 표시
+    await debouncedBroadcastTableData(true);
+    console.log(`[NextTankEnviTestProcess] ✅ 초기화된 빈 테이블 전송 완료`);
     
     // 테이블 데이터 전송 디바운싱 변수 초기화
     if (tableDataBroadcastTimeout) {

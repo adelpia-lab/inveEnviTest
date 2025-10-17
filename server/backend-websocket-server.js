@@ -2278,6 +2278,15 @@ function setupWebSocketEventHandlers(wss) {
                         broadcastToClients(resetMessage);
                         console.log(`🔌 [Backend WS Server] 전압 데이터 초기화 메시지 브로드캐스트`);
                         
+                        // 파워버튼 ON 시 테이블 초기화를 위한 추가 메시지 전송
+                        const tableResetMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
+                            action: 'single_page_reset',
+                            timestamp: new Date().toISOString(),
+                            message: '단일 페이지 프로세스 시작 - 전압 데이터 초기화'
+                        })}`;
+                        broadcastToClients(tableResetMessage);
+                        console.log(`🔌 [Backend WS Server] 파워버튼 ON - 테이블 초기화 메시지 브로드캐스트`);
+                        
                         // 중복 실행 방지를 위한 프로세스 상태 확인
                         if (globalProcessRunning) {
                             console.log(`⚠️ [Backend WS Server] 프로세스가 이미 실행 중입니다. 중복 실행을 방지합니다.`);

@@ -4137,17 +4137,35 @@ export async function broadcastTableData() {
     const getTableOption = await getSafeGetTableOption();
     const deviceStates = getTableOption.deviceStates || [];
     
-    // 선택된 디바이스만 필터링하여 테이블 완성도 계산
+    // TimeMode용 단계별 진행상황 계산 (100%에 도달하지 않도록 수정)
     let totalCells = 0;
     let completedCells = 0;
+    let currentReadCount = 0;
+    let maxReadCount = 10; // 최대 readCount (설정에서 가져올 수 있음)
     
+    // 현재 진행 중인 readCount 찾기 (가장 높은 readIndex)
     tableDataSnapshot.devices.forEach((device, deviceIndex) => {
-      // 선택된 디바이스만 처리
       if (deviceStates[deviceIndex]) {
         device.tests.forEach(test => {
-          test.reads.forEach(read => {
+          test.reads.forEach((read, readIndex) => {
+            if (read.channels.some(channel => channel.status === 'completed' || channel.status === 'pending')) {
+              currentReadCount = Math.max(currentReadCount, readIndex + 1);
+            }
+          });
+        });
+      }
+    });
+    
+    // TimeMode: 전체 readCount를 기준으로 계산 (현재 단계의 진행상황)
+    const selectedDeviceCount = deviceStates.filter(state => state).length;
+    totalCells = 3 * selectedDeviceCount * maxReadCount; // 전체 readCount 기준
+    
+    // 실제 완료된 셀 수 계산 (현재까지 완료된 것만)
+    tableDataSnapshot.devices.forEach((device, deviceIndex) => {
+      if (deviceStates[deviceIndex]) {
+        device.tests.forEach(test => {
+          test.reads.forEach((read, readIndex) => {
             read.channels.forEach(channel => {
-              totalCells++;
               if (channel.status === 'completed' && channel.voltage !== null) {
                 completedCells++;
               }
@@ -4157,7 +4175,11 @@ export async function broadcastTableData() {
       }
     });
     
-    const completionPercentage = totalCells > 0 ? (completedCells / totalCells) * 100 : 0;
+    // TimeMode: 95%까지만 표시하여 조기 완성 방지
+    const rawCompletionPercentage = totalCells > 0 ? (completedCells / totalCells) * 100 : 0;
+    const completionPercentage = Math.min(rawCompletionPercentage, 95); // 최대 95%까지만 표시
+    
+    console.log(`[TableData] TimeMode 단계별 진행상황 - 현재 readCount: ${currentReadCount}/${maxReadCount}, 선택된 디바이스: ${selectedDeviceCount}, 총 셀: ${totalCells}, 완료된 셀: ${completedCells}, 원본 진행률: ${rawCompletionPercentage.toFixed(1)}%, 제한된 진행률: ${completionPercentage.toFixed(1)}% (최대 95% 제한)`);
     
     // 전송할 테이블 데이터 구성 - 클라이언트 포맷에 맞춤
     const tableDataForClient = {
@@ -4205,7 +4227,10 @@ export async function broadcastTableData() {
       summary: {
         totalCells: totalCells,
         completedCells: completedCells,
-        status: completionPercentage >= 95 ? 'completed' : 'in_progress'
+        completionPercentage: completionPercentage,
+        currentReadCount: currentReadCount,
+        maxReadCount: maxReadCount,
+        status: 'in_progress' // TimeMode에서는 항상 진행 중으로 표시
       }
     };
     
@@ -4222,19 +4247,8 @@ export async function broadcastTableData() {
     
     console.log(`[TableData] 테이블 데이터 전송 완료 - 클라이언트 수: ${sentCount}, 완성도: ${completionPercentage.toFixed(1)}%`);
     
-    // 테이블이 완성되면 완성 메시지도 전송
-    if (completionPercentage >= 95 && !globalTableData.isComplete) {
-      globalTableData.isComplete = true;
-      const completeMessage = `[POWER_TABLE_COMPLETE] ${JSON.stringify(tableDataForClient)}`;
-      
-      globalWss.clients.forEach(client => {
-        if (client.readyState === 1) {
-          client.send(completeMessage);
-        }
-      });
-      
-      console.log(`[TableData] 테이블 완성 알림 전송`);
-    }
+    // TimeMode에서는 완성 메시지 전송하지 않음 (단계별 진행상황만 표시)
+    // 각 runSinglePageProcess 완료는 runTimeModeTestProcess에서 관리
     
   } catch (error) {
     console.error(`[TableData] 테이블 데이터 전송 오류:`, error);
