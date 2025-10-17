@@ -28,6 +28,10 @@ export function getSimulationMode() {
   return SIMULATION_PROC;
 }
 
+// 테이블 데이터 전송 디바운싱을 위한 전역 변수
+let tableDataBroadcastTimeout = null;
+let lastTableDataBroadcast = 0;
+
 // 전역 WebSocket 서버 참조를 위한 변수
 let globalWss = null;
 
@@ -46,6 +50,48 @@ export function setCurrentTestDirectoryPath(path) {
 export function setWebSocketServer(wss) {
   globalWss = wss;
   console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
+}
+
+// 디바운싱된 테이블 데이터 전송 함수
+async function debouncedBroadcastTableData(force = false) {
+  const now = Date.now();
+  const minInterval = 2000; // 최소 2초 간격
+  
+  // 강제 전송이거나 최소 간격이 지났을 때만 전송
+  if (force || (now - lastTableDataBroadcast) >= minInterval) {
+    // 기존 타임아웃 취소
+    if (tableDataBroadcastTimeout) {
+      clearTimeout(tableDataBroadcastTimeout);
+      tableDataBroadcastTimeout = null;
+    }
+    
+    try {
+      await broadcastTableData();
+      lastTableDataBroadcast = now;
+      console.log(`[DebouncedBroadcast] 테이블 데이터 전송 완료 (강제: ${force})`);
+    } catch (error) {
+      console.error(`[DebouncedBroadcast] 테이블 데이터 전송 실패:`, error);
+    }
+  } else {
+    // 디바운싱: 기존 타임아웃 취소하고 새로운 타임아웃 설정
+    if (tableDataBroadcastTimeout) {
+      clearTimeout(tableDataBroadcastTimeout);
+    }
+    
+    const remainingTime = minInterval - (now - lastTableDataBroadcast);
+    tableDataBroadcastTimeout = setTimeout(async () => {
+      try {
+        await broadcastTableData();
+        lastTableDataBroadcast = Date.now();
+        console.log(`[DebouncedBroadcast] 디바운싱된 테이블 데이터 전송 완료`);
+      } catch (error) {
+        console.error(`[DebouncedBroadcast] 디바운싱된 테이블 데이터 전송 실패:`, error);
+      }
+      tableDataBroadcastTimeout = null;
+    }, remainingTime);
+    
+    console.log(`[DebouncedBroadcast] 테이블 데이터 전송 디바운싱 (${remainingTime}ms 후 전송)`);
+  }
 }
 
 // 프로세스 로그를 클라이언트에게 전송하는 함수
@@ -1034,9 +1080,9 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, r
       }
     });
     
-    // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송
+    // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송 (디바운싱 적용)
     console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
-    await broadcastTableData();
+    await debouncedBroadcastTableData();
     
     // 추가적인 실시간 업데이트 메시지 전송 (매 전압 측정마다)
     if (globalWss) {
@@ -1371,9 +1417,9 @@ async function executeSingleRead(getTableOption, readIndex) {
             }
           });
           
-          // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송
+          // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송 (디바운싱 적용)
           console.log(`[SinglePageProcess] Device ${i+1}, Test ${k+1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
-          await broadcastTableData();
+          await debouncedBroadcastTableData();
           
           // 디바이스 해제 재시도 로직
           retryCount = 0;
@@ -1873,6 +1919,14 @@ export async function runNextTankEnviTestProcess() {
     const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
     
+    // 테이블 데이터 전송 디바운싱 변수 초기화
+    if (tableDataBroadcastTimeout) {
+      clearTimeout(tableDataBroadcastTimeout);
+      tableDataBroadcastTimeout = null;
+    }
+    lastTableDataBroadcast = 0;
+    console.log(`[NextTankEnviTestProcess] ✅ 테이블 데이터 전송 디바운싱 변수 초기화`);
+    
     // 테스트 시작 알림
     if (globalWss) {
       const testStartMessage = `[TEST_PROGRESS] 테스트 시작 - 환경 시험 프로세스 (${modeText})`;
@@ -1995,32 +2049,8 @@ export async function runNextTankEnviTestProcess() {
           });
         }
         
-        // 각 사이클 시작 시 PowerTable 전압 데이터 초기화
-      if (globalWss) {
-        const cycleResetMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
-          action: 'cycle_reset',
-          cycle: cycle,
-          totalCycles: cycleNumber,
-          testPhase: 'none', // 사이클 시작 시에는 테스트 페이즈 없음
-          currentTestNumber: 0,
-          totalTestCount: 0,
-          testStatus: 'none',
-          timestamp: new Date().toISOString(),
-          message: `사이클 ${cycle} 시작 - 전압 데이터 초기화`
-        })}`;
-        
-        let sentCount = 0;
-        globalWss.clients.forEach(client => {
-          if (client.readyState === 1) { // WebSocket.OPEN
-            client.send(cycleResetMessage);
-            sentCount++;
-            console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} - 클라이언트 ${sentCount}에게 초기화 메시지 전송됨`);
-          }
-        });
-        console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} PowerTable 초기화 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
-      } else {
-        console.warn(`[NextTankEnviTestProcess] 사이클 ${cycle} - 전역 WebSocket 서버가 설정되지 않음 - PowerTable 초기화 메시지 전송 불가`);
-      }
+        // 각 사이클 시작 시 PowerTable 초기화 메시지 제거 (테이블 깜박임 방지)
+        console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 시작 - PowerTable 초기화 메시지 전송 생략 (테이블 깜박임 방지)`);
       
       // 사이클별 결과 저장용 변수
       let highTempResults = [];

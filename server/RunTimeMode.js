@@ -49,10 +49,56 @@ let globalTableData = {
 // TIME_PROGRESS 메시지 첫 번째 전송 제어를 위한 전역 변수
 let isFirstTimeProgressSent = false;
 
+// 테이블 데이터 전송 디바운싱을 위한 전역 변수
+let tableDataBroadcastTimeout = null;
+let lastTableDataBroadcast = 0;
+
 // WebSocket 서버 참조를 설정하는 함수
 export function setWebSocketServer(wss) {
   globalWss = wss;
   console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
+}
+
+// 디바운싱된 테이블 데이터 전송 함수
+async function debouncedBroadcastTableData(force = false) {
+  const now = Date.now();
+  const minInterval = 2000; // 최소 2초 간격
+  
+  // 강제 전송이거나 최소 간격이 지났을 때만 전송
+  if (force || (now - lastTableDataBroadcast) >= minInterval) {
+    // 기존 타임아웃 취소
+    if (tableDataBroadcastTimeout) {
+      clearTimeout(tableDataBroadcastTimeout);
+      tableDataBroadcastTimeout = null;
+    }
+    
+    try {
+      await broadcastTableData();
+      lastTableDataBroadcast = now;
+      console.log(`[DebouncedBroadcast] 테이블 데이터 전송 완료 (강제: ${force})`);
+    } catch (error) {
+      console.error(`[DebouncedBroadcast] 테이블 데이터 전송 실패:`, error);
+    }
+  } else {
+    // 디바운싱: 기존 타임아웃 취소하고 새로운 타임아웃 설정
+    if (tableDataBroadcastTimeout) {
+      clearTimeout(tableDataBroadcastTimeout);
+    }
+    
+    const remainingTime = minInterval - (now - lastTableDataBroadcast);
+    tableDataBroadcastTimeout = setTimeout(async () => {
+      try {
+        await broadcastTableData();
+        lastTableDataBroadcast = Date.now();
+        console.log(`[DebouncedBroadcast] 디바운싱된 테이블 데이터 전송 완료`);
+      } catch (error) {
+        console.error(`[DebouncedBroadcast] 디바운싱된 테이블 데이터 전송 실패:`, error);
+      }
+      tableDataBroadcastTimeout = null;
+    }, remainingTime);
+    
+    console.log(`[DebouncedBroadcast] 테이블 데이터 전송 디바운싱 (${remainingTime}ms 후 전송)`);
+  }
 }
 
 // 프로세스 로그를 클라이언트에게 전송하는 함수
@@ -750,15 +796,8 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, r
     // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송 (디바운싱 적용)
     console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
     
-    // 디바운싱을 위한 지연된 broadcastTableData 호출
-    setTimeout(async () => {
-      try {
-        await broadcastTableData();
-        console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 디바운싱된 테이블 데이터 전송 완료`);
-      } catch (error) {
-        console.error(`[SinglePageProcess] 디바운싱된 테이블 데이터 전송 실패:`, error);
-      }
-    }, 100); // 100ms 디바운싱
+    // 디바운싱된 테이블 데이터 전송 (2초 간격)
+    await debouncedBroadcastTableData();
     
     // 추가적인 실시간 업데이트 메시지 전송 (매 전압 측정마다)
     if (globalWss) {
@@ -953,6 +992,14 @@ export async function runTimeModeTestProcess() {
     // TIME_PROGRESS 메시지 첫 번째 전송 플래그 초기화
     isFirstTimeProgressSent = false;
     console.log(`[TimeModeTestProcess] ✅ TIME_PROGRESS 첫 번째 전송 플래그 초기화`);
+    
+    // 테이블 데이터 전송 디바운싱 변수 초기화
+    if (tableDataBroadcastTimeout) {
+      clearTimeout(tableDataBroadcastTimeout);
+      tableDataBroadcastTimeout = null;
+    }
+    lastTableDataBroadcast = 0;
+    console.log(`[TimeModeTestProcess] ✅ 테이블 데이터 전송 디바운싱 변수 초기화`);
     
     // 테스트 시작 알림
     if (globalWss) {
@@ -1162,6 +1209,9 @@ export async function runTimeModeTestProcess() {
         
         console.log(`[TimeModeTestProcess] ✅ ${phase.type} 테스트 완료`);
         
+        // 테스트 완료 시 강제로 테이블 데이터 전송 (클라이언트 초기화 방지)
+        await debouncedBroadcastTableData(true);
+        
       } catch (error) {
         console.error(`[TimeModeTestProcess] ❌ ${phase.type} 테스트 실행 중 오류:`, error.message);
         return { 
@@ -1313,6 +1363,14 @@ export async function runNextTankEnviTestProcess() {
   try {
     const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
+    
+    // 테이블 데이터 전송 디바운싱 변수 초기화
+    if (tableDataBroadcastTimeout) {
+      clearTimeout(tableDataBroadcastTimeout);
+      tableDataBroadcastTimeout = null;
+    }
+    lastTableDataBroadcast = 0;
+    console.log(`[NextTankEnviTestProcess] ✅ 테이블 데이터 전송 디바운싱 변수 초기화`);
     
     // 프로세스 시작 전 중지 요청 확인
     if (getProcessStopRequested()) {
