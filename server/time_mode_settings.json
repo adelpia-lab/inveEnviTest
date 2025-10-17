@@ -1,11 +1,11 @@
 {
   "T1": "1",
   "T2": "1",
-  "T3": "10",
+  "T3": "4",
   "T4": "1",
-  "T5": "10",
+  "T5": "4",
   "T6": "1",
   "T7": "1",
   "T8": "1",
-  "isTimeModeEnabled": false
+  "isTimeModeEnabled": true
 }

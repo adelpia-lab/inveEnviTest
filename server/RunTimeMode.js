@@ -5,7 +5,7 @@ import { ReadVolt } from './ReadVolt.js';
 
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
-import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport } from './RunTestProcess.js';
+import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData } from './RunTestProcess.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -24,6 +24,27 @@ let globalWss = null;
 let currentTestDirectoryName = null;
 // 테스트 실행별 전체 디렉토리 경로를 저장하는 전역 변수
 let currentTestDirectoryPath = null;
+
+// 전역 테이블 데이터 저장소
+let globalTableData = {
+  devices: Array.from({ length: 10 }, (_, deviceIndex) => ({
+    deviceNumber: deviceIndex + 1,
+    tests: Array.from({ length: 3 }, (_, testIndex) => ({
+      testNumber: testIndex + 1,
+      reads: Array.from({ length: 10 }, (_, readIndex) => ({
+        readIndex: readIndex + 1,
+        channels: Array.from({ length: 1 }, (_, channelIndex) => ({
+          channelNumber: channelIndex + 1,
+          voltage: null,
+          timestamp: null,
+          status: 'pending'
+        }))
+      }))
+    }))
+  })),
+  lastUpdate: null,
+  isComplete: false
+};
 
 // WebSocket 서버 참조를 설정하는 함수
 export function setWebSocketServer(wss) {
@@ -2510,4 +2531,32 @@ export async function runNextTankEnviTestProcess() {
         };
       }
   }
+}
+
+/**
+ * 테이블 데이터를 초기화하는 함수
+ */
+export function resetTableData() {
+  // 전역 테이블 데이터 초기화
+  globalTableData = {
+    devices: Array.from({ length: 10 }, (_, deviceIndex) => ({
+      deviceNumber: deviceIndex + 1,
+      tests: Array.from({ length: 3 }, (_, testIndex) => ({
+        testNumber: testIndex + 1,
+        reads: Array.from({ length: 10 }, (_, readIndex) => ({
+          readIndex: readIndex + 1,
+          channels: Array.from({ length: 1 }, (_, channelIndex) => ({
+            channelNumber: channelIndex + 1,
+            voltage: null,
+            timestamp: null,
+            status: 'pending'
+          }))
+        }))
+      }))
+    })),
+    lastUpdate: null,
+    isComplete: false
+  };
+  
+  console.log(`[TableData] 테이블 데이터 초기화 완료`);
 }
