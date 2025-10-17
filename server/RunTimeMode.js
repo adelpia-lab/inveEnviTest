@@ -477,9 +477,8 @@ export async function runSinglePageProcess(readCount = 1) {
       return stopInfo;
     }
 
-    // 프로세스 시작 시 테이블 데이터 초기화
-    resetTableData();
-    console.log(`[SinglePageProcess] ✅ 테이블 데이터 초기화 완료`);
+    // 테이블 데이터 초기화는 runTimeModeTestProcess에서 한 번만 수행
+    console.log(`[SinglePageProcess] ✅ 단일 페이지 프로세스 시작`);
     
     // PowerTable 전압 데이터 초기화 메시지 전송
     if (globalWss) {
@@ -955,6 +954,10 @@ export async function runTimeModeTestProcess() {
   try {
     const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[TimeModeTestProcess] 🔄 TimeMode 테스트 프로세스 시작 (${modeText})`);
+    
+    // 전체 테스트 프로세스 시작 시 테이블 데이터 초기화 (한 번만)
+    resetTableData();
+    console.log(`[TimeModeTestProcess] ✅ 테이블 데이터 초기화 완료`);
     
     // 테스트 시작 알림
     if (globalWss) {
