@@ -5,7 +5,7 @@ import { ReadVolt } from './ReadVolt.js';
 
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
-import { getSimulationMode } from './RunTestProcess.js';
+import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport } from './RunTestProcess.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -1301,195 +1301,162 @@ export async function runTimeModeTestProcess() {
     // CtrlTimer 초기화 및 시작
     let CtrlTimer = 0;
     const startTime = Date.now();
-    let i = 0; // T_elapsed 배열 인덱스
     
     console.log(`[TimeModeTestProcess] ⏰ CtrlTimer 시작 - T_end: ${Math.round(T_end/60000)}분`);
     
     // 시간 진행 상황 업데이트 시작
     let timeProgressInterval = startTimeProgressUpdates(startTime, T_end, 'waiting');
     
-    // 메인 루프: T_elapsed[i] 시간이 경과할 때까지 대기
-    while (i < T_elapsed.length) {
-      // 중지 요청 확인
-      if (getProcessStopRequested()) {
-        console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - T_elapsed[${i}] 대기 중 중단`);
-        setMachineRunningStatus(false);
-        
-        // 시간 진행 상황 인터벌 정리
-        if (timeProgressInterval) {
-          clearInterval(timeProgressInterval);
-        }
-        
-        if (globalWss) {
-          const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Process stopped during time waiting`;
-          globalWss.clients.forEach(client => {
-            if (client.readyState === 1) {
-              client.send(powerOffMessage);
-            }
-          });
-        }
-        
-        return { 
-          status: 'stopped', 
-          message: '사용자에 의해 중지됨', 
-          stoppedAtPhase: `time_waiting_${i}`,
-          stopReason: 'power_switch_off'
-        };
-      }
+    // 테스트 설정 정보 수집
+    const getTableOption = await getSafeGetTableOption();
+    
+    // ===== 새로운 구조: 4단계 순차 실행 =====
+    const testPhases = [
+      { index: 0, type: 'HighTemp', testType: 'HighTemp_Test', readCount: getTableOption.highTempSettings?.readCount || 10 },
+      { index: 1, type: 'LowTemp', testType: 'LowTemp_Test', readCount: getTableOption.lowTempSettings?.readCount || 10 },
+      { index: 2, type: 'HighTemp', testType: 'HighTemp_Test', readCount: getTableOption.highTempSettings?.readCount || 10 },
+      { index: 3, type: 'LowTemp', testType: 'LowTemp_Test', readCount: getTableOption.lowTempSettings?.readCount || 10 }
+    ];
+    
+    // 각 단계별 실행
+    for (let phaseIndex = 0; phaseIndex < testPhases.length; phaseIndex++) {
+      const phase = testPhases[phaseIndex];
       
-      // 현재 경과 시간 계산
-      CtrlTimer = Date.now() - startTime;
+      // a. 대기 (T_elapsed[phaseIndex] 시간까지)
+      console.log(`[TimeModeTestProcess] ⏰ 단계 ${phaseIndex + 1}/4: ${phase.type} 대기 시작 (${Math.round(T_elapsed[phaseIndex]/60000)}분)`);
       
-      // T_elapsed[i] 시간이 경과했는지 확인
-        if (CtrlTimer > T_elapsed[i]) {
-          console.log(`[TimeModeTestProcess] ⏰ T_elapsed[${i}] 시간 경과 (${Math.round(T_elapsed[i]/60000)}분) - runSinglePageProcess() 실행`);
+      while (true) {
+        // 중지 요청 확인
+        if (getProcessStopRequested()) {
+          console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - ${phase.type} 대기 중 중단`);
+          setMachineRunningStatus(false);
           
-          // 시간 진행 상황 인터벌 정리 (테스트 실행 중에는 1분 간격 업데이트 중단)
           if (timeProgressInterval) {
             clearInterval(timeProgressInterval);
           }
           
-          // 단계별 진행상황 알림
           if (globalWss) {
-            const stepProgressMessage = `[TEST_PROGRESS] 단계 ${i+1}/${T_elapsed.length} 실행 중 (${Math.round(T_elapsed[i]/60000)}분 경과)`;
-            console.log(`[TimeModeTestProcess] 📤 단계 진행상황 메시지 전송: ${stepProgressMessage}`);
-            let sentCount = 0;
+            const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - Process stopped during ${phase.type} waiting`;
             globalWss.clients.forEach(client => {
-              if (client.readyState === 1) { // WebSocket.OPEN
-                client.send(stepProgressMessage);
-                sentCount++;
+              if (client.readyState === 1) {
+                client.send(powerOffMessage);
               }
             });
-            console.log(`[TimeModeTestProcess] 📤 ${sentCount}개 클라이언트에게 메시지 전송 완료`);
-          } else {
-            console.log(`[TimeModeTestProcess] ❌ globalWss가 null입니다.`);
           }
           
-          // i 값에 따라 고온/저온 설정의 readCount만큼 runSinglePageProcess() 반복 실행
-          const getTableOption = await getSafeGetTableOption();
-          let readCount;
-          let testType;
-          
-          if (i === 0 || i === 2) {
-            // i가 0 또는 2일 때: 고온 테스트
-            readCount = getTableOption.highTempSettings?.readCount || 10;
-            testType = 'high_temp';
-            console.log(`[TimeModeTestProcess] 🔥 T_elapsed[${i}] 고온 테스트 시작 - readCount: ${readCount}`);
-          } else if (i === 1 || i === 3) {
-            // i가 1 또는 3일 때: 저온 테스트
-            readCount = getTableOption.lowTempSettings?.readCount || 10;
-            testType = 'low_temp';
-            console.log(`[TimeModeTestProcess] ❄️ T_elapsed[${i}] 저온 테스트 시작 - readCount: ${readCount}`);
-          } else {
-            // 기본값 (i가 4 이상일 때)
-            readCount = 1;
-            testType = 'normal';
-            console.log(`[TimeModeTestProcess] 📊 T_elapsed[${i}] 일반 테스트 시작 - readCount: ${readCount}`);
-          }
-          
-          // readCount만큼 runSinglePageProcess() 반복 실행
-          for (let j = 0; j < readCount; j++) {
-            // 중지 요청 확인
-            if (getProcessStopRequested()) {
-              console.log(`[TimeModeTestProcess] 🛑 중지 요청 감지 - ${testType} 테스트 실행 중 중단 (${j+1}/${readCount})`);
-              
-              // 중지 시에도 PowerSwitch 상태를 off로 설정
-              setMachineRunningStatus(false);
-              console.log(`[TimeModeTestProcess] 🔌 중지로 인한 PowerSwitch 상태 OFF 설정`);
-              
-              // 클라이언트에게 파워스위치 OFF 상태 전송
-              if (globalWss) {
-                const powerOffMessage = `[POWER_SWITCH] OFF - Machine running: false - ${testType} test execution stopped`;
-                let sentCount = 0;
-                globalWss.clients.forEach(client => {
-                  if (client.readyState === 1) { // WebSocket.OPEN
-                    client.send(powerOffMessage);
-                    sentCount++;
-                  }
-                });
-                console.log(`[TimeModeTestProcess] 🔌 ${testType} 테스트 실행 중단으로 인한 파워스위치 OFF 상태 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
-              } else {
-                console.warn(`[TimeModeTestProcess] 전역 WebSocket 서버가 설정되지 않음 - ${testType} 테스트 실행 중단 시 파워스위치 OFF 메시지 전송 불가`);
-              }
-              
-              return { 
-                status: 'stopped', 
-                message: '사용자에 의해 중지됨', 
-                stoppedAtPhase: `${testType}_test_execution_${j+1}_${readCount}`,
-                stopReason: 'power_switch_off'
-              };
-            }
-            
-            console.log(`[TimeModeTestProcess] ${testType} 테스트 실행 중 (${j+1}/${readCount})`);
-            
-            // runSinglePageProcess() 실행 (readCount 전달)
-            const result = await runSinglePageProcess(readCount);
-            
-            // 성공 여부 확인
-            if (!result || result.status !== 'completed') {
-              console.log(`[TimeModeTestProcess] ❌ runSinglePageProcess() 실패 (${j+1}/${readCount}) - generateStopReport() 실행`);
-              return await generateStopReport(result);
-            }
-            
-            // 측정 데이터 저장 (runNextTankEnviTestProcess 패턴과 동일)
-            if (result && result.status === 'completed' && result.data) {
-              console.log(`[TimeModeTestProcess] T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 결과 저장 시작`);
-              try {
-                const saveResult = saveTotaReportTableToFile(
-                  result.data, 
-                  getTableOption.outVoltSettings || [18, 24, 30], 
-                  i + 1, // T_elapsed 단계 번호를 사이클 번호로 사용
-                  `TimeMode_${testType}_Test${i + 1}_${j + 1}`
-                );
-                
-                if (saveResult && saveResult.success) {
-                  console.log(`[TimeModeTestProcess] ✅ T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 데이터 저장 성공: ${saveResult.filename}`);
-                } else {
-                  console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 데이터 저장 실패:`, saveResult?.error || '알 수 없는 오류');
-                }
-              } catch (saveError) {
-                console.error(`[TimeModeTestProcess] ❌ T_elapsed[${i}] ${testType} 테스트 ${j+1}/${readCount} 측정 데이터 저장 중 오류:`, saveError.message);
-              }
-            }
-            
-            console.log(`[TimeModeTestProcess] ✅ ${testType} 테스트 ${j+1}/${readCount} 완료`);
-          }
-          
-          console.log(`[TimeModeTestProcess] ✅ T_elapsed[${i}] ${testType} 테스트 전체 완료 (${readCount}회 실행)`);
-        i++; // 다음 T_elapsed로 진행
+          return { 
+            status: 'stopped', 
+            message: '사용자에 의해 중지됨', 
+            stoppedAtPhase: `${phase.type.toLowerCase()}_waiting`,
+            stopReason: 'power_switch_off'
+          };
+        }
         
-        // 다음 단계 대기 시간이 있다면 시간 진행 상황 업데이트 재시작
-        if (i < T_elapsed.length) {
-          const nextWaitTime = T_elapsed[i] - T_elapsed[i-1];
-          const nextStartTime = Date.now();
-          const remainingTime = T_end - (Date.now() - startTime);
-          
-          if (remainingTime > 0) {
-            console.log(`[TimeModeTestProcess] ⏰ 다음 단계 대기 시작 - ${Math.round(nextWaitTime/60000)}분 후 실행`);
-            console.log('🔒 TIME_PROGRESS sending skipped - client using local calculation');
-            // 시간 진행 상황 업데이트는 클라이언트에서 로컬 계산으로 처리
+        // 현재 경과 시간 계산
+        CtrlTimer = Date.now() - startTime;
+        
+        // T_elapsed[phaseIndex] 시간이 경과했는지 확인
+        if (CtrlTimer > T_elapsed[phaseIndex]) {
+          console.log(`[TimeModeTestProcess] ⏰ ${phase.type} 대기 완료 - 테스트 실행 시작`);
+          break;
+        }
+        
+        // 1초 대기
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // 시간 진행 상황 인터벌 정리 (테스트 실행 중에는 업데이트 중단)
+      if (timeProgressInterval) {
+        clearInterval(timeProgressInterval);
+      }
+      
+      // 단계별 진행상황 알림
+      if (globalWss) {
+        const stepProgressMessage = `[TEST_PROGRESS] 단계 ${phaseIndex + 1}/4: ${phase.type} 테스트 실행 중`;
+        console.log(`[TimeModeTestProcess] 📤 단계 진행상황 메시지 전송: ${stepProgressMessage}`);
+        let sentCount = 0;
+        globalWss.clients.forEach(client => {
+          if (client.readyState === 1) { // WebSocket.OPEN
+            client.send(stepProgressMessage);
+            sentCount++;
+          }
+        });
+        console.log(`[TimeModeTestProcess] 📤 ${sentCount}개 클라이언트에게 메시지 전송 완료`);
+      }
+      
+      // b. runSinglePageProcess() 호출 및 결과저장
+      console.log(`[TimeModeTestProcess] 🔥 ${phase.type} 테스트 시작 - readCount: ${phase.readCount}`);
+      
+      try {
+        // runSinglePageProcess() 실행
+        const result = await runSinglePageProcess(phase.readCount);
+        
+        // 성공 여부 확인
+        if (!result || result.status !== 'completed') {
+          console.log(`[TimeModeTestProcess] ❌ ${phase.type} 테스트 실패 - generateStopReport() 실행`);
+          return await generateStopReport(result);
+        }
+        
+        // 측정 데이터 저장 (RunTestProcess.js 패턴과 동일)
+        if (result && result.status === 'completed' && result.data) {
+          console.log(`[TimeModeTestProcess] ${phase.type} 테스트 측정 결과 저장 시작`);
+          try {
+            const cycleNumber = phaseIndex + 1;
+            const saveResult = saveTotaReportTableToFile(
+              result.data, 
+              getTableOption.channelVoltages, // RunTestProcess.js와 동일한 패턴 사용
+              cycleNumber, 
+              phase.testType
+            );
+            
+            if (saveResult && saveResult.success) {
+              console.log(`[TimeModeTestProcess] ✅ ${phase.type} 테스트 측정 데이터 저장 성공: ${saveResult.filename}`);
+            } else {
+              console.error(`[TimeModeTestProcess] ❌ ${phase.type} 테스트 측정 데이터 저장 실패:`, saveResult?.error || '알 수 없는 오류');
+            }
+          } catch (saveError) {
+            console.error(`[TimeModeTestProcess] ❌ ${phase.type} 테스트 측정 데이터 저장 중 오류:`, saveError.message);
           }
         }
-      } else {
-        // 아직 시간이 경과하지 않았으면 잠시 대기 (중지 요청 확인을 위해)
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
+        
+        console.log(`[TimeModeTestProcess] ✅ ${phase.type} 테스트 완료`);
+        
+      } catch (error) {
+        console.error(`[TimeModeTestProcess] ❌ ${phase.type} 테스트 실행 중 오류:`, error.message);
+        return { 
+          status: 'error', 
+          message: `${phase.type} 테스트 실행 중 오류: ${error.message}`,
+          errorType: 'test_execution_error',
+          stoppedAtPhase: `${phase.type.toLowerCase()}_test_execution`
+        };
+      }
+      
+      // 다음 단계 대기 시간이 있다면 시간 진행 상황 업데이트 재시작
+      if (phaseIndex < testPhases.length - 1) {
+        const nextWaitTime = T_elapsed[phaseIndex + 1] - T_elapsed[phaseIndex];
+        const remainingTime = T_end - (Date.now() - startTime);
+        
+        if (remainingTime > 0) {
+          console.log(`[TimeModeTestProcess] ⏰ 다음 단계 대기 시작 - ${Math.round(nextWaitTime/60000)}분 후 실행`);
+          timeProgressInterval = startTimeProgressUpdates(Date.now(), remainingTime, 'waiting');
+        }
       }
     }
     
-    // 모든 T_elapsed 단계 완료 후 최종 보고서 생성
-    console.log(`[TimeModeTestProcess] 📄 모든 T_elapsed 단계 완료 - 종합 리포트 생성`);
+    // i. 최종 보고서 생성
+    console.log(`[TimeModeTestProcess] 📄 모든 테스트 단계 완료 - 최종 디바이스 리포트 생성`);
     try {
-      const finalReportResult = await generateFinalDeviceReport(i); // 실제 실행된 단계 수
+      const finalReportResult = await generateFinalDeviceReport(4); // 4단계 모두 완료
       if (finalReportResult && finalReportResult.success) {
-        console.log(`[TimeModeTestProcess] ✅ 종합 리포트 생성 성공: ${finalReportResult.filename}`);
+        console.log(`[TimeModeTestProcess] ✅ 최종 디바이스 리포트 생성 성공: ${finalReportResult.filename}`);
       } else {
-        console.error(`[TimeModeTestProcess] ❌ 종합 리포트 생성 실패:`, finalReportResult?.error || '알 수 없는 오류');
+        console.error(`[TimeModeTestProcess] ❌ 최종 디바이스 리포트 생성 실패:`, finalReportResult?.error || '알 수 없는 오류');
       }
     } catch (error) {
-      console.error(`[TimeModeTestProcess] ❌ 종합 리포트 생성 실패:`, error.message);
+      console.error(`[TimeModeTestProcess] ❌ 최종 디바이스 리포트 생성 실패:`, error.message);
     }
     
-    // T_end 시간까지 대기
+    // j. T_end 시간까지 대기 후 종료
     console.log(`[TimeModeTestProcess] ⏰ T_end 시간까지 대기 (${Math.round(T_end/60000)}분)`);
     
     // 대기 시작 알림
@@ -1555,11 +1522,11 @@ export async function runTimeModeTestProcess() {
     
     // 테스트 완료 알림
     if (globalWss) {
-      const testCompleteMessage = `[TEST_COMPLETED] 시간 모드 테스트 프로세스 완료 - 총 ${i}개 단계 완료`;
+      const testCompleteMessage = `[TEST_COMPLETED] 시간 모드 테스트 프로세스 완료 - 총 4개 단계 완료`;
       const testCompleteData = {
         type: 'TEST_COMPLETED',
         testType: '시간 모드 테스트',
-        cycleCount: i,
+        cycleCount: 4,
         completionTime: new Date().toISOString(),
         status: 'success'
       };
@@ -1577,18 +1544,30 @@ export async function runTimeModeTestProcess() {
     
     return { 
       status: 'completed', 
-      message: '모든 T_elapsed 단계 완료 및 종합 리포트 생성 완료',
-      totalSteps: i, // 실제 실행된 단계 수
+      message: '모든 테스트 단계 완료 및 최종 디바이스 리포트 생성 완료',
+      totalSteps: 4, // 4단계 모두 완료
       finalReportGenerated: true
     };
     
   } catch (error) {
     console.error(`[TimeModeTestProcess] ❌ 오류 발생:`, error);
     setMachineRunningStatus(false);
+    
+    // 에러 발생 시에도 클라이언트에게 알림
+    if (globalWss) {
+      const errorMessage = `[TEST_ERROR] 시간 모드 테스트 프로세스 오류: ${error.message}`;
+      globalWss.clients.forEach(client => {
+        if (client.readyState === 1) {
+          client.send(errorMessage);
+        }
+      });
+    }
+    
     return {
       status: 'error',
       message: `TimeMode 테스트 프로세스 오류: ${error.message}`,
-      error: error
+      error: error,
+      errorType: 'process_error'
     };
   }
 }
