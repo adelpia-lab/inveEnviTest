@@ -1075,6 +1075,17 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     }
   };
 
+  // 보고서 생성 함수
+  const handleGenerateReport = () => {
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      const generateReportMessage = `[GENERATE_REPORT]`;
+      wsConnection.send(generateReportMessage);
+      console.log('📄 PowerTable: 보고서 생성 요청 전송');
+    } else {
+      console.warn('📄 PowerTable: 보고서 생성: WebSocket 연결이 없습니다.');
+    }
+  };
+
   // 데모 테이블 완성 데이터 생성 함수 - 새로운 voltagTable 포맷 적용
   const generateDemoCompleteTable = useCallback(() => {
     console.log('🧪 PowerTable: 데모 테이블 생성 시작 (새로운 voltagTable 포맷)');
@@ -1444,6 +1455,21 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
                   }}
                 >
                   🔄 테이블 초기화
+                </button>
+                <button
+                  onClick={handleGenerateReport}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#8B5CF6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  📄 보고서작성
                 </button>
               </div>
             </div>

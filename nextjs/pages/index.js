@@ -837,7 +837,7 @@ const sendMessage = () => {
                 alt="Adel Logo" 
               />
             </div>
-            <div className={styles.headerItem}> 아델피아랩 차기 전차  컨버터  환경 시험</div>
+            <div className={styles.headerItem}> 인버터 (차기전차용) 환경 시험</div>
 
             <div className={styles.headerItem}>
               <div className={styles.boxJsk}>
