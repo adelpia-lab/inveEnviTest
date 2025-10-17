@@ -326,7 +326,7 @@ function getDateDirectoryName() {
  * TotaReportTable을 이미지와 유사한 전기적 성능 시험 테이블 형태로 저장
  * 이미지의 테이블 구조에 맞춰 CSV 형식으로 저장
  */
-function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0], cycleNumber = 1, testType = '') {
+export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0], cycleNumber = 1, testType = '') {
   try {
     // 데이터 유효성 검사 강화
     if (!data) {
