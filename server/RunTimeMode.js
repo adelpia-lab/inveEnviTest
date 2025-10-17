@@ -46,6 +46,9 @@ let globalTableData = {
   isComplete: false
 };
 
+// TIME_PROGRESS 메시지 첫 번째 전송 제어를 위한 전역 변수
+let isFirstTimeProgressSent = false;
+
 // WebSocket 서버 참조를 설정하는 함수
 export function setWebSocketServer(wss) {
   globalWss = wss;
@@ -84,8 +87,6 @@ function sendTimeProgress(data) {
 
 // 1분 간격으로 시간 진행 상황을 업데이트하는 함수
 function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'waiting') {
-  let isFirstSend = true; // 첫 번째 전송 여부 추적
-  
   // 즉시 첫 번째 업데이트 실행
   const updateTimeProgress = () => {
     const currentTime = Date.now();
@@ -106,11 +107,11 @@ function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'wait
       timestamp: new Date().toISOString()
     };
     
-    // 첫 번째 전송만 실행하고 이후에는 전송하지 않음
-    if (isFirstSend) {
+    // 전역 변수를 사용하여 첫 번째 전송만 실행하고 이후에는 전송하지 않음
+    if (!isFirstTimeProgressSent) {
       console.log('📤 Sending first TIME_PROGRESS message - totalMinutes:', timeProgressData.totalMinutes);
       sendTimeProgress(timeProgressData);
-      isFirstSend = false;
+      isFirstTimeProgressSent = true;
       console.log('🔒 TIME_PROGRESS sending disabled - client will use local calculation');
     } else {
       console.log('🔒 TIME_PROGRESS sending skipped - client using local calculation');
@@ -480,27 +481,8 @@ export async function runSinglePageProcess(readCount = 1) {
     // 테이블 데이터 초기화는 runTimeModeTestProcess에서 한 번만 수행
     console.log(`[SinglePageProcess] ✅ 단일 페이지 프로세스 시작`);
     
-    // PowerTable 전압 데이터 초기화 메시지 전송
-    if (globalWss) {
-      const resetMessage = `[POWER_TABLE_RESET] ${JSON.stringify({
-        action: 'single_page_reset',
-        timestamp: new Date().toISOString(),
-        message: '단일 페이지 프로세스 시작 - 전압 데이터 초기화'
-      })}`;
-      
-      let sentCount = 0;
-      globalWss.clients.forEach(client => {
-        if (client.readyState === 1) { // WebSocket.OPEN
-          client.send(resetMessage);
-          sentCount++;
-        }
-      });
-      
-      // 초기화 메시지 전송 후 잠시 대기 (클라이언트가 처리할 시간 확보)
-      await sleep(3000);
-    } else {
-      console.warn(`[SinglePageProcess] 전역 WebSocket 서버가 설정되지 않음 - PowerTable 초기화 메시지 전송 불가`);
-    }
+    // PowerTable 초기화 메시지 전송 제거 - 클라이언트 테이블 리셋 방지
+    console.log(`[SinglePageProcess] PowerTable 초기화 메시지 전송 생략 - 테이블 리셋 방지`);
     
     const getTableOption = await getSafeGetTableOption();
     
@@ -958,6 +940,10 @@ export async function runTimeModeTestProcess() {
     // 전체 테스트 프로세스 시작 시 테이블 데이터 초기화 (한 번만)
     resetTableData();
     console.log(`[TimeModeTestProcess] ✅ 테이블 데이터 초기화 완료`);
+    
+    // TIME_PROGRESS 메시지 첫 번째 전송 플래그 초기화
+    isFirstTimeProgressSent = false;
+    console.log(`[TimeModeTestProcess] ✅ TIME_PROGRESS 첫 번째 전송 플래그 초기화`);
     
     // 테스트 시작 알림
     if (globalWss) {
