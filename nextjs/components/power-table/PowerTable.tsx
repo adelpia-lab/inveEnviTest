@@ -73,20 +73,18 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
   // 서버에서 보내는 voltagTable 데이터를 직접 저장하는 상태
   const [voltagTableData, setVoltagTableData] = useState<any[][][][] | null>(null);
   
-  // 테이블 완성도 추적 상태
-  const [tableCompletionStatus, setTableCompletionStatus] = useState<{
-    totalCells: number;
-    filledCells: number;
-    completionPercentage: number;
-    isComplete: boolean;
-    lastUpdate?: number;
-    lastForceUpdate?: number;
-  }>({
-    totalCells: 0,
-    filledCells: 0,
-    completionPercentage: 0,
-    isComplete: false
-  });
+   // 테이블 완성도 추적 상태
+   const [tableCompletionStatus, setTableCompletionStatus] = useState<{
+     totalCells: number;
+     filledCells: number;
+     isComplete: boolean;
+     lastUpdate?: number;
+     lastForceUpdate?: number;
+   }>({
+     totalCells: 0,
+     filledCells: 0,
+     isComplete: false
+   });
 
   const [chamberTemperature, setChamberTemperature] = useState<number | null>(null);
   const [processLogs, setProcessLogs] = useState<string[]>([]);
@@ -309,27 +307,26 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
     }
   };
 
-  // 테이블 초기화 함수 개선
-  const resetTable = () => {
-    console.log('🔄 PowerTable: 테이블 초기화 실행');
-    setAccumulatedVoltageData({});
-    setVoltagTableData(null);
-    setTableCompletionStatus({
-      totalCells: 0,
-      filledCells: 0,
-      completionPercentage: 0,
-      isComplete: false
-    });
-    setIsTableStable(false);
-    
-    // 테이블 업데이트 시간도 초기화하여 강제 리렌더링 유발
-    setLastTableUpdate(Date.now());
-    
-    // 1초 후 테이블 상태를 안정화
-    setTimeout(() => {
-      setIsTableStable(true);
-    }, 1000);
-  };
+   // 테이블 초기화 함수 개선
+   const resetTable = () => {
+     console.log('🔄 PowerTable: 테이블 초기화 실행');
+     setAccumulatedVoltageData({});
+     setVoltagTableData(null);
+     setTableCompletionStatus({
+       totalCells: 0,
+       filledCells: 0,
+       isComplete: false
+     });
+     setIsTableStable(false);
+     
+     // 테이블 업데이트 시간도 초기화하여 강제 리렌더링 유발
+     setLastTableUpdate(Date.now());
+     
+     // 1초 후 테이블 상태를 안정화
+     setTimeout(() => {
+       setIsTableStable(true);
+     }, 1000);
+   };
 
   // 테이블 완성도 모니터링 개선 - 서버 완성도만 사용
   useEffect(() => {
@@ -633,10 +630,13 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                 break;
                 
               case 'single_page_reset':
-                // 단일 페이지 프로세스 - 항상 테이블 초기화 (각 단계마다 새로 시작)
-                console.log('🔄 PowerTable: 단일 페이지 프로세스 초기화 메시지 수신 - 테이블 초기화 실행');
+                // 단일 페이지 프로세스 - 강건한 완전 리셋 (각 단계마다 0%에서 시작)
+                console.log('🔄 PowerTable: 단일 페이지 프로세스 강건한 리셋 시작');
+                
+                // 1. 테이블 데이터 완전 초기화
                 resetTable();
                 
+                // 2. 모든 상태 완전 초기화
                 setCurrentCycle(null);
                 setTotalCycles(0);
                 setCycleMessage(resetData.message || '');
@@ -644,7 +644,21 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                 setCurrentTestNumber(0);
                 setTotalTestCount(0);
                 setTestStatus('none');
-                console.log('✅ PowerTable: 단일 페이지 프로세스 초기화 완료 - 테이블 리셋됨');
+                
+                 // 3. 완성도 상태 강제 초기화 (0%로 리셋)
+                 setTableCompletionStatus({
+                   totalCells: 0,
+                   filledCells: 0,
+                   currentReadCount: 0,
+                   maxReadCount: 10,
+                   isComplete: false
+                 });
+                
+                // 4. 테스트 진행 메시지 초기화
+                setTestProgressMessage('');
+                setIsTestProgressActive(false);
+                
+                console.log('✅ PowerTable: 단일 페이지 프로세스 강건한 리셋 완료 - 모든 상태 0%로 초기화');
                 break;
                 
               case 'test_start':
@@ -883,24 +897,23 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
               console.log(`✅ PowerTable: ${messageType}으로 누적 데이터 업데이트 완료`);
             }
             
-            // 테이블 완성도 정보 업데이트 (POWER_TABLE_UPDATE와 POWER_TABLE_COMPLETE에서만)
-            if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
-                tableData.summary && tableData.summary.completionPercentage !== undefined) {
-              
-              // 서버에서 전송된 동적 완성도 정보 사용 (TimeMode: 95% 제한)
-              const newStatus = {
-                totalCells: tableData.summary.totalCells || 0,
-                filledCells: tableData.summary.completedCells || 0,
-                completionPercentage: tableData.summary.completionPercentage || 0,
-                currentReadCount: tableData.summary.currentReadCount || 0,
-                maxReadCount: tableData.summary.maxReadCount || 10,
-                isComplete: false // TimeMode에서는 항상 진행 중으로 표시
-              };
-              
-              // 서버 완성도 정보 강제 업데이트 (TimeMode에서는 서버 완성도만 사용)
-              setTableCompletionStatus(newStatus);
-              console.log(`📊 PowerTable: 서버 완성도 적용 - ${newStatus.completionPercentage.toFixed(1)}% (readCount: ${newStatus.currentReadCount}/${newStatus.maxReadCount})`);
-            }
+             // 테이블 데이터 기반 진행상황 업데이트 (완성도 계산 제거)
+             if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
+                 tableData.summary) {
+               
+               // 서버에서 전송된 실제 데이터 기반 진행상황 사용 (완성도 계산 제거)
+               const newStatus = {
+                 totalCells: tableData.summary.totalCells || 0,
+                 filledCells: tableData.summary.completedCells || 0,
+                 currentReadCount: tableData.summary.currentReadCount || 0,
+                 maxReadCount: tableData.summary.maxReadCount || 10,
+                 isComplete: false // TimeMode에서는 항상 진행 중으로 표시
+               };
+               
+               // 실제 데이터 기반 진행상황 업데이트 (완성도 계산 없음)
+               setTableCompletionStatus(newStatus);
+               console.log(`📊 PowerTable: 데이터 기반 진행상황 - ${newStatus.filledCells}/${newStatus.totalCells} 셀 완성 (readCount: ${newStatus.currentReadCount}/${newStatus.maxReadCount}) - 완성도 계산 제거`);
+             }
           }
           
         } catch (error) {
@@ -1215,13 +1228,12 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
     // voltagTable 데이터도 저장
     setVoltagTableData(demoTableData.voltagTable);
     
-    // 테이블 완성도 상태도 업데이트 (3 x 선택된 기기수 x ON/Off 횟수)
-    setTableCompletionStatus({
-      totalCells: totalCells, // 3 x 선택된 기기수 x ON/Off 횟수
-      filledCells: totalCells,
-      completionPercentage: 100,
-      isComplete: true
-    });
+     // 테이블 완성도 상태도 업데이트 (3 x 선택된 기기수 x ON/Off 횟수)
+     setTableCompletionStatus({
+       totalCells: totalCells, // 3 x 선택된 기기수 x ON/Off 횟수
+       filledCells: totalCells,
+       isComplete: true
+     });
     
     console.log('🧪 PowerTable: 데모 테이블 데이터 생성 완료 (새로운 voltagTable 포맷)');
     console.log('🧪 PowerTable: 사용된 channelVoltages:', channelVoltages);
@@ -1515,34 +1527,29 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
           color: '#E5E7EB'
         }}>
           <span>📊 테이블 진행 상황:</span>
-          <span>
-            {tableCompletionStatus.filledCells} / {tableCompletionStatus.totalCells} 셀 완성
-            <span style={{ color: '#60A5FA', marginLeft: '10px' }}>
-              ({tableCompletionStatus.completionPercentage?.toFixed(1)}%)
-            </span>
-            {tableCompletionStatus.completionPercentage >= 90 && (
-              <span style={{ color: '#10B981', marginLeft: '10px' }}>
-                🔄 진행 중... (TimeMode: 단계별 진행상황)
-              </span>
-            )}
-          </span>
+           <span>
+             {tableCompletionStatus.filledCells} / {tableCompletionStatus.totalCells} 셀 완성
+             <span style={{ color: '#10B981', marginLeft: '10px' }}>
+               🔄 진행 중... (실제 데이터 기반 표시)
+             </span>
+           </span>
         </div>
-        {/* 진행률 바 */}
-        <div style={{
-          width: '100%',
-          height: '8px',
-          backgroundColor: '#374151',
-          borderRadius: '4px',
-          marginTop: '8px',
-          overflow: 'hidden'
-        }}>
-          <div style={{
-            width: `${(tableCompletionStatus.filledCells / tableCompletionStatus.totalCells) * 100}%`,
-            height: '100%',
-            backgroundColor: tableCompletionStatus.isComplete ? '#10B981' : '#3B82F6',
-            transition: 'width 0.3s ease'
-          }} />
-        </div>
+         {/* 진행률 바 - 실제 데이터 기반 */}
+         <div style={{
+           width: '100%',
+           height: '8px',
+           backgroundColor: '#374151',
+           borderRadius: '4px',
+           marginTop: '8px',
+           overflow: 'hidden'
+         }}>
+           <div style={{
+             width: `${tableCompletionStatus.totalCells > 0 ? (tableCompletionStatus.filledCells / tableCompletionStatus.totalCells) * 100 : 0}%`,
+             height: '100%',
+             backgroundColor: '#3B82F6', // 항상 진행 중 색상
+             transition: 'width 0.3s ease'
+           }} />
+         </div>
         
 
       </div>

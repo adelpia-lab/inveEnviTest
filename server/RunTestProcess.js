@@ -4175,11 +4175,8 @@ export async function broadcastTableData() {
       }
     });
     
-    // TimeMode: 95%까지만 표시하여 조기 완성 방지
-    const rawCompletionPercentage = totalCells > 0 ? (completedCells / totalCells) * 100 : 0;
-    const completionPercentage = Math.min(rawCompletionPercentage, 95); // 최대 95%까지만 표시
-    
-    console.log(`[TableData] TimeMode 단계별 진행상황 - 현재 readCount: ${currentReadCount}/${maxReadCount}, 선택된 디바이스: ${selectedDeviceCount}, 총 셀: ${totalCells}, 완료된 셀: ${completedCells}, 원본 진행률: ${rawCompletionPercentage.toFixed(1)}%, 제한된 진행률: ${completionPercentage.toFixed(1)}% (최대 95% 제한)`);
+    // TimeMode: 완성도 계산 완전 제거 - 실제 측정 데이터만 전송
+    console.log(`[TableData] TimeMode 실제 데이터 전송 - 현재 readCount: ${currentReadCount}/${maxReadCount}, 선택된 디바이스: ${selectedDeviceCount}, 총 셀: ${totalCells}, 완료된 셀: ${completedCells} (완성도 계산 제거)`);
     
     // 전송할 테이블 데이터 구성 - 클라이언트 포맷에 맞춤
     const tableDataForClient = {
@@ -4224,14 +4221,13 @@ export async function broadcastTableData() {
           )
         )
       ),
-      summary: {
-        totalCells: totalCells,
-        completedCells: completedCells,
-        completionPercentage: completionPercentage,
-        currentReadCount: currentReadCount,
-        maxReadCount: maxReadCount,
-        status: 'in_progress' // TimeMode에서는 항상 진행 중으로 표시
-      }
+        summary: {
+          totalCells: totalCells,
+          completedCells: completedCells,
+          currentReadCount: currentReadCount,
+          maxReadCount: maxReadCount,
+          status: 'in_progress' // TimeMode에서는 항상 진행 중으로 표시
+        }
     };
     
     // 테이블 데이터 전송
