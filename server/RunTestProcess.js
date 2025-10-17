@@ -470,9 +470,12 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
          // 해당 디바이스의 측정 데이터 수집 (4회 측정)
          const measurementData = [];
          
-         // globalTableData에서 해당 디바이스의 실제 측정 데이터 가져오기
-         if (globalTableData.devices[deviceIndex] && globalTableData.devices[deviceIndex].tests[voltageIndex]) {
-           const deviceReads = globalTableData.devices[deviceIndex].tests[voltageIndex].reads;
+         // globalTableData의 깊은 복사본 생성 (데이터 경합 상태 방지)
+         const tableDataSnapshot = JSON.parse(JSON.stringify(globalTableData));
+         
+         // 복사본에서 해당 디바이스의 실제 측정 데이터 가져오기
+         if (tableDataSnapshot.devices[deviceIndex] && tableDataSnapshot.devices[deviceIndex].tests[voltageIndex]) {
+           const deviceReads = tableDataSnapshot.devices[deviceIndex].tests[voltageIndex].reads;
            console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - Device ${deviceIndex + 1}: ${deviceReads.length} reads`);
            
            for (let readIndex = 0; readIndex < deviceReads.length && readIndex < 10; readIndex++) {
@@ -4115,6 +4118,9 @@ export async function broadcastTableData() {
   try {
     // 시간 기반 디바운싱 제거 - 이벤트 기반 전송으로 변경
     
+    // globalTableData의 깊은 복사본 생성 (데이터 경합 상태 방지)
+    const tableDataSnapshot = JSON.parse(JSON.stringify(globalTableData));
+    
     // 선택된 디바이스 상태 가져오기
     const getTableOption = await getSafeGetTableOption();
     const deviceStates = getTableOption.deviceStates || [];
@@ -4123,7 +4129,7 @@ export async function broadcastTableData() {
     let totalCells = 0;
     let completedCells = 0;
     
-    globalTableData.devices.forEach((device, deviceIndex) => {
+    tableDataSnapshot.devices.forEach((device, deviceIndex) => {
       // 선택된 디바이스만 처리
       if (deviceStates[deviceIndex]) {
         device.tests.forEach(test => {
