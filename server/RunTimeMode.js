@@ -5,7 +5,7 @@ import { ReadVolt } from './ReadVolt.js';
 
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
-import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData } from './RunTestProcess.js';
+import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData, updateTableData } from './RunTestProcess.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
