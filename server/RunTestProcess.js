@@ -55,7 +55,7 @@ export function setWebSocketServer(wss) {
 // 디바운싱된 테이블 데이터 전송 함수
 async function debouncedBroadcastTableData(force = false) {
   const now = Date.now();
-  const minInterval = 2000; // 최소 2초 간격
+  const minInterval = 5000; // 최소 5초 간격으로 증가 (과도한 전송 방지)
   
   // 강제 전송이거나 최소 간격이 지났을 때만 전송
   if (force || (now - lastTableDataBroadcast) >= minInterval) {
@@ -1084,26 +1084,8 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, r
     console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
     await debouncedBroadcastTableData();
     
-    // 추가적인 실시간 업데이트 메시지 전송 (매 전압 측정마다)
-    if (globalWss) {
-      const realtimeUpdateMessage = `[REALTIME_VOLTAGE_UPDATE] ${JSON.stringify({
-        deviceNumber: deviceIndex + 1,
-        testNumber: voltageIndex + 1,
-        voltage: voltData,
-        voltageWithComparison: voltageWithComparison,
-        timestamp: new Date().toISOString(),
-        message: `Device ${deviceIndex + 1}, Test ${voltageIndex + 1} 전압 측정 완료`
-      })}`;
-      
-      let sentCount = 0;
-      globalWss.clients.forEach(client => {
-        if (client.readyState === 1) {
-          client.send(realtimeUpdateMessage);
-          sentCount++;
-        }
-      });
-      console.log(`[SinglePageProcess] 실시간 전압 업데이트 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
-    }
+    // 실시간 업데이트 메시지 전송 최소화 (디바운싱된 테이블 업데이트로 대체)
+    // REALTIME_VOLTAGE_UPDATE는 제거하고 debouncedBroadcastTableData만 사용
     
     // 디바이스 해제 재시도 로직
     retryCount = 0;

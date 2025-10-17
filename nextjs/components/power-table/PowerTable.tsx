@@ -36,7 +36,7 @@ interface AccumulatedTableData {
   };
 }
 
-export default function PowerTable({ groups, wsConnection, channelVoltages = [220], selectedDevices = [1, 2, 3] }: PowerTableProps) {
+const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channelVoltages = [220], selectedDevices = [1, 2, 3] }: PowerTableProps) {
   // selectedDevices props 검증 및 정규화
   const normalizedSelectedDevices = React.useMemo(() => {
     // props로 전달된 selectedDevices가 유효하지 않으면 기본값 사용
@@ -61,10 +61,12 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
     return validDevices;
   }, [selectedDevices]);
   
-  // 디버깅을 위한 로그
-  console.log('🔌 PowerTable: 컴포넌트 렌더링, channelVoltages:', channelVoltages);
-  console.log('🔌 PowerTable: 원본 selectedDevices:', selectedDevices);
-  console.log('🔌 PowerTable: 정규화된 selectedDevices:', normalizedSelectedDevices);
+  // 디버깅을 위한 로그 (개발 모드에서만)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔌 PowerTable: 컴포넌트 렌더링, channelVoltages:', channelVoltages);
+    console.log('🔌 PowerTable: 원본 selectedDevices:', selectedDevices);
+    console.log('🔌 PowerTable: 정규화된 selectedDevices:', normalizedSelectedDevices);
+  }
   // 누적 전압 데이터 상태
   const [accumulatedVoltageData, setAccumulatedVoltageData] = useState<AccumulatedTableData>({});
   
@@ -879,10 +881,16 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
               // 서버에서 보내는 voltagTable 데이터도 저장
               if (tableData.voltagTable && Array.isArray(tableData.voltagTable)) {
                 setVoltagTableData(tableData.voltagTable);
-                console.log(`✅ PowerTable: ${messageType}으로 voltagTable 데이터 저장 완료`);
+                // 테이블 데이터 저장 로그 최소화 (개발 모드에서만)
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`✅ PowerTable: ${messageType}으로 voltagTable 데이터 저장 완료`);
+                }
               }
               
-            console.log(`✅ PowerTable: ${messageType}으로 누적 데이터 업데이트 완료`);
+            // 누적 데이터 업데이트 로그 최소화 (개발 모드에서만)
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ PowerTable: ${messageType}으로 누적 데이터 업데이트 완료`);
+            }
             
             // 테이블 완성도 정보 업데이트 (POWER_TABLE_UPDATE와 POWER_TABLE_COMPLETE에서만)
             if ((messageType === 'POWER_TABLE_UPDATE' || messageType === 'POWER_TABLE_COMPLETE') && 
@@ -914,7 +922,10 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
           if (match && match[1]) {
             const realtimeUpdate = JSON.parse(match[1]);
             
-            console.log(`🔌 PowerTable: 실시간 전압 업데이트 - Device ${realtimeUpdate.deviceNumber}, Test ${realtimeUpdate.testNumber}`);
+            // 실시간 업데이트 로그 최소화 (개발 모드에서만)
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`🔌 PowerTable: 실시간 전압 업데이트 - Device ${realtimeUpdate.deviceNumber}, Test ${realtimeUpdate.testNumber}`);
+            }
             
             // 실시간 업데이트 데이터를 누적 데이터로 변환
             const voltageUpdate: VoltageData = {
@@ -936,12 +947,8 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
             // 전압 데이터를 누적 방식으로 처리
             accumulateVoltageData(voltageUpdate);
             
-            // 테이블 강제 리플래시를 위한 상태 업데이트
-            setLastTableUpdate(Date.now());
-            setTableCompletionStatus(prev => ({
-              ...prev,
-              lastUpdate: Date.now()
-            }));
+            // 실시간 업데이트에서는 테이블 강제 리플래시 제거 (과도한 리렌더링 방지)
+            // 디바운싱된 테이블 업데이트에서만 상태 업데이트 수행
             
           }
         } catch (error) {
@@ -1709,4 +1716,6 @@ export default function PowerTable({ groups, wsConnection, channelVoltages = [22
       />
     </div>
   );
-}
+});
+
+export default PowerTable;

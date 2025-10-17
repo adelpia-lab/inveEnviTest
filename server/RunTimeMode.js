@@ -62,7 +62,7 @@ export function setWebSocketServer(wss) {
 // 디바운싱된 테이블 데이터 전송 함수
 async function debouncedBroadcastTableData(force = false) {
   const now = Date.now();
-  const minInterval = 2000; // 최소 2초 간격
+  const minInterval = 1000; // TimeMode용 최소 1초 간격 (단계별 전송이므로 더 빠르게)
   
   // 강제 전송이거나 최소 간격이 지났을 때만 전송
   if (force || (now - lastTableDataBroadcast) >= minInterval) {
@@ -652,6 +652,10 @@ export async function runSinglePageProcess(readCount = 1) {
       }
     }
     
+    // runSinglePageProcess 완료 시에만 테이블 데이터 전송 (TimeMode 최적화)
+    console.log(`[SinglePageProcess] 모든 측정 완료 - 테이블 데이터 전송`);
+    await debouncedBroadcastTableData(true);
+    
     return { 
       status: 'completed', 
       message: `단일 페이지 프로세스 완료 (${readCount}회 실행)`,
@@ -796,29 +800,12 @@ async function executeDeviceReading(getTableOption, voltageIndex, deviceIndex, r
     // 채널 1개 전압 읽기 완료 후 클라이언트에 실시간 전송 (디바운싱 적용)
     console.log(`[SinglePageProcess] Device ${deviceIndex + 1}, Test ${voltageIndex + 1}: 채널 1개 완료 - 클라이언트에 데이터 전송`);
     
-    // 디바운싱된 테이블 데이터 전송 (2초 간격)
-    await debouncedBroadcastTableData();
+    // TimeMode에서는 개별 측정마다 전송하지 않고 단계별로만 전송
+    // 개별 측정 시에는 전송 생략하여 과도한 WebSocket 전송 방지
+    // await debouncedBroadcastTableData(); // 제거: 개별 측정마다 전송 방지
     
-    // 추가적인 실시간 업데이트 메시지 전송 (매 전압 측정마다)
-    if (globalWss) {
-      const realtimeUpdateMessage = `[REALTIME_VOLTAGE_UPDATE] ${JSON.stringify({
-        deviceNumber: deviceIndex + 1,
-        testNumber: voltageIndex + 1,
-        voltage: voltData,
-        voltageWithComparison: voltageWithComparison,
-        timestamp: new Date().toISOString(),
-        message: `Device ${deviceIndex + 1}, Test ${voltageIndex + 1} 전압 측정 완료`
-      })}`;
-      
-      let sentCount = 0;
-      globalWss.clients.forEach(client => {
-        if (client.readyState === 1) {
-          client.send(realtimeUpdateMessage);
-          sentCount++;
-        }
-      });
-      console.log(`[SinglePageProcess] 실시간 전압 업데이트 메시지 전송 완료 - 클라이언트 수: ${sentCount}`);
-    }
+    // 실시간 업데이트 메시지 전송 최소화 (디바운싱된 테이블 업데이트로 대체)
+    // REALTIME_VOLTAGE_UPDATE는 제거하고 debouncedBroadcastTableData만 사용
     
     // 디바이스 해제 재시도 로직
     retryCount = 0;
@@ -1210,7 +1197,9 @@ export async function runTimeModeTestProcess() {
         console.log(`[TimeModeTestProcess] ✅ ${phase.type} 테스트 완료`);
         
         // 테스트 완료 시 강제로 테이블 데이터 전송 (클라이언트 초기화 방지)
-        await debouncedBroadcastTableData(true);
+        // TimeMode에서는 단계별로만 전송하여 과도한 전송 방지
+        // runSinglePageProcess에서 이미 전송했으므로 중복 전송 방지
+        // await debouncedBroadcastTableData(true); // 제거: runSinglePageProcess에서 이미 전송
         
       } catch (error) {
         console.error(`[TimeModeTestProcess] ❌ ${phase.type} 테스트 실행 중 오류:`, error.message);
