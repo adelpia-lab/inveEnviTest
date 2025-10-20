@@ -17,7 +17,7 @@ const CH_SELECT = [
 const READ_VOLT = 'MEAS:VOLT?';
 
 // --- 설정 상수 ---
-const BAUD_RATE = 19200;
+const BAUD_RATE = 9600;     // 9600bps PCZ1000A  : 19200bps Plz-50F
 const RESPONSE_TIMEOUT_MS = 8000; // 8초로 증가하여 안정성 향상
 const CHANNEL_SELECT_DELAY_MS = 500; // 채널 선택 후 대기 시간 증가
 const VOLTAGE_READ_DELAY_MS = 300; // 전압 읽기 후 안정화를 위한 대기 시간
@@ -330,7 +330,7 @@ async function readChannelSequentially(channel) {
             
             // 명령 시퀀스 준비
             const commands = [
-                CH_SELECT[channel - 1] + '\r\n',
+                // CH_SELECT[channel - 1] + '\r\n',
                 READ_VOLT + '\r\n'
             ];
             

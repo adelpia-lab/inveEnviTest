@@ -1,6 +1,6 @@
 import { SerialPort } from 'serialport';
 import { promises as fs } from 'fs';
-
+/*
 const DeviceOn=[
     "010600010100D99A", "010600020100299A", "010600030100785A", "010600040100C99B",
     "010600050100985B", "020600010100D9A9", "02060002010029A9", "0206000301007869",
@@ -11,6 +11,24 @@ const DeviceOff=[
     "010600010200D96A", "010600020200296A", "01060003020078AA", "010600040200C96B",
     "01060005020098AB", "020600010200D959", "0206000202002959", "0206000302007899",
     "020600040200C958", "0206000502009898"
+];
+*/
+const DeviceAOn=[
+    "010600010100D99A", "010600020100299A", "010600030100785A", "010600040100C99B",
+    "010600050100985B", "0106000601005B68", "0106000701009B39", "0106000801009809" 
+];
+const DeviceBOn=[
+    "020600010100D9A9", "02060002010029A9", "0206000301007869", "020600040100C9A8", 
+    "0206000501009868", "0206000601006868", "020600070100A839", "020600080100AB09" 
+];
+
+const DeviceAOff=[
+    "010600010200D96A", "010600020200296A", "01060003020078AA", "010600040200C96B", 
+    "01060005020098AB", "010600060200AB68", "0106000702006B39", "0106000802006809"
+];
+const DeviceBOff=[
+    "020600010200D959", "0206000202002959", "0206000302007899", "020600040200C958",
+    "0206000502009898", "0206000602009868", "0206000702005839", "0206000802005809"
 ];
 
 // --- 시리얼 포트 설정 ---
@@ -424,18 +442,15 @@ export function RelayDevice(commandToSend) {
 }
 
 export async function RelayAllOff() {
-    const numToSend = DeviceOff.length;
-    for (let i = 0; i < numToSend; i++) {
-        const str = DeviceOff[i];
-        const hexBuffer = Buffer.from(str, 'hex');
 
+    for (let i = 1; i < 9; i++) {
         try {
-          // console.log(`[${i + 1}/${numToSend}] "${str}" 전송 중...`);
-          await RelayDevice(hexBuffer);
-          // console.log(`[${i + 1}/${numToSend}] "${str}" 전송 완료.`);
-          await sleep(1000); // 2초 대기
+          await RelayOff('A', i );
+          await sleep(250); // 0.25초 대기
+          await RelayOff('B', i );
+          await sleep(250); // 0.25초 대기
         } catch (error) {
-          // console.error(`오류: "${str}" 전송 중 문제가 발생했습니다:`, error);
+          console.error(`오류: RelayAllOff 중 문제가 발생했습니다:`, error);
         }
     }
 }
@@ -464,7 +479,41 @@ export async function SelectDevice(deviceNumber) {
 }
 
 export async function SelectDeviceOn(deviceNumber) {
-    const str = DeviceOn[deviceNumber-1];
+    
+    try {
+        
+        await RelayOn('A', deviceNumber);
+        await RelayOn('B', deviceNumber);
+        await RelayOn('B', deviceNumber+3);
+        return { success: true, message: `Device ${deviceNumber} turned ON successfully` };
+    } catch (error) {
+        console.error(`[SelectDeviceOn] Error turning ON device ${deviceNumber}:`, error.message);
+        return { 
+            success: false, 
+            message: `SelectDeviceOn ${deviceNumber} error: ${error.message}`, 
+            error: error.message 
+        };
+    }
+}
+
+export async function SelectDeviceOff(deviceNumber) {   
+    try {       
+        await RelayOff('B', deviceNumber);
+        await RelayOff('B', deviceNumber+3);
+        await RelayOff('A', deviceNumber);
+        return { success: true, message: `Device ${deviceNumber} turned OFF successfully` };
+    } catch (error) {
+        console.error(`[SelectDeviceOff] Error turning Off device ${deviceNumber}:`, error.message);
+        return { 
+            success: false, 
+            message: `SelectDeviceOff ${deviceNumber} error: ${error.message}`, 
+            error: error.message 
+        };
+    }
+}
+
+export async function RelayOn(AorB, deviceNumber) {
+    const str = AorB === 'A' ? DeviceAOn[deviceNumber-1] : DeviceBOn[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
     
     try {
@@ -496,35 +545,36 @@ export async function SelectDeviceOn(deviceNumber) {
     }
 }
 
-export async function SelectDeviceOff(deviceNumber) {
-    const str = DeviceOff[deviceNumber-1];
+export async function RelayOff(AorB, deviceNumber) {
+    const str = AorB === 'A' ? DeviceAOff[deviceNumber-1] : DeviceBOff[deviceNumber-1];
     const hexBuffer = Buffer.from(str, 'hex');
     
     try {
-        console.log(`[SelectDeviceOff] Attempting to turn OFF device ${deviceNumber} with command: ${str}`);
+        console.log(`[SelectDeviceOn] Attempting to turn ON device ${deviceNumber} with command: ${str}`);
         const result = await RelayDevice(hexBuffer);
         
-        console.log(`[SelectDeviceOff] RelayDevice result:`, result);
+        console.log(`[SelectDeviceOn] RelayDevice result:`, result);
         
         // RelayDevice의 결과를 확인
         if (result && result.isValid) {
-            console.log(`[SelectDeviceOff] Device ${deviceNumber} turned OFF successfully`);
-            return { success: true, message: `Device ${deviceNumber} turned OFF successfully` };
+            console.log(`[SelectDeviceOn] Device ${deviceNumber} turned ON successfully`);
+            return { success: true, message: `Device ${deviceNumber} turned ON successfully` };
         } else {
             const errorMessage = result?.error || 'Unknown error';
-            console.error(`[SelectDeviceOff] Device ${deviceNumber} OFF failed:`, result);
+            console.error(`[SelectDeviceOn] Device ${deviceNumber} ON failed:`, result);
             return { 
                 success: false, 
-                message: `Device ${deviceNumber} OFF failed: ${errorMessage}`, 
+                message: `Device ${deviceNumber} ON failed: ${errorMessage}`, 
                 error: errorMessage 
             };
         }
     } catch (error) {
-        console.error(`[SelectDeviceOff] Error turning OFF device ${deviceNumber}:`, error.message);
+        console.error(`[SelectDeviceOn] Error turning ON device ${deviceNumber}:`, error.message);
         return { 
             success: false, 
-            message: `Device ${deviceNumber} OFF error: ${error.message}`, 
+            message: `Device ${deviceNumber} ON error: ${error.message}`, 
             error: error.message 
         };
     }
 }
+
