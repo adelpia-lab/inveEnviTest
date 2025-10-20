@@ -329,10 +329,7 @@ async function readChannelSequentially(channel) {
             await clearPortBuffer(port);
             
             // 명령 시퀀스 준비
-            const commands = [
-                // CH_SELECT[channel - 1] + '\r\n',
-                READ_VOLT + '\r\n'
-            ];
+            const commands = ["VOLT?" + "\r\n"];
             
             // 통신 실행
             const response = await communicateWithDevice(port, commands, RESPONSE_TIMEOUT_MS, channel);

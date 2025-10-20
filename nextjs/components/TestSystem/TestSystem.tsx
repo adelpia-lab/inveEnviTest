@@ -159,7 +159,9 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
         data.includes('[POWER_TEST]') || 
         data.includes('[LOAD_TEST]') || 
         data.includes('[RELAY_TEST]') ||
-        data.includes('LoadVoltage:')
+        data.includes('[CHAMBER_TEMPERATURE]') ||
+        data.includes('LoadVoltage:') ||
+        data.includes('Temperature:')
       )) {
         console.log(`🔍 [TestSystem] Received relevant WebSocket message: ${data}`);
       } else {
@@ -315,7 +317,27 @@ const TestSystem: React.FC<TestSystemProps> = ({ open, onClose, onExited, wsConn
         }
       }
       
-      // 온도 데이터 처리
+      // 온도 데이터 처리 - [CHAMBER_TEMPERATURE] 메시지 처리
+      if (data.includes('[CHAMBER_TEMPERATURE]')) {
+        try {
+          const tempMatch = data.match(/\[CHAMBER_TEMPERATURE\] (.+)/);
+          if (tempMatch) {
+            const temperature = parseFloat(tempMatch[1]);
+            if (!isNaN(temperature)) {
+              console.log(`🌡️ [TestSystem] Received chamber temperature: ${temperature}°C`);
+              setPortTests(prev => prev.map(test => 
+                test.type === 'chamber' 
+                  ? { ...test, temperature: temperature }
+                  : test
+              ));
+            }
+          }
+        } catch (error) {
+          console.error('온도 데이터 파싱 오류:', error);
+        }
+      }
+      
+      // 기존 Temperature: 메시지 처리 (하위 호환성)
       if (data.includes('Temperature:')) {
         try {
           const tempMatch = data.match(/Temperature: (.+)/);
