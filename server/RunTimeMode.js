@@ -164,15 +164,9 @@ function startTimeProgressUpdates(startTime, totalDuration, currentPhase = 'wait
       timestamp: new Date().toISOString()
     };
     
-    // 전역 변수를 사용하여 첫 번째 전송만 실행하고 이후에는 전송하지 않음
-    if (!isFirstTimeProgressSent) {
-      console.log('📤 Sending first TIME_PROGRESS message - totalMinutes:', timeProgressData.totalMinutes);
-      sendTimeProgress(timeProgressData);
-      isFirstTimeProgressSent = true;
-      console.log('🔒 TIME_PROGRESS sending disabled - client will use local calculation');
-    } else {
-      console.log('🔒 TIME_PROGRESS sending skipped - client using local calculation');
-    }
+    // runTimeModeTestProcess에서는 계속 시간 진행 상황 업데이트 전송
+    console.log('📤 Sending TIME_PROGRESS message - totalMinutes:', timeProgressData.totalMinutes);
+    sendTimeProgress(timeProgressData);
     
     // 시간이 다 되었으면 인터벌 정리
     if (remainingTime <= 0) {
@@ -998,9 +992,9 @@ export async function runTimeModeTestProcess() {
     // 각 runSinglePageProcess에서 개별적으로 초기화하므로 여기서는 초기화하지 않음
     console.log(`[TimeModeTestProcess] ✅ TimeMode 테스트 프로세스 시작 - 각 단계별 개별 초기화 방식 사용`);
     
-    // TIME_PROGRESS 메시지 첫 번째 전송 플래그 초기화
-    isFirstTimeProgressSent = false;
-    console.log(`[TimeModeTestProcess] ✅ TIME_PROGRESS 첫 번째 전송 플래그 초기화`);
+    // TIME_PROGRESS 메시지 첫 번째 전송 플래그 초기화 (비활성화됨 - 계속 업데이트 전송)
+    // isFirstTimeProgressSent = false;
+    // console.log(`[TimeModeTestProcess] ✅ TIME_PROGRESS 첫 번째 전송 플래그 초기화`);
     
     // 테이블 데이터 전송 디바운싱 변수 초기화
     if (tableDataBroadcastTimeout) {

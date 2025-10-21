@@ -288,11 +288,12 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
   
   console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 시작 (${milliseconds}ms) - 중지 요청 확인 간격: ${checkInterval}ms`);
   
-  // 시간 진행 상황 업데이트 시작
-  const startTime = Date.now();
-  const timeProgressInterval = startTimeProgressUpdates(startTime, milliseconds, 'waiting');
+  // 시간 진행 상황 업데이트 비활성화 (테스트 진행 중 창 표시하지 않음)
+  // const startTime = Date.now();
+  // const timeProgressInterval = startTimeProgressUpdates(startTime, milliseconds, 'waiting');
   
   return new Promise((resolve, reject) => {
+    const startTime = Date.now(); // 로컬 변수로 이동
     let elapsed = 0;
     
     const checkStop = () => {
@@ -300,10 +301,10 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
       if (getProcessStopRequested()) {
         console.log(`[sleepMinutesWithStopCheck]${contextStr} 🛑 중지 요청 감지 - 대기 중단 (경과: ${Math.round(elapsed/1000)}초/${minutes}분)`);
         
-        // 시간 진행 상황 인터벌 정리
-        if (timeProgressInterval) {
-          clearInterval(timeProgressInterval);
-        }
+        // 시간 진행 상황 인터벌 정리 (비활성화됨)
+        // if (timeProgressInterval) {
+        //   clearInterval(timeProgressInterval);
+        // }
         
         reject(new Error('PROCESS_STOP_REQUESTED'));
         return;
@@ -314,10 +315,10 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
       if (elapsed >= milliseconds) {
         console.log(`[sleepMinutesWithStopCheck]${contextStr} ${minutes}분 대기 완료`);
         
-        // 시간 진행 상황 인터벌 정리
-        if (timeProgressInterval) {
-          clearInterval(timeProgressInterval);
-        }
+        // 시간 진행 상황 인터벌 정리 (비활성화됨)
+        // if (timeProgressInterval) {
+        //   clearInterval(timeProgressInterval);
+        // }
         
         resolve();
       } else {
@@ -2970,21 +2971,21 @@ export async function runNextTankEnviTestProcess() {
       console.error(`[NextTankEnviTestProcess] ❌ 종합 리포트 생성 실패:`, error.message);
     }
     
-    // 최종결과 테이블 생성 (모든 사이클 결과를 합쳐서)
-    console.log(`[NextTankEnviTestProcess] 📊 최종결과 테이블 생성 시작`);
-    try {
-      const getTableOption = await getSafeGetTableOption();
-      const finalTable = createFinalResultTable(cycleResults, getTableOption);
-      const finalTableResult = saveFinalResultTable(finalTable, getTableOption, cycleNumber);
-      
-      if (finalTableResult && finalTableResult.success) {
-        console.log(`[NextTankEnviTestProcess] ✅ 최종결과 테이블 생성 성공: ${finalTableResult.filename}`);
-      } else {
-        console.error(`[NextTankEnviTestProcess] ❌ 최종결과 테이블 생성 실패: ${finalTableResult?.error || '알 수 없는 오류'}`);
-      }
-    } catch (error) {
-      console.error(`[NextTankEnviTestProcess] ❌ 최종결과 테이블 생성 중 오류 발생:`, error);
-    }
+    // 최종결과 테이블 생성 비활성화 (xxx_FinalResult_AllCycles.csv 파일 생성하지 않음)
+    // console.log(`[NextTankEnviTestProcess] 📊 최종결과 테이블 생성 시작`);
+    // try {
+    //   const getTableOption = await getSafeGetTableOption();
+    //   const finalTable = createFinalResultTable(cycleResults, getTableOption);
+    //   const finalTableResult = saveFinalResultTable(finalTable, getTableOption, cycleNumber);
+    //   
+    //   if (finalTableResult && finalTableResult.success) {
+    //     console.log(`[NextTankEnviTestProcess] ✅ 최종결과 테이블 생성 성공: ${finalTableResult.filename}`);
+    //   } else {
+    //     console.error(`[NextTankEnviTestProcess] ❌ 최종결과 테이블 생성 실패: ${finalTableResult?.error || '알 수 없는 오류'}`);
+    //   }
+    // } catch (error) {
+    //   console.error(`[NextTankEnviTestProcess] ❌ 최종결과 테이블 생성 중 오류 발생:`, error);
+    // }
     
     // PowerSwitch 상태 OFF 설정
     setMachineRunningStatus(false);
