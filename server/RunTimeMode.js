@@ -398,11 +398,9 @@ function compareVoltage(readVoltage, expectedVoltage) {
   }
   
   // ±5% 허용 오차 계산
-  let tolerance = expectedVoltage * 0.05;
-  
-  if(tolerance < 0 ) tolerance = tolerance * -1.0;  // 2025.0818 by skjung
+  let tolerance = expectedVoltage * 0.1;
 
-  let minVoltage = expectedVoltage - tolerance;
+  let minVoltage = 200; 
   let maxVoltage = expectedVoltage + tolerance;
   
   // 범위 내에 있는지 확인
@@ -438,80 +436,6 @@ function truncateVoltageToTwoDecimals(voltageValue) {
   }
   
   return voltageValue;
-}
-
-/**
- * 여러 테스트 결과를 하나로 결합
- * @param {Array} testResults - 테스트 결과 배열
- * @returns {Object} 결합된 테스트 데이터
- */
-
-function combineTestResults(testResults) {
-  if (!testResults || testResults.length === 0) {
-    return null;
-  }
-  
-  // 첫 번째 결과를 기본으로 사용
-  const combinedData = {
-    modelName: testResults[0].modelName,
-    ProductNumber: testResults[0].ProductNumber,
-    inputVolt: testResults[0].inputVolt,
-    reportTable: [{
-      TestDate: testResults[0].reportTable[0].TestDate,
-      TestTime: testResults[0].reportTable[0].TestTime,
-      TestTemperature: testResults[0].reportTable[0].TestTemperature,
-      voltagTable: JSON.parse(JSON.stringify(RawVoltTable)) // 깊은 복사
-    }]
-  };
-  
-  // 모든 결과의 전압 데이터를 평균 계산
-  for (let k = 0; k < 3; k++) {
-    for (let i = 0; i < 10; i++) {
-      for (let j = 0; j < 4; j++) {
-        let totalVoltage = 0;
-        let validCount = 0;
-        let totalGood = 0;
-        let totalTests = 0;
-        
-        // 모든 테스트 결과에서 해당 위치의 데이터 수집
-        testResults.forEach(result => {
-          const voltageValue = result.reportTable[0].voltagTable[k][i][j];
-          if (voltageValue && voltageValue !== "-.-") {
-            // 전압값을 소수점 2자리로 자르기
-            const truncatedVoltageValue = truncateVoltageToTwoDecimals(voltageValue);
-            const voltagePart = truncatedVoltageValue.split('|')[0];
-            const comparisonPart = truncatedVoltageValue.split('|')[1];
-            
-            // 전압값 추출 (V 제거)
-            const voltage = parseFloat(voltagePart.replace('V', ''));
-            if (!isNaN(voltage)) {
-              totalVoltage += voltage;
-              validCount++;
-              totalTests++;
-              
-              if (comparisonPart === 'G') {
-                totalGood++;
-              }
-            }
-          }
-        });
-        
-        // 평균 계산 및 결과 저장
-        if (validCount > 0) {
-          // 소수점 2자리로 자르기 (3자리 이하 버림)
-          const averageVoltage = Math.floor((totalVoltage / validCount) * 100) / 100;
-          const averageGood = totalGood / totalTests;
-          const comparisonResult = averageGood >= 0.5 ? 'G' : 'N'; // 50% 이상이 Good이면 Good
-          
-          combinedData.reportTable[0].voltagTable[k][i][j] = `${averageVoltage}V|${comparisonResult}`;
-        } else {
-          combinedData.reportTable[0].voltagTable[k][i][j] = "-.-";
-        }
-      }
-    }
-  }
-  
-  return combinedData;
 }
 
 // 테스트를 위한 PowerTable 초기화 함수
