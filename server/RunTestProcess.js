@@ -371,6 +371,10 @@ function getDateDirectoryName() {
  */
 export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0], cycleNumber = 1, testType = '') {
   try {
+    // 디바이스 선택 상태 로드
+    const deviceStates = loadDeviceStates();
+    console.log(`[SaveData] 로드된 디바이스 선택 상태: ${JSON.stringify(deviceStates)}`);
+    
     // 데이터 유효성 검사 강화
     if (!data) {
       console.error('[SaveData] ❌ 데이터가 undefined입니다.');
@@ -579,17 +583,31 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
        for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
          const productNumber = `C00${deviceIndex + 5}`; // C005, C006, C007
          
-         // 전압별 그룹 결과에서 해당 디바이스 데이터 가져오기
-         const deviceData = voltageGroupResults[voltageIndex].devices[deviceIndex];
-         const measurementData = deviceData.measurementData;
+         // 디바이스 선택 상태 확인
+         const isDeviceSelected = deviceStates[deviceIndex];
          
-         // A.Q.L 계산 (전압별 그룹 결과 적용)
-         const voltageGroupResult = voltageGroupResults[voltageIndex];
-         const aql = voltageGroupResult.allGood ? 'G' : 'NG';
-         
-         // 테이블 행 생성 (그림과 동일한 형태)
-         console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - 최종 측정값: [${measurementData.join(', ')}], AQL: ${aql} (전압별 그룹 결과 적용)`);
-         csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
+         if (isDeviceSelected) {
+           // 선택된 디바이스의 경우 실제 측정값 표시
+           // 전압별 그룹 결과에서 해당 디바이스 데이터 가져오기
+           const deviceData = voltageGroupResults[voltageIndex].devices[deviceIndex];
+           const measurementData = deviceData.measurementData;
+           
+           // A.Q.L 계산 (전압별 그룹 결과 적용)
+           const voltageGroupResult = voltageGroupResults[voltageIndex];
+           const aql = voltageGroupResult.allGood ? 'G' : 'NG';
+           
+           // 테이블 행 생성 (그림과 동일한 형태)
+           console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - 최종 측정값: [${measurementData.join(', ')}], AQL: ${aql} (전압별 그룹 결과 적용) - 선택됨`);
+           csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
+         } else {
+           // 선택되지 않은 디바이스는 "-.-" 표시
+           const measurementData = Array(10).fill('-.-');
+           const aql = '-.-';
+           
+           // 테이블 행 생성 (선택되지 않은 디바이스)
+           console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - 선택되지 않음, AQL: ${aql}`);
+           csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
+         }
        }
      }
     
@@ -600,26 +618,31 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
     let failedTests = 0;
     
     for (let voltageIndex = 0; voltageIndex < 3; voltageIndex++) {
-      // 모든 Device의 모든 readCount 측정값을 확인
+      // 선택된 Device의 모든 readCount 측정값을 확인
       for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
-        // globalTableData 구조: devices[deviceIndex].tests[voltageIndex].reads[readIndex].channels[channelIndex]
-        if (globalTableData.devices[deviceIndex] && globalTableData.devices[deviceIndex].tests[voltageIndex]) {
-          const deviceReads = globalTableData.devices[deviceIndex].tests[voltageIndex].reads;
-          for (let readIndex = 0; readIndex < deviceReads.length; readIndex++) {
-            const read = deviceReads[readIndex];
-            if (read && read.channels[0] && read.channels[0].voltage !== null) {
-              totalTests++;
-              // 기준값과 비교하여 G/NG 판정
-              const voltage = read.channels[0].voltage;
-              const expectedVoltage = channelVoltages[0] || 220;
-              const tolerance = expectedVoltage * 0.10;
-              const minVoltage = 200;
-              const maxVoltage = expectedVoltage + tolerance;
-              
-              if (voltage >= minVoltage && voltage <= maxVoltage) {
-                passedTests++;
-              } else {
-                failedTests++;
+        // 디바이스 선택 상태 확인
+        const isDeviceSelected = deviceStates[deviceIndex];
+        
+        if (isDeviceSelected) {
+          // globalTableData 구조: devices[deviceIndex].tests[voltageIndex].reads[readIndex].channels[channelIndex]
+          if (globalTableData.devices[deviceIndex] && globalTableData.devices[deviceIndex].tests[voltageIndex]) {
+            const deviceReads = globalTableData.devices[deviceIndex].tests[voltageIndex].reads;
+            for (let readIndex = 0; readIndex < deviceReads.length; readIndex++) {
+              const read = deviceReads[readIndex];
+              if (read && read.channels[0] && read.channels[0].voltage !== null) {
+                totalTests++;
+                // 기준값과 비교하여 G/NG 판정
+                const voltage = read.channels[0].voltage;
+                const expectedVoltage = channelVoltages[0] || 220;
+                const tolerance = expectedVoltage * 0.10;
+                const minVoltage = 200;
+                const maxVoltage = expectedVoltage + tolerance;
+                
+                if (voltage >= minVoltage && voltage <= maxVoltage) {
+                  passedTests++;
+                } else {
+                  failedTests++;
+                }
               }
             }
           }
@@ -3146,6 +3169,44 @@ export async function runNextTankEnviTestProcess() {
 }
 
 /**
+ * 디바이스 선택 상태를 파일에서 읽어오는 함수
+ * @returns {Array} 선택된 디바이스 상태 배열 (10개 요소, true/false)
+ */
+function loadDeviceStates() {
+  try {
+    const deviceStatesPath = path.join(__dirname, 'device_states.json');
+    if (fs.existsSync(deviceStatesPath)) {
+      const data = fs.readFileSync(deviceStatesPath, 'utf-8');
+      const deviceStates = JSON.parse(data);
+      
+      // 배열 형태로 저장된 경우
+      if (Array.isArray(deviceStates) && deviceStates.length === 10) {
+        console.log(`[FinalDeviceReport] Device states loaded: ${JSON.stringify(deviceStates)}`);
+        return deviceStates;
+      }
+      // 기존 객체 형태로 저장된 경우 (마이그레이션)
+      else if (typeof deviceStates === 'object' && deviceStates !== null) {
+        console.log(`[FinalDeviceReport] Migrating from object format to array format`);
+        const expectedDevices = [
+          "#1 Device", "#2 Device", "#3 Device", "#4 Device", "#5 Device",
+          "#6 Device", "#7 Device", "#8 Device", "#9 Device", "#10 Device"
+        ];
+        const arrayFormat = expectedDevices.map(device => deviceStates[device] || false);
+        console.log(`[FinalDeviceReport] Migrated device states: ${JSON.stringify(arrayFormat)}`);
+        return arrayFormat;
+      }
+    }
+  } catch (error) {
+    console.warn(`[FinalDeviceReport] Failed to load device states: ${error.message}`);
+  }
+  
+  // 기본값: 10개 요소 배열 (첫 번째 기기만 선택된 상태)
+  const defaultStates = [true, false, false, false, false, false, false, false, false, false];
+  console.log(`[FinalDeviceReport] Using default device states: ${JSON.stringify(defaultStates)}`);
+  return defaultStates;
+}
+
+/**
  * 모든 사이클의 테스트 결과를 종합하여 디바이스별 G/N 결론 리포트 생성
  * @param {number} cycleNumber - 총 사이클 수
  * @returns {Object} 종합 리포트 생성 결과
@@ -3153,6 +3214,10 @@ export async function runNextTankEnviTestProcess() {
 export async function generateFinalDeviceReport(cycleNumber) {
   try {
     console.log(`[FinalDeviceReport] 디바이스별 종합 리포트 생성 시작 - ${cycleNumber} 사이클`);
+    
+    // 디바이스 선택 상태 로드
+    const deviceStates = loadDeviceStates();
+    console.log(`[FinalDeviceReport] 로드된 디바이스 선택 상태: ${JSON.stringify(deviceStates)}`);
     
     // ===== 현재 테스트 디렉토리에서만 CSV 파일 검색 =====
     let testDirectoryPath = null;
@@ -3422,35 +3487,57 @@ export async function generateFinalDeviceReport(cycleNumber) {
     
     // 2단계: 전압별 그룹 결과를 바탕으로 디바이스별 최종 결론 생성
     for (const [deviceName, results] of Object.entries(deviceResults)) {
-      if (results.totalTests > 0) {
-        // 해당 디바이스가 참여한 전압 그룹들의 결과를 확인
-        let deviceConclusion = 'G'; // 기본값은 G
-        
-        if (results.measurements) {
-          for (const [voltage, measurementData] of Object.entries(results.measurements)) {
-            if (voltageGroupResults[voltage] && !voltageGroupResults[voltage].allGood) {
-              // 해당 전압 그룹에서 하나라도 N이 있으면 전체 디바이스는 N
-              deviceConclusion = 'N';
-              break;
+      // 디바이스 선택 상태 확인 (Device 1 = index 0, Device 2 = index 1, Device 3 = index 2)
+      const deviceIndex = parseInt(deviceName.split(' ')[1]) - 1; // Device 1 -> index 0
+      const isDeviceSelected = deviceStates[deviceIndex];
+      
+      if (isDeviceSelected) {
+        if (results.totalTests > 0) {
+          // 해당 디바이스가 참여한 전압 그룹들의 결과를 확인
+          let deviceConclusion = 'G'; // 기본값은 G
+          
+          if (results.measurements) {
+            for (const [voltage, measurementData] of Object.entries(results.measurements)) {
+              if (voltageGroupResults[voltage] && !voltageGroupResults[voltage].allGood) {
+                // 해당 전압 그룹에서 하나라도 N이 있으면 전체 디바이스는 N
+                deviceConclusion = 'N';
+                break;
+              }
             }
           }
+          
+          finalConclusions[deviceName] = {
+            conclusion: deviceConclusion,
+            totalTests: results.totalTests,
+            passedTests: results.passedTests,
+            failedTests: results.failedTests,
+            passRate: ((results.passedTests / results.totalTests) * 100).toFixed(2),
+            channels: results.channels,
+            measurements: results.measurements || {}, // 상세한 측정 데이터 포함
+            voltageGroupResults: voltageGroupResults, // 전압별 그룹 결과 포함
+            isSelected: true
+          };
+          
+          console.log(`[FinalDeviceReport] ${deviceName} 최종 결론: ${deviceConclusion} (전압별 그룹 판단 적용) - 선택됨`);
+          console.log(`[FinalDeviceReport] 전압별 그룹 결과: 18V=${voltageGroupResults['18V'].allGood ? 'G' : 'N'}, 24V=${voltageGroupResults['24V'].allGood ? 'G' : 'N'}, 30V=${voltageGroupResults['30V'].allGood ? 'G' : 'N'}`);
+        } else {
+          console.log(`[FinalDeviceReport] ${deviceName}: 테스트 없음 - 스킵`);
         }
-        
+      } else {
+        // 선택되지 않은 디바이스는 "-.-" 표시
         finalConclusions[deviceName] = {
-          conclusion: deviceConclusion,
-          totalTests: results.totalTests,
-          passedTests: results.passedTests,
-          failedTests: results.failedTests,
-          passRate: ((results.passedTests / results.totalTests) * 100).toFixed(2),
+          conclusion: '-.-',
+          totalTests: 0,
+          passedTests: 0,
+          failedTests: 0,
+          passRate: '0.00',
           channels: results.channels,
-          measurements: results.measurements || {}, // 상세한 측정 데이터 포함
-          voltageGroupResults: voltageGroupResults // 전압별 그룹 결과 포함
+          measurements: {},
+          voltageGroupResults: voltageGroupResults,
+          isSelected: false
         };
         
-        console.log(`[FinalDeviceReport] ${deviceName} 최종 결론: ${deviceConclusion} (전압별 그룹 판단 적용)`);
-        console.log(`[FinalDeviceReport] 전압별 그룹 결과: 18V=${voltageGroupResults['18V'].allGood ? 'G' : 'N'}, 24V=${voltageGroupResults['24V'].allGood ? 'G' : 'N'}, 30V=${voltageGroupResults['30V'].allGood ? 'G' : 'N'}`);
-      } else {
-        console.log(`[FinalDeviceReport] ${deviceName}: 테스트 없음 - 스킵`);
+        console.log(`[FinalDeviceReport] ${deviceName} 최종 결론: -.- (선택되지 않음)`);
       }
     }
     
@@ -3556,35 +3643,52 @@ export async function generateFinalDeviceReport(cycleNumber) {
         const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
         const deviceName = `Device ${productIndex + 1}`; // Device 1, Device 2, Device 3
         
+        // 디바이스 선택 상태 확인
+        const deviceIndex = productIndex; // Device 1 = index 0, Device 2 = index 1, Device 3 = index 2
+        const isDeviceSelected = deviceStates[deviceIndex];
+        
         // 해당 디바이스의 1st-10th 데이터 생성 (실제 측정값 기반)
         const measurementData = [];
         let validMeasurements = 0;
         
-        // Device별 측정값을 순차적으로 저장 (최대 10개)
-        if (finalConclusions[deviceName] && finalConclusions[deviceName].totalTests > 0) {
-          const deviceResult = finalConclusions[deviceName];
-          
-          // 실제 측정값이 있는 경우 (G/N 결과를 전압값으로 변환)
-          for (let i = 0; i < 10; i++) {
-            if (deviceResult.conclusion === 'G') {
-              measurementData.push('G');
-              validMeasurements++;
-            } else {
-              measurementData.push('N');
-              validMeasurements++;
+        if (isDeviceSelected) {
+          // 선택된 디바이스의 경우 실제 측정값 표시
+          if (finalConclusions[deviceName] && finalConclusions[deviceName].totalTests > 0) {
+            const deviceResult = finalConclusions[deviceName];
+            
+            // 실제 측정값이 있는 경우 (G/N 결과를 전압값으로 변환)
+            for (let i = 0; i < 10; i++) {
+              if (deviceResult.conclusion === 'G') {
+                measurementData.push('G');
+                validMeasurements++;
+              } else if (deviceResult.conclusion === 'N') {
+                measurementData.push('N');
+                validMeasurements++;
+              } else {
+                measurementData.push('-');
+              }
+            }
+          } else {
+            // 측정값이 없는 경우
+            for (let i = 0; i < 10; i++) {
+              measurementData.push('-');
             }
           }
         } else {
-          // 측정값이 없는 경우
+          // 선택되지 않은 디바이스는 "-.-" 표시
           for (let i = 0; i < 10; i++) {
-            measurementData.push('-');
+            measurementData.push('-.-');
           }
         }
         
-        // A.Q.L 계산 (전압별 그룹 결과 적용)
-        // 해당 전압 그룹의 모든 디바이스가 G이면 G, 하나라도 N이면 N
-        const voltageGroupResult = finalConclusions[deviceName]?.voltageGroupResults?.[`${inputVoltage}V`];
-        const aql = voltageGroupResult && voltageGroupResult.allGood ? 'G' : 'N';
+        // A.Q.L 계산 (선택되지 않은 디바이스는 "-.-")
+        let aql;
+        if (isDeviceSelected) {
+          const voltageGroupResult = finalConclusions[deviceName]?.voltageGroupResults?.[`${inputVoltage}V`];
+          aql = voltageGroupResult && voltageGroupResult.allGood ? 'G' : 'N';
+        } else {
+          aql = '-.-';
+        }
         
         // 테이블 행 생성 (saveTotaReportTableToFile 패턴)
         reportContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
@@ -3596,9 +3700,9 @@ export async function generateFinalDeviceReport(cycleNumber) {
     let passedTests = 0;
     let failedTests = 0;
     
-    // 모든 Device의 모든 측정값을 확인하여 통계 계산
+    // 선택된 Device의 모든 측정값을 확인하여 통계 계산
     for (const [deviceName, conclusion] of Object.entries(finalConclusions)) {
-      if (conclusion.totalTests > 0) {
+      if (conclusion.isSelected && conclusion.totalTests > 0) {
         totalTests += conclusion.totalTests;
         passedTests += conclusion.passedTests;
         failedTests += conclusion.failedTests;
@@ -3685,10 +3789,11 @@ export async function generateFinalDeviceReport(cycleNumber) {
      reportContent += `Document Version,PS-14(Rev.1)\n`;
      reportContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
     
-    // 통계 계산
-    const totalDevices = Object.keys(finalConclusions).length > 0 ? Object.keys(finalConclusions).length : 10;
-    const goodDevices = Object.values(finalConclusions).filter(c => c.conclusion === 'G').length;
-    const notGoodDevices = Object.keys(finalConclusions).length > 0 ? Object.values(finalConclusions).filter(c => c.conclusion === 'N').length : 10;
+    // 통계 계산 (선택된 디바이스만 고려)
+    const selectedDevices = Object.values(finalConclusions).filter(c => c.isSelected);
+    const totalDevices = selectedDevices.length;
+    const goodDevices = selectedDevices.filter(c => c.conclusion === 'G').length;
+    const notGoodDevices = selectedDevices.filter(c => c.conclusion === 'N').length;
     
     // 파일 저장
     fs.writeFileSync(reportFilePath, reportContent, 'utf8');
