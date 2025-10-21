@@ -102,6 +102,7 @@ const [pendingExit, setPendingExit] = useState(false);
 const [showTimeWindow, setShowTimeWindow] = useState(false);
 const [testDuration, setTestDuration] = useState(0); // 총 테스트 시간 (분)
 const [testStartTime, setTestStartTime] = useState(null); // 테스트 시작 시간
+const [isSimulationEnabled, setIsSimulationEnabled] = useState(false); // 시뮬레이션 모드 상태
 
 // 시간진행 윈도우 표시/숨김 함수
 const showTimeProgressWindow = (duration) => {
@@ -114,6 +115,12 @@ const hideTimeProgressWindow = () => {
   setShowTimeWindow(false);
   setTestDuration(0);
   setTestStartTime(null);
+};
+
+// 시뮬레이션 상태 변경 핸들러
+const handleSimulationChange = (newSimulationState) => {
+  console.log('🔄 Main: Simulation state changed to:', newSimulationState);
+  setIsSimulationEnabled(newSimulationState);
 };
 
 // 디버깅을 위한 로그
@@ -244,6 +251,19 @@ const handleWebSocketMessage = (event) => {
     if (event.data.includes('테스트 시작 - 시간 모드 테스트 프로세스')) {
       console.log('🔌 Time mode test process started - waiting for server time data');
       // 서버에서 [TIME_PROGRESS] 메시지를 받을 때 윈도우가 표시됨
+    }
+  }
+  // [SIMULATION_STATUS] 메시지 처리
+  else if (typeof event.data === 'string' && event.data.startsWith('[SIMULATION_STATUS]')) {
+    try {
+      const match = event.data.match(/\[SIMULATION_STATUS\] (.*)/);
+      if (match && match[1]) {
+        const simulationStatus = match[1] === 'true';
+        console.log('🔄 Received simulation status from server:', simulationStatus);
+        setIsSimulationEnabled(simulationStatus);
+      }
+    } catch (error) {
+      console.error('Failed to parse simulation status from server:', error);
     }
   }
   // [Voltage data: ...] 메시지 파싱
@@ -860,6 +880,7 @@ const sendMessage = () => {
               onSelectionChange={handleSelectionFromDeviceSelect} 
               wsConnection={ws.current}
               onTimeModeClick={handleTimeModeButtonClick}
+              onSimulationChange={handleSimulationChange}
             />
           </div>
           <div className={styles.bodyItem}>
@@ -868,6 +889,7 @@ const sendMessage = () => {
               wsConnection={ws.current} 
               channelVoltages={channelVoltages} // 동적으로 받은 channelVoltages 설정값
               selectedDevices={selectedDevices} // 선택된 디바이스 인덱스 배열
+              isSimulationEnabled={isSimulationEnabled} // 시뮬레이션 모드 상태
             />
             {/* 디버깅용 정보 표시 - 숨김 처리 */}
             {/* <div style={{ 

@@ -40,6 +40,14 @@ let currentTestDirectoryName = null;
 // 테스트 실행별 전체 디렉토리 경로를 저장하는 전역 변수
 let currentTestDirectoryPath = null;
 
+// 진행상황 추적을 위한 전역 변수들
+let currentCycle = 0;
+let totalCycles = 0;
+let currentTestPhase = ''; // 'high_temp' 또는 'low_temp'
+let currentCallIndex = 0; // 현재 runSinglePageProcess 호출 순서
+let totalCallCount = 0; // 전체 runSinglePageProcess 호출 횟수
+let currentTestType = ''; // '고온 테스트' 또는 '저온 테스트'
+
 // 전역 변수를 설정하는 함수
 export function setCurrentTestDirectoryPath(path) {
   currentTestDirectoryPath = path;
@@ -50,6 +58,53 @@ export function setCurrentTestDirectoryPath(path) {
 export function setWebSocketServer(wss) {
   globalWss = wss;
   console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
+}
+
+// 진행상황 추적 변수들을 초기화하는 함수
+function resetProgressTracking() {
+  currentCycle = 0;
+  totalCycles = 0;
+  currentTestPhase = '';
+  currentCallIndex = 0;
+  totalCallCount = 0;
+  currentTestType = '';
+  console.log(`[ProgressTracking] 진행상황 추적 변수 초기화 완료`);
+}
+
+// 진행상황을 업데이트하고 WebSocket으로 전송하는 함수
+function updateAndSendProgress(cycle, totalCycles, testPhase, callIndex, totalCallCount, testType) {
+  // 전역 변수 업데이트
+  currentCycle = cycle;
+  totalCycles = totalCycles;
+  currentTestPhase = testPhase;
+  currentCallIndex = callIndex;
+  totalCallCount = totalCallCount;
+  currentTestType = testType;
+  
+  // WebSocket으로 진행상황 전송
+  if (globalWss) {
+    const progressMessage = `[TEST_PROGRESS_DETAIL] ${JSON.stringify({
+      currentCycle: cycle,
+      totalCycles: totalCycles,
+      testPhase: testPhase,
+      currentCallIndex: callIndex,
+      totalCallCount: totalCallCount,
+      testType: testType,
+      displayText: `사이클 ${cycle}/${totalCycles} - ${testType} - ${callIndex}/${totalCallCount} (현재/총 측정 수)`,
+      timestamp: new Date().toISOString()
+    })}`;
+    
+    let sentCount = 0;
+    globalWss.clients.forEach(client => {
+      if (client.readyState === 1) { // WebSocket.OPEN
+        client.send(progressMessage);
+        sentCount++;
+      }
+    });
+    console.log(`[ProgressTracking] 진행상황 전송 완료 - 클라이언트 수: ${sentCount}, 내용: 사이클 ${cycle}/${totalCycles} - ${testType} - ${callIndex}/${totalCallCount}`);
+  } else {
+    console.warn(`[ProgressTracking] 전역 WebSocket 서버가 설정되지 않음 - 진행상황 전송 불가`);
+  }
 }
 
 // 디바운싱된 테이블 데이터 전송 함수
@@ -1927,6 +1982,9 @@ export async function runNextTankEnviTestProcess() {
     const modeText = SIMULATION_PROC ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
     
+    // 진행상황 추적 변수 초기화
+    resetProgressTracking();
+    
     // 테이블 데이터 전송 디바운싱 변수 초기화
     if (tableDataBroadcastTimeout) {
       clearTimeout(tableDataBroadcastTimeout);
@@ -2023,6 +2081,17 @@ export async function runNextTankEnviTestProcess() {
     }
     // cycleNumber 횟수만큼 반복
     const cycleNumber = getTableOption.delaySettings.cycleNumber || 1; // 기본값 1
+    
+    // 진행상황 추적을 위한 총 사이클 수 설정
+    totalCycles = cycleNumber;
+    console.log(`[NextTankEnviTestProcess] 총 사이클 수 설정: ${totalCycles}`);
+    
+    // 전체 runSinglePageProcess 호출 횟수 계산
+    let totalCalls = 0;
+    if (highTempEnabled) totalCalls += cycleNumber; // 고온 테스트 × 사이클 수
+    if (lowTempEnabled) totalCalls += cycleNumber;  // 저온 테스트 × 사이클 수
+    totalCallCount = totalCalls;
+    console.log(`[NextTankEnviTestProcess] 전체 runSinglePageProcess 호출 횟수 계산: ${totalCallCount} (고온: ${highTempEnabled ? cycleNumber : 0}, 저온: ${lowTempEnabled ? cycleNumber : 0})`);
 
     if( SIMULATION_PROC === false ){
       await RelayAllOff();                      // jsk debug return error 에 대한 처리를 할 것
@@ -2378,6 +2447,20 @@ export async function runNextTankEnviTestProcess() {
             
             while (!singlePageSuccess && retryCount < maxRetries) {
               try {
+                // 현재 호출 순서 계산 (고온 테스트)
+                let currentCallIndex = 0;
+                if (highTempEnabled) {
+                  // 고온 테스트가 먼저 실행되므로: (cycle - 1) * 2 + 1 (고온이 첫 번째)
+                  currentCallIndex = (cycle - 1) * 2 + 1;
+                  if (!lowTempEnabled) {
+                    // 저온 테스트가 비활성화된 경우: (cycle - 1) * 1 + 1
+                    currentCallIndex = cycle;
+                  }
+                }
+                
+                // runSinglePageProcess 호출 전 진행상황 업데이트
+                updateAndSendProgress(cycle, totalCycles, 'high_temp', currentCallIndex, totalCallCount, '고온 테스트');
+                
                 singlePageResult = await runSinglePageProcess(readCount);
                 
                 if ( singlePageResult.status === 'stopped') {
@@ -2817,6 +2900,21 @@ export async function runNextTankEnviTestProcess() {
             
             while (!singlePageSuccess && retryCount < maxRetries) {
               try {
+                // 현재 호출 순서 계산 (저온 테스트)
+                let currentCallIndex = 0;
+                if (lowTempEnabled) {
+                  if (highTempEnabled) {
+                    // 고온과 저온 모두 활성화된 경우: (cycle - 1) * 2 + 2 (저온이 두 번째)
+                    currentCallIndex = (cycle - 1) * 2 + 2;
+                  } else {
+                    // 고온이 비활성화된 경우: (cycle - 1) * 1 + 1
+                    currentCallIndex = cycle;
+                  }
+                }
+                
+                // runSinglePageProcess 호출 전 진행상황 업데이트
+                updateAndSendProgress(cycle, totalCycles, 'low_temp', currentCallIndex, totalCallCount, '저온 테스트');
+                
                 singlePageResult = await runSinglePageProcess(lowReadCount);
                 
                 if (singlePageResult.status === 'stopped') {

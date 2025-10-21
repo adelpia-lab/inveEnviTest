@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import { useIsClient } from '../../lib/useIsClient';
 
-export default function DeviceSelect({initialValue, onSelectionChange, wsConnection, onTimeModeClick}) {
+export default function DeviceSelect({initialValue, onSelectionChange, wsConnection, onTimeModeClick, onSimulationChange}) {
   const devices = [
     { value: "#1 Device", label: "#1", index: 0 },
     { value: "#2 Device", label: "#2", index: 1 },
@@ -208,11 +208,24 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
   };
 
   const handleSimulationToggle = () => {
+    const newSimulationState = !isSimulationEnabled;
+    
+    // 로컬 상태 먼저 업데이트
+    setIsSimulationEnabled(newSimulationState);
+    console.log('🔄 Local simulation state toggled:', newSimulationState);
+    
+    // 부모 컴포넌트에 시뮬레이션 상태 변경 알림
+    if (onSimulationChange) {
+      onSimulationChange(newSimulationState);
+    }
+    
+    // WebSocket 연결이 있으면 서버에도 전송
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-      const newSimulationState = !isSimulationEnabled;
       const message = `[SIMULATION_TOGGLE] ${newSimulationState}`;
       wsConnection.send(message);
-      console.log('📤 Toggling simulation mode:', message);
+      console.log('📤 Toggling simulation mode on server:', message);
+    } else {
+      console.log('⚠️ WebSocket not connected - simulation state changed locally only');
     }
   };
 
@@ -357,7 +370,6 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           color={isSimulationEnabled ? "warning" : "info"}
           onClick={handleSimulationToggle}
           size="small"
-          disabled={!wsConnection || wsConnection.readyState !== WebSocket.OPEN}
           sx={{ 
             py: 0.5,
             px: 1,

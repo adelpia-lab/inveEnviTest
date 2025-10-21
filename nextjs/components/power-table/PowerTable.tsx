@@ -9,6 +9,7 @@ interface PowerTableProps {
   wsConnection?: WebSocket | null;
   channelVoltages?: number[]; // 채널 전압 설정 추가
   selectedDevices?: number[]; // 선택된 디바이스 인덱스 배열
+  isSimulationEnabled?: boolean; // 시뮬레이션 모드 상태
 }
 
 interface VoltageData {
@@ -36,7 +37,7 @@ interface AccumulatedTableData {
   };
 }
 
-const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channelVoltages = [220], selectedDevices = [1, 2, 3] }: PowerTableProps) {
+const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channelVoltages = [220], selectedDevices = [1, 2, 3], isSimulationEnabled = false }: PowerTableProps) {
   // selectedDevices props 검증 및 정규화
   const normalizedSelectedDevices = React.useMemo(() => {
     // props로 전달된 selectedDevices가 유효하지 않으면 기본값 사용
@@ -101,6 +102,10 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
   // 테스트 진행상황 메시지 보호를 위한 상태
   const [testProgressMessage, setTestProgressMessage] = useState<string>('');
   const [isTestProgressActive, setIsTestProgressActive] = useState<boolean>(false);
+  
+  // 상세 진행상황 메시지를 위한 상태
+  const [detailedProgressMessage, setDetailedProgressMessage] = useState<string>('');
+  const [isDetailedProgressActive, setIsDetailedProgressActive] = useState<boolean>(false);
   
   // 테이블 상태 관리 개선
   const [isTableStable, setIsTableStable] = useState<boolean>(true);
@@ -1021,6 +1026,11 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
           resetTable();
           setTestProgressMessage('');
           setIsTestProgressActive(false);
+          
+          // 상세 진행상황 메시지 초기화
+          setDetailedProgressMessage('');
+          setIsDetailedProgressActive(false);
+          
           console.log('✅ PowerTable: 파워스위치 ON - 테이블 초기화 완료');
         } else if (message.includes('STOPPING - Processing stop request')) {
           // 중지 처리 중 메시지 표시
@@ -1051,6 +1061,11 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
             }
           }
           setIsTestProgressActive(true);
+          
+          // 상세 진행상황 메시지 초기화
+          setDetailedProgressMessage('');
+          setIsDetailedProgressActive(false);
+          
           console.log('🔌 PowerTable: 파워스위치 OFF 상태 감지 - 중단 시작 대기중 메시지 표시');
         }
         return; // 처리 완료 후 종료
@@ -1063,7 +1078,28 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
         return; // 처리 완료 후 종료
       }
       
-      // 6. 파워 테이블 강제 업데이트 메시지 처리
+      // 6. 상세 진행상황 메시지 처리
+      if (typeof message === 'string' && message.startsWith('[TEST_PROGRESS_DETAIL]')) {
+        try {
+          const match = message.match(/\[TEST_PROGRESS_DETAIL\] (.+)/);
+          if (match && match[1]) {
+            const progressData = JSON.parse(match[1]);
+            console.log('📊 PowerTable: 상세 진행상황 메시지 수신:', progressData);
+            
+            // 상세 진행상황 메시지 설정
+            setDetailedProgressMessage(progressData.displayText || '');
+            setIsDetailedProgressActive(true);
+            
+            // 기존 테스트 진행상황 메시지는 비활성화 (상세 메시지가 우선)
+            setIsTestProgressActive(false);
+          }
+        } catch (error) {
+          console.error('PowerTable: 상세 진행상황 메시지 파싱 오류:', error);
+        }
+        return; // 처리 완료 후 종료
+      }
+      
+      // 7. 파워 테이블 강제 업데이트 메시지 처리
       if (typeof message === 'string' && message.startsWith('[POWER_TABLE_FORCE_UPDATE]')) {
         try {
           const match = message.match(/\[POWER_TABLE_FORCE_UPDATE\] (\[.*\])/);
@@ -1419,7 +1455,19 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
               verticalAlign: 'middle',
               textAlign: 'center'
             }}>
-              {isTestProgressActive && testProgressMessage ? (
+              {isDetailedProgressActive && detailedProgressMessage ? (
+                <div style={{
+                  display: 'inline-block',
+                  fontSize: '18px',
+                  fontWeight: '600',
+                  color: '#86EFAC',
+                  backgroundColor: 'rgba(20, 83, 45, 0.3)',
+                  borderRadius: '8px',
+                  padding: '8px 16px'
+                }}>
+                  <span style={{ color: '#F472B6' }}>📢</span> {detailedProgressMessage}
+                </div>
+              ) : isTestProgressActive && testProgressMessage ? (
                 <div style={{
                   display: 'inline-block',
                   fontSize: '18px',
@@ -1458,69 +1506,71 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                 gap: '8px',
                 justifyContent: 'flex-end'
               }}>
-                
-                
-                
-                <button
-                  onClick={generateDemoCompleteTable}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#F59E0B',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  🎯 데모 테이블
-                </button>
-                <button
-                  onClick={getCurrentTableData}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#06B6D4',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  📊 데이터 요청
-                </button>
-                <button
-                  onClick={resetTableData}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#F97316',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  🔄 서버 초기화
-                </button>
-                <button
-                  onClick={resetTable}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#EF4444',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  🔄 테이블 초기화
-                </button>
+                {/* 시뮬레이션 모드가 활성화된 경우에만 버튼들 표시 */}
+                {isSimulationEnabled && (
+                  <>
+                    <button
+                      onClick={generateDemoCompleteTable}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#F59E0B',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      🎯 데모 테이블
+                    </button>
+                    <button
+                      onClick={getCurrentTableData}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#06B6D4',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      📊 데이터 요청
+                    </button>
+                    <button
+                      onClick={resetTableData}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#F97316',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      🔄 서버 초기화
+                    </button>
+                    <button
+                      onClick={resetTable}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#EF4444',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      🔄 테이블 초기화
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={handleGenerateReport}
                   style={{
