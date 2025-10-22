@@ -1076,12 +1076,25 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
         try {
           const match = message.match(/\[TEST_PROGRESS_DETAIL\] (.+)/);
           if (match && match[1]) {
-            const progressData = JSON.parse(match[1]);
-            console.log('📊 PowerTable: 상세 진행상황 메시지 수신:', progressData);
+            const messageContent = match[1];
             
-            // 상세 진행상황 메시지 설정
-            setDetailedProgressMessage(progressData.displayText || '');
-            setIsDetailedProgressActive(true);
+            // JSON 형식인지 확인 (중괄호로 시작하는지 체크)
+            if (messageContent.trim().startsWith('{')) {
+              // JSON 형식 메시지 처리
+              const progressData = JSON.parse(messageContent);
+              console.log('📊 PowerTable: 상세 진행상황 메시지 수신 (JSON):', progressData);
+              
+              // 상세 진행상황 메시지 설정
+              setDetailedProgressMessage(progressData.displayText || '');
+              setIsDetailedProgressActive(true);
+            } else {
+              // 일반 텍스트 형식 메시지 처리
+              console.log('📊 PowerTable: 상세 진행상황 메시지 수신 (텍스트):', messageContent);
+              
+              // 텍스트 메시지를 그대로 표시
+              setDetailedProgressMessage(messageContent);
+              setIsDetailedProgressActive(true);
+            }
             
             // 기존 테스트 진행상황 메시지는 비활성화 (상세 메시지가 우선)
             setIsTestProgressActive(false);
