@@ -454,7 +454,7 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
     return 1; // 기본값으로 채널 1 반환
   }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
 
-  // GOOD/NO GOOD 판단 함수
+  // GOOD/NO GOOD 판단 함수 (고정 범위: 200 <= 측정값 <= 242)
   const determineGoodNoGood = useCallback((deviceNumber: number, testNumber: number, channelNumber: number, measuredVoltage: string) => {
     try {
       // 측정된 전압값이 유효하지 않으면 NO GOOD
@@ -473,16 +473,9 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
         return 'NO GOOD';
       }
 
-      // 해당 채널의 설정된 전압값 가져오기
-      const expectedVoltage = channelVoltages[0];
-      if (expectedVoltage === undefined || expectedVoltage === null) {
-        return 'NO GOOD';
-      }
-
-      // 허용 오차 범위 (±5%)
-      const tolerance = expectedVoltage * 0.05;
-      const minVoltage = expectedVoltage - tolerance;
-      const maxVoltage = expectedVoltage + tolerance;
+      // 고정 범위: 200 <= 측정값 <= 242 (200과 242 포함)
+      const minVoltage = 200;
+      const maxVoltage = 242;
 
       // 측정값이 허용 범위 내에 있는지 확인
       if (measuredValue >= minVoltage && measuredValue <= maxVoltage) {
@@ -494,7 +487,7 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
       console.error(`PowerTable: GOOD/NO GOOD 판단 오류 - device: ${deviceNumber}, test: ${testNumber}, channel: ${channelNumber}`, error);
       return 'NO GOOD';
     }
-  }, [channelVoltages]); // channelVoltages가 변경될 때마다 함수 재생성
+  }, []); // channelVoltages 의존성 제거 (고정 범위 사용)
 
 
   // 누적된 전압 데이터 표시 함수 개선

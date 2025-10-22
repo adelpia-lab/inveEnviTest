@@ -687,12 +687,10 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
               const read = deviceReads[readIndex];
               if (read && read.channels[0] && read.channels[0].voltage !== null) {
                 totalTests++;
-                // 기준값과 비교하여 G/NG 판정
+                // 고정 범위로 G/NG 판정: 200 <= 측정값 <= 242
                 const voltage = read.channels[0].voltage;
-                const expectedVoltage = channelVoltages[0] || 220;
-                const tolerance = expectedVoltage * 0.10;
                 const minVoltage = 200;
-                const maxVoltage = expectedVoltage + tolerance;
+                const maxVoltage = 242;
                 
                 if (voltage >= minVoltage && voltage <= maxVoltage) {
                   passedTests++;
@@ -736,9 +734,9 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
 }
 
 /**
- * 전압값을 설정값과 비교하여 ±5% 범위 내에 있는지 확인
+ * 전압값을 고정 범위(200 <= 측정값 <= 242)로 비교하여 G/N 판정
  * @param {number} readVoltage - 읽은 전압값
- * @param {number} expectedVoltage - 설정된 전압값
+ * @param {number} expectedVoltage - 설정된 전압값 (사용하지 않음, 호환성을 위해 유지)
  * @returns {string} "G" (Good) 또는 "N" (Not Good)
  */
 function compareVoltage(readVoltage, expectedVoltage) {
@@ -747,11 +745,9 @@ function compareVoltage(readVoltage, expectedVoltage) {
     return "N";
   }
   
-  // ±5% 허용 오차 계산
-  let tolerance = expectedVoltage * 0.1;
-  
-  let minVoltage = 200; 
-  let maxVoltage = expectedVoltage + tolerance;
+  // 고정 범위: 200 <= 측정값 <= 242 (200과 242 포함)
+  const minVoltage = 200;
+  const maxVoltage = 242;
   
   // 범위 내에 있는지 확인
   if (readVoltage >= minVoltage && readVoltage <= maxVoltage) {
@@ -848,7 +844,7 @@ export async function runSinglePageProcess(readCount = 1) {
     const currentTable = {
       modelName: getTableOption.modelName || 'Unknown Model',
       ProductNumber: getTableOption.ProductNumber || ['Unknown'],
-      inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
+      inputVolt: getTableOption.outVoltSettings || [24, 18, 30],
       reportTable: [{
         TestDate: new Date().toLocaleDateString('en-US'),
         TestTime: new Date().toLocaleTimeString('en-US'),
@@ -1645,18 +1641,16 @@ function createFinalResultTable(allCycleResults, getTableOption) {
                     const voltage = channel.voltage;
                     const truncatedVoltage = Math.floor(voltage); // 정수로 변환
                     
-                    // 기준값과 비교하여 G/N 판정 (saveTotaReportTableToFile과 동일한 로직)
-                    const expectedVoltage = getTableOption.channelVoltages?.[0] || 24; // 첫 번째 채널 전압을 기준값으로 사용
-                    const tolerance = expectedVoltage * 0.1; // ±5% 허용 오차
-                    const minVoltage = 200; 
-                    const maxVoltage = expectedVoltage + tolerance;
+                    // 고정 범위로 G/N 판정: 200 <= 측정값 <= 242
+                    const minVoltage = 200;
+                    const maxVoltage = 242;
                     
                     const isGood = (truncatedVoltage >= minVoltage && truncatedVoltage <= maxVoltage);
                     
                     voltageValues.push(truncatedVoltage);
                     goodCounts.push(isGood ? 1 : 0);
                     
-                    console.log(`[CreateFinalResultTable] Device ${deviceIndex + 1}, Voltage ${voltageIndex + 1}, Read ${readIndex + 1}: ${truncatedVoltage}V (${isGood ? 'G' : 'N'}) - 기준값: ${expectedVoltage}V ±5%`);
+                    console.log(`[CreateFinalResultTable] Device ${deviceIndex + 1}, Voltage ${voltageIndex + 1}, Read ${readIndex + 1}: ${truncatedVoltage}V (${isGood ? 'G' : 'N'}) - 고정 범위: 200 <= 측정값 <= 242`);
                   }
                 }
               }

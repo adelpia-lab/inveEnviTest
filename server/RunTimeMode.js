@@ -380,9 +380,9 @@ function getDateDirectoryName() {
 
 
 /**
- * 전압값을 설정값과 비교하여 ±5% 범위 내에 있는지 확인
+ * 전압값을 고정 범위(200 <= 측정값 <= 242)로 비교하여 G/N 판정
  * @param {number} readVoltage - 읽은 전압값
- * @param {number} expectedVoltage - 설정된 전압값
+ * @param {number} expectedVoltage - 설정된 전압값 (사용하지 않음, 호환성을 위해 유지)
  * @returns {string} "G" (Good) 또는 "N" (Not Good)
  */
 function compareVoltage(readVoltage, expectedVoltage) {
@@ -391,11 +391,9 @@ function compareVoltage(readVoltage, expectedVoltage) {
     return "N";
   }
   
-  // ±5% 허용 오차 계산
-  let tolerance = expectedVoltage * 0.1;
-
-  let minVoltage = 200; 
-  let maxVoltage = expectedVoltage + tolerance;
+  // 고정 범위: 200 <= 측정값 <= 242 (200과 242 포함)
+  const minVoltage = 200;
+  const maxVoltage = 242;
   
   // 범위 내에 있는지 확인
   if (readVoltage >= minVoltage && readVoltage <= maxVoltage) {
