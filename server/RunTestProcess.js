@@ -598,12 +598,11 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
            measurementData.push('-');
          }
          
-         // 개별 디바이스 A.Q.L 계산
+         // 개별 디바이스 A.Q.L 계산 - 서버와 동일한 고정 범위 사용
          const validMeasurements = measurementData.filter(val => val !== '-');
-         const expectedVoltage = channelVoltages[0] || 24;
-         const tolerance = expectedVoltage * 0.10;
+         // 서버와 동일한 고정 범위: 200 <= 측정값 <= 242 (200과 242 포함)
          const minVoltage = 200; 
-         const maxVoltage = expectedVoltage + tolerance;
+         const maxVoltage = 242;
          
          let allWithinTolerance = true;
          for (const measurement of validMeasurements) {
@@ -742,6 +741,7 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
 function compareVoltage(readVoltage, expectedVoltage) {
   // 읽은 전압이 숫자가 아니거나 에러인 경우
   if (typeof readVoltage !== 'number' || isNaN(readVoltage)) {
+    console.log(`[compareVoltage] 유효하지 않은 전압값: ${readVoltage} (타입: ${typeof readVoltage})`);
     return "N";
   }
   
@@ -750,11 +750,13 @@ function compareVoltage(readVoltage, expectedVoltage) {
   const maxVoltage = 242;
   
   // 범위 내에 있는지 확인
-  if (readVoltage >= minVoltage && readVoltage <= maxVoltage) {
-    return "G";
-  } else {
-    return "N";
-  }
+  const isInRange = readVoltage >= minVoltage && readVoltage <= maxVoltage;
+  const result = isInRange ? "G" : "N";
+  
+  // 디버깅을 위한 로그 추가
+  console.log(`[compareVoltage] 전압값: ${readVoltage}, 범위: ${minVoltage}-${maxVoltage}, 결과: ${result}`);
+  
+  return result;
 }
 
 /**

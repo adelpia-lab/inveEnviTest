@@ -668,8 +668,6 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                  setTableCompletionStatus({
                    totalCells: 0,
                    filledCells: 0,
-                   currentReadCount: 0,
-                   maxReadCount: 10,
                    isComplete: false
                  });
                 
@@ -1312,20 +1310,12 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
     console.log('🧪 PowerTable: 생성된 누적 데이터 샘플:', Object.keys(newAccumulatedData).slice(0, 2));
   }, [channelVoltages, normalizedSelectedDevices]); // channelVoltages와 normalizedSelectedDevices가 변경될 때마다 함수 재생성
 
-  // A.Q.L 판단 함수 - 한 행의 모든 전압값을 검사하여 채널 전압 설정값의 ±5% 범위 확인
+  // A.Q.L 판단 함수 - 한 행의 모든 전압값을 검사하여 고정 범위(200 <= 측정값 <= 242) 확인
   const determineAQL = useCallback((inputVoltage: string, productIndex: number) => {
     try {
-      // channelVoltages prop에서 채널 전압 설정값 가져오기
-      const channelVoltage = channelVoltages && channelVoltages.length > 0 ? channelVoltages[0] : 221;
-      
-      if (!channelVoltage || channelVoltage <= 0) {
-        return 'A'; // 유효하지 않은 채널 전압
-      }
-
-      // 5% 허용 오차 계산
-      const tolerance = channelVoltage * 0.05;
-      const minAllowedVoltage = channelVoltage - tolerance; // 전압설정값 - (전압설정값 x 0.05)
-      const maxAllowedVoltage = channelVoltage + tolerance; // 전압설정값 + (전압설정값 x 0.05)
+      // 서버와 동일한 고정 범위 사용: 200 <= 측정값 <= 242 (200과 242 포함)
+      const minAllowedVoltage = 200;
+      const maxAllowedVoltage = 242;
 
       // 해당 행의 모든 측정값(1st~10th) 검사
       for (let measurementIndex = 0; measurementIndex < 10; measurementIndex++) {
@@ -1352,12 +1342,20 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
                   const voltageValue = parseFloat(voltageMatch[1]);
                   if (!isNaN(voltageValue)) {
                     displayValue = voltageValue.toString();
+                    // 디버깅을 위한 로그 추가
+                    if (process.env.NODE_ENV === 'development') {
+                      console.log(`[determineAQL] voltagTable 데이터 파싱: "${channelData}" -> ${voltageValue}`);
+                    }
                   }
                 }
               } else if (channelData.endsWith('V')) {
                 const voltageValue = parseFloat(channelData.replace('V', ''));
                 if (!isNaN(voltageValue)) {
                   displayValue = voltageValue.toString();
+                  // 디버깅을 위한 로그 추가
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log(`[determineAQL] voltagTable 데이터 파싱: "${channelData}" -> ${voltageValue}`);
+                  }
                 }
               }
             }
@@ -1387,7 +1385,11 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
         if (displayValue !== '-.-' && displayValue !== '') {
           const measuredVoltage = parseFloat(displayValue);
           if (!isNaN(measuredVoltage)) {
-            // 측정값이 허용 범위(전압설정값 ± 5%)를 벗어나면 NG
+            // 디버깅을 위한 로그 추가
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[determineAQL] 측정값: ${measuredVoltage}, 범위: ${minAllowedVoltage}-${maxAllowedVoltage}, 결과: ${measuredVoltage >= minAllowedVoltage && measuredVoltage <= maxAllowedVoltage ? 'OK' : 'NG'}`);
+            }
+            // 측정값이 고정 범위(200 <= 측정값 <= 242)를 벗어나면 NG
             if (measuredVoltage < minAllowedVoltage || measuredVoltage > maxAllowedVoltage) {
               return 'NG'; // 허용 범위를 벗어나는 값이 하나라도 있으면 NG
             }
@@ -1401,7 +1403,7 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
       console.error(`PowerTable: A.Q.L 판단 오류 - inputVoltage: ${inputVoltage}, productIndex: ${productIndex}`, error);
       return 'A'; // 오류 시 기본값
     }
-  }, [voltagTableData, getAccumulatedVoltageDisplay, channelVoltages]); // voltagTableData, getAccumulatedVoltageDisplay, channelVoltages가 변경될 때마다 함수 재생성
+  }, [voltagTableData, getAccumulatedVoltageDisplay]); // voltagTableData, getAccumulatedVoltageDisplay가 변경될 때마다 함수 재생성
 
   return (
     <div className="w-full h-full bg-[#181A20] rounded-lg shadow-md p-2" style={{ 
