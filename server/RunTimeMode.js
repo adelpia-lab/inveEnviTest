@@ -1202,7 +1202,7 @@ export async function runTimeModeTestProcess() {
           console.log(`[TimeModeTestProcess] ${currentTestType} 테스트 측정 결과 저장 시작`);
           try {
             const cycleNumber = phaseIndex + 1;
-            const saveResult = saveTotaReportTableToFile(
+            const saveResult = await saveTotaReportTableToFile(
               result.data, 
               getTableOption.channelVoltages, // RunTestProcess.js와 동일한 패턴 사용
               cycleNumber, 
@@ -1915,7 +1915,7 @@ export async function runNextTankEnviTestProcess() {
               // 각 실행 결과를 개별 파일로 저장
               if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
                 console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 고온 테스트 ${i+1}/${readCount} 결과 저장 시작`);
-                const saveResult = saveTotaReportTableToFile(
+                const saveResult = await saveTotaReportTableToFile(
                   singlePageResult.data, 
                   getTableOption.channelVoltages, 
                   cycle, 
@@ -2359,7 +2359,7 @@ export async function runNextTankEnviTestProcess() {
               // 각 실행 결과를 개별 파일로 저장
               if (singlePageResult && singlePageResult.status === 'completed' && singlePageResult.data) {
                 console.log(`[NextTankEnviTestProcess] 사이클 ${cycle} 저온 테스트 ${i+1}/${lowReadCount} 결과 저장 시작`);
-                const saveResult = saveTotaReportTableToFile(
+                const saveResult = await saveTotaReportTableToFile(
                   singlePageResult.data, 
                   getTableOption.channelVoltages, 
                   cycle, 

@@ -391,8 +391,11 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
  * TotaReportTable을 이미지와 유사한 전기적 성능 시험 테이블 형태로 저장
  * 이미지의 테이블 구조에 맞춰 CSV 형식으로 저장
  */
-export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0], cycleNumber = 1, testType = '') {
+export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -15.0, 24.0], cycleNumber = 1, testType = '') {
   try {
+    // getTableOption 로드
+    const getTableOption = await getSafeGetTableOption();
+    
     // 디바이스 선택 상태 로드
     const deviceStates = loadDeviceStates();
     console.log(`[SaveData] 로드된 디바이스 선택 상태: ${JSON.stringify(deviceStates)}`);
