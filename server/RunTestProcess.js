@@ -435,6 +435,7 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
     
     // ===== 전역 변수에서 테스트 디렉토리 경로 사용 (새로 생성하지 않음) =====
     let dateFolderPath = currentTestDirectoryPath;
+    let dateDirectoryName = '';
     
     if (!dateFolderPath) {
       console.log(`[SaveData] 📁 전역 디렉토리 경로가 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
@@ -442,6 +443,13 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
       // Automatically find the most recent test directory
       try {
         const dataFolderPath = path.join(process.cwd(), 'Data');
+        
+        // Data 폴더가 없으면 생성
+        if (!fs.existsSync(dataFolderPath)) {
+          fs.mkdirSync(dataFolderPath, { recursive: true });
+          console.log(`[SaveData] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
+        }
+        
         const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
           .filter(dirent => dirent.isDirectory())
           .map(dirent => dirent.name)
@@ -450,45 +458,74 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
           .reverse(); // Most recent first
         
         if (directories.length > 0) {
-          const dateDirectoryName = directories[0];
+          dateDirectoryName = directories[0];
           dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
           console.log(`[SaveData] 📁 자동으로 최근 테스트 디렉토리 발견: ${dateDirectoryName}`);
         } else {
-          throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+          // 기존 디렉토리가 없으면 새로 생성
+          dateDirectoryName = getDateDirectoryName();
+          dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+          console.log(`[SaveData] 📁 새로운 테스트 디렉토리 생성: ${dateDirectoryName}`);
         }
       } catch (error) {
         console.error(`[SaveData] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
-        throw new Error('테스트 데이터 디렉토리를 찾을 수 없습니다');
+        // 대체 경로로 현재 시간 기반 디렉토리 생성
+        dateDirectoryName = getDateDirectoryName();
+        const dataFolderPath = path.join(process.cwd(), 'Data');
+        dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+        console.log(`[SaveData] 📁 대체 경로로 디렉토리 설정: ${dateFolderPath}`);
       }
+    } else {
+      // 전역 변수에서 디렉토리명 추출
+      dateDirectoryName = path.basename(dateFolderPath);
+      console.log(`[SaveData] 📁 전역 변수에서 디렉토리 경로 사용: ${dateFolderPath}`);
     }
     
-    console.log(`[SaveData] 📁 기존 테스트 디렉토리 사용: ${dateFolderPath}`);
-    
-
-
-    
+    // 디렉토리 생성 및 검증 강화
     if (!fs.existsSync(dateFolderPath)) {
-      fs.mkdirSync(dateFolderPath, { recursive: true });
-      console.log(`[SaveData] 📁 테스트 결과 저장 디렉토리 생성됨: ${dateFolderPath}`);
-      console.log(`[SaveData] 📅 디렉토리명: ${dateDirectoryName} (${new Date().toLocaleString('en-US')})`);
-      
-      // 클라이언트에게 디렉토리 생성 알림 전송
-      if (globalWss) {
-        const dirCreateMessage = `[DIRECTORY_CREATED] ${dateDirectoryName}`;
-        let sentCount = 0;
-        globalWss.clients.forEach(client => {
-          if (client.readyState === 1) { // WebSocket.OPEN
-            client.send(dirCreateMessage);
-            sentCount++;
-          }
-        });
-        console.log(`[SaveData] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
+      try {
+        console.log(`[SaveData] 📁 디렉토리 생성 시도: ${dateFolderPath}`);
+        fs.mkdirSync(dateFolderPath, { recursive: true });
+        
+        // 생성 후 재확인
+        if (!fs.existsSync(dateFolderPath)) {
+          throw new Error(`디렉토리 생성 실패: ${dateFolderPath}`);
+        }
+        
+        console.log(`[SaveData] ✅ 테스트 결과 저장 디렉토리 생성 성공: ${dateFolderPath}`);
+        console.log(`[SaveData] 📅 디렉토리명: ${dateDirectoryName} (${new Date().toLocaleString('en-US')})`);
+        
+        // 클라이언트에게 디렉토리 생성 알림 전송
+        if (globalWss) {
+          const dirCreateMessage = `[DIRECTORY_CREATED] ${dateDirectoryName}`;
+          let sentCount = 0;
+          globalWss.clients.forEach(client => {
+            if (client.readyState === 1) { // WebSocket.OPEN
+              client.send(dirCreateMessage);
+              sentCount++;
+            }
+          });
+          console.log(`[SaveData] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
+        }
+      } catch (error) {
+        console.error(`[SaveData] ❌ 디렉토리 생성 실패: ${error.message}`);
+        return { success: false, error: `디렉토리 생성 실패: ${error.message}` };
       }
     } else {
       console.log(`[SaveData] 📁 기존 디렉토리 사용: ${dateFolderPath}`);
     }
     
+    // 디렉토리 쓰기 권한 확인
+    try {
+      fs.accessSync(dateFolderPath, fs.constants.W_OK);
+      console.log(`[SaveData] ✅ 디렉토리 쓰기 권한 확인됨: ${dateFolderPath}`);
+    } catch (error) {
+      console.error(`[SaveData] ❌ 디렉토리 쓰기 권한 없음: ${dateFolderPath}`);
+      return { success: false, error: `디렉토리 쓰기 권한이 없습니다: ${dateFolderPath}` };
+    }
+    
     const filePath = path.join(dateFolderPath, filename);
+    console.log(`[SaveData] 📄 파일 저장 경로: ${filePath}`);
     
     let csvContent = '';
     const reportData = data.reportTable[0];
@@ -683,17 +720,61 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
      csvContent += `Document Version,PS-14(Rev.1)\n`;
      csvContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
     
-    // 파일에 저장
-    fs.writeFileSync(filePath, csvContent, 'utf8');
+    // 파일 저장 전 최종 검증
+    console.log(`[SaveData] 📄 파일 저장 시작: ${filename}`);
+    console.log(`[SaveData] 📊 CSV 내용 크기: ${csvContent.length} bytes`);
     
-    //console.log(`[SaveData] 전기적 성능 시험 테이블 형태로 저장 완료: ${filename}`);
-    //console.log(`[SaveData] 파일 경로: ${filePath}`);
-    //console.log(`[SaveData] 이미지와 유사한 테이블 구조로 저장됨`);
-    console.log(`[SaveData] 테스트 통계: 총 ${totalTests}개, 통과 ${passedTests}개, 실패 ${failedTests}개`);
+    // 디렉토리 존재 재확인
+    if (!fs.existsSync(dateFolderPath)) {
+      console.error(`[SaveData] ❌ 저장 직전 디렉토리 존재 확인 실패: ${dateFolderPath}`);
+      return { success: false, error: '저장 직전 디렉토리가 존재하지 않습니다.' };
+    }
+    
+    // 파일 저장 시도
+    try {
+      fs.writeFileSync(filePath, csvContent, 'utf8');
+      console.log(`[SaveData] ✅ 파일 저장 성공: ${filename}`);
+      console.log(`[SaveData] 📄 저장된 파일 경로: ${filePath}`);
+      
+      // 저장 후 파일 존재 확인
+      if (fs.existsSync(filePath)) {
+        const stats = fs.statSync(filePath);
+        console.log(`[SaveData] ✅ 저장된 파일 확인됨 - 크기: ${stats.size} bytes`);
+      } else {
+        console.warn(`[SaveData] ⚠️ 파일 저장 후 존재 확인 실패: ${filePath}`);
+      }
+      
+    } catch (writeError) {
+      console.error(`[SaveData] ❌ 파일 쓰기 실패: ${writeError.message}`);
+      console.error(`[SaveData] ❌ 파일 경로: ${filePath}`);
+      console.error(`[SaveData] ❌ 디렉토리 권한 확인 필요`);
+      
+      // 대체 저장 경로 시도
+      try {
+        const fallbackPath = path.join(process.cwd(), 'Data', 'fallback', filename);
+        const fallbackDir = path.dirname(fallbackPath);
+        
+        if (!fs.existsSync(fallbackDir)) {
+          fs.mkdirSync(fallbackDir, { recursive: true });
+          console.log(`[SaveData] 📁 대체 저장 디렉토리 생성: ${fallbackDir}`);
+        }
+        
+        fs.writeFileSync(fallbackPath, csvContent, 'utf8');
+        console.log(`[SaveData] ✅ 대체 경로에 파일 저장 성공: ${fallbackPath}`);
+        return { success: true, filename, filePath: fallbackPath, fallback: true };
+        
+      } catch (fallbackError) {
+        console.error(`[SaveData] ❌ 대체 경로 저장도 실패: ${fallbackError.message}`);
+        return { success: false, error: `파일 저장 실패 (원본: ${writeError.message}, 대체: ${fallbackError.message})` };
+      }
+    }
+    
+    console.log(`[SaveData] 📊 테스트 통계: 총 ${totalTests}개, 통과 ${passedTests}개, 실패 ${failedTests}개`);
     
     return { success: true, filename, filePath };
   } catch (error) {
-    console.error('[SaveData] 파일 저장 실패:', error);
+    console.error('[SaveData] ❌ 파일 저장 프로세스 실패:', error);
+    console.error('[SaveData] ❌ 에러 스택:', error.stack);
     return { success: false, error: error.message };
   }
 }
@@ -3347,12 +3428,44 @@ export async function generateFinalDeviceReport(cycleNumber) {
       const testDirFiles = fs.readdirSync(testDirectoryPath);
       console.log(`[FinalDeviceReport] 📁 테스트 디렉토리 파일 목록:`, testDirFiles);
       
-      const testDirCsvFiles = testDirFiles.filter(file => file.endsWith('.csv') && file.includes('Cycle'));
+      // 모든 CSV 파일 검색 (Cycle 포함 여부와 관계없이)
+      const allCsvFilesInDir = testDirFiles.filter(file => file.endsWith('.csv'));
+      console.log(`[FinalDeviceReport] 📁 발견된 모든 CSV 파일:`, allCsvFilesInDir);
+      
+      // Cycle이 포함된 CSV 파일만 필터링
+      const testDirCsvFiles = allCsvFilesInDir.filter(file => file.includes('Cycle'));
       console.log(`[FinalDeviceReport] 📁 Cycle이 포함된 CSV 파일:`, testDirCsvFiles);
       
-      allCsvFiles.push(...testDirCsvFiles.map(file => ({ file, directory: '' })));
+      // Cycle이 포함된 파일이 없으면 모든 CSV 파일 사용
+      const filesToUse = testDirCsvFiles.length > 0 ? testDirCsvFiles : allCsvFilesInDir;
+      console.log(`[FinalDeviceReport] 📁 사용할 CSV 파일:`, filesToUse);
       
-      console.log(`[FinalDeviceReport] 📁 현재 테스트 디렉토리에서 발견된 CSV 파일: ${testDirCsvFiles.length}개`);
+      allCsvFiles.push(...filesToUse.map(file => ({ file, directory: '' })));
+      
+      console.log(`[FinalDeviceReport] 📁 현재 테스트 디렉토리에서 발견된 CSV 파일: ${filesToUse.length}개`);
+      
+      // 파일이 없으면 대체 경로에서 검색
+      if (filesToUse.length === 0) {
+        console.warn(`[FinalDeviceReport] ⚠️ 현재 디렉토리에 CSV 파일이 없음 - 대체 경로에서 검색`);
+        
+        // fallback 디렉토리에서 검색
+        const fallbackPath = path.join(process.cwd(), 'Data', 'fallback');
+        if (fs.existsSync(fallbackPath)) {
+          try {
+            const fallbackFiles = fs.readdirSync(fallbackPath);
+            const fallbackCsvFiles = fallbackFiles.filter(file => file.endsWith('.csv'));
+            console.log(`[FinalDeviceReport] 📁 fallback 디렉토리에서 발견된 CSV 파일:`, fallbackCsvFiles);
+            
+            if (fallbackCsvFiles.length > 0) {
+              allCsvFiles.push(...fallbackCsvFiles.map(file => ({ file, directory: 'fallback' })));
+              console.log(`[FinalDeviceReport] 📁 fallback 디렉토리에서 ${fallbackCsvFiles.length}개 파일 추가`);
+            }
+          } catch (fallbackError) {
+            console.error(`[FinalDeviceReport] ❌ fallback 디렉토리 읽기 실패:`, fallbackError.message);
+          }
+        }
+      }
+      
     } catch (error) {
       console.error(`[FinalDeviceReport] ❌ 테스트 디렉토리 읽기 실패:`, error.message);
       return { success: false, error: `테스트 디렉토리 읽기 실패: ${error.message}` };
@@ -3360,11 +3473,12 @@ export async function generateFinalDeviceReport(cycleNumber) {
     
     const csvFiles = allCsvFiles;
     
-    //console.log(`[FinalDeviceReport] 발견된 CSV 파일 수: ${csvFiles.length}`);
+    console.log(`[FinalDeviceReport] 📊 최종 분석 대상 CSV 파일 수: ${csvFiles.length}`);
     
     if (csvFiles.length === 0) {
-      console.warn(`[FinalDeviceReport] 분석할 CSV 파일이 없음`);
-      return { success: false, error: '분석할 CSV 파일이 없음' };
+      console.error(`[FinalDeviceReport] ❌ 분석할 CSV 파일이 없음 - 모든 경로에서 검색 실패`);
+      console.error(`[FinalDeviceReport] ❌ 이는 이전 단계에서 파일 저장이 실패했음을 의미합니다.`);
+      return { success: false, error: '분석할 CSV 파일이 없음 - 파일 저장 실패로 인한 문제' };
     }
     
     console.log(`[FinalDeviceReport] 검색된 디렉토리: ${csvFiles.map(f => f.directory || 'current_test_dir').join(', ')}`);
