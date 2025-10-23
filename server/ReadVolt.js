@@ -420,17 +420,6 @@ export async function cleanupPorts() {
     portLockOwner = null;
 }
 
-// --- 큐 상태 확인 함수 ---
-export function getQueueStatus() {
-    return {
-        queueLength: operationQueue.length,
-        isProcessing: isProcessing,
-        currentOperation: currentOperation,
-        portInUse: portInUse,
-        portLockOwner: portLockOwner
-    };
-}
-
 // --- 에러 타입 정의 ---
 export class ReadVoltError extends Error {
     constructor(message, code) {

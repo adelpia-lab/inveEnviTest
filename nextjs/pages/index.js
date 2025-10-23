@@ -43,8 +43,6 @@ import styles from "/styles/Home.module.css";
 import SetVolt from "/components/SetVolt/SetVolt";
 import RelayOnOff from "/components/RelayOn/RelayOnOff";
 import Button from '@mui/material/Button';
-
-import TextButton from "/components/TextButton/TextButton";
 import TestProcess from "/components/TestProcess/TestProcess";
 import TestResult from "/components/TestResult/TestResult";
 import DeviceSelect from "/components/DeviceSelect/DeviceSelect";
@@ -63,7 +61,6 @@ import { parsePowerDataFile } from '../lib/parsePowerData';
 import ProductInput from "/components/SystemSet/ProductInput";
 import OptionSet1 from "/components/OptionSet1/OptionSet1";
 import LogoImage from "/components/LogoImage/LogoImage";
-import DebugLogoImage from "/components/LogoImage/DebugLogoImage";
 import DelaySettingsPanel from "/components/delay-settings-panel/DelaySettingsPanel";
 import TestSystemButton from "/components/TestSystem/TestSystemButton";
 import ChannelVoltageSettings from "/components/ChannelVoltageSettings/ChannelVoltageSettings";

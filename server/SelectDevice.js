@@ -1,5 +1,6 @@
 import { SerialPort } from 'serialport';
 import { promises as fs } from 'fs';
+import { sleep } from './utils/common.js';
 /*
 const DeviceOn=[
     "010600010100D99A", "010600020100299A", "010600030100785A", "010600040100C99B",
@@ -122,9 +123,6 @@ async function clearPortBuffer(port) {
     });
 }
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 // 포트 잠금 해제 함수 추가
 function clearPortLock() {

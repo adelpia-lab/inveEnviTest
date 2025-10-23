@@ -2,9 +2,9 @@ import { GetData } from './GetData.js';
 import { RelayAllOff, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { SendVoltCommand } from './SetVolt.js';
 import { ReadVolt } from './ReadVolt.js';
-
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
+import { sleep, getFormattedDateTime, getDateDirectoryName, Now } from './utils/common.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -297,9 +297,6 @@ let cycleResults = [];
  * @param {number} ms - 대기할 밀리초
  * @returns {Promise} 대기 완료 후 resolve되는 Promise
  */
-function sleep(ms) {   
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 /**
  * 분 단위 대기 함수 (최대 999분까지 지원)
@@ -387,39 +384,8 @@ function sleepMinutesWithStopCheck(minutes, context = '') {
   });
 }
 
-function Now() {
-  const now = new Date();
-  return now.toISOString();
-}
 
-/**
- * 현재 날짜와 시간을 yymmdd_hhmm 형식으로 반환 (영문 형식)
- */
-function getFormattedDateTime() {
-  const now = new Date();
-  const year = now.getFullYear().toString().slice(-2); // 마지막 2자리만
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hour = String(now.getHours()).padStart(2, '0');
-  const minute = String(now.getMinutes()).padStart(2, '0');
-  
-  return `${year}${month}${day}_${hour}${minute}`;
-}
 
-/**
- * 날짜별 디렉토리명을 생성하는 함수
- * @returns {string} YYYYMMDD 형식의 날짜 디렉토리명
- */
-function getDateDirectoryName() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hour = String(now.getHours()).padStart(2, '0');
-  const minute = String(now.getMinutes()).padStart(2, '0');
-  
-  return `${year}${month}${day}_${hour}${minute}`;
-}
 
 /**
  * TotaReportTable을 이미지와 유사한 전기적 성능 시험 테이블 형태로 저장

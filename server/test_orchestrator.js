@@ -8,34 +8,6 @@ import {
   processTestResultAndGenerateReport 
 } from './RunTestProcess.js';
 
-/**
- * 테스트 프로세스 실행 예제
- */
-async function testRunTestProcess() {
-  try {
-    console.log('🚀 테스트 프로세스 실행 시작...');
-    
-    // 테스트 옵션 설정
-    const testOptions = {
-      // 필요한 테스트 옵션들을 여기에 설정
-    };
-    
-    // 새로운 오케스트레이터 함수를 사용하여 테스트 실행
-    const result = await runTestProcessWithResultHandling(testOptions);
-    
-    console.log('📊 테스트 결과:', result);
-    
-    if (result.success) {
-      console.log(`✅ 테스트 완료: ${result.reportType}`);
-      console.log(`📄 리포트 파일: ${result.reportResult.filename}`);
-    } else {
-      console.error(`❌ 테스트 실패: ${result.error}`);
-    }
-    
-  } catch (error) {
-    console.error('❌ 테스트 실행 중 오류:', error.message);
-  }
-}
 
 /**
  * 기존 테스트 결과를 처리하는 예제
@@ -139,7 +111,7 @@ async function main() {
   console.log('\n' + '='.repeat(50) + '\n');
   
   // 3. 실제 테스트 프로세스 실행 (주석 처리 - 실제 환경에서만 실행)
-  // await testRunTestProcess();
+  // await testRunTestProcess(); // 함수가 제거됨
   
   console.log('\n🎯 모든 테스트 완료');
 }
@@ -150,7 +122,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 
 export {
-  testRunTestProcess,
   testProcessExistingResult,
   testVariousStatuses
 };

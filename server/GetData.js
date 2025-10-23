@@ -2,11 +2,7 @@ import { ReadChamber } from './ReadChamber.js';
 import { RelayAllOff, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js';
 import { SendVoltCommand } from './SetVolt.js';
 import { ReadAllVoltages } from './ReadVolt.js';
-
-// Local sleep utility
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+import { sleep } from './utils/common.js';
 
 /**
  * 10회 측정, 10개 제품, 3전압(18V/24V/30V)별, 시간/온도/전압 데이터 기록

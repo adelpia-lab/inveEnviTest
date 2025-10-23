@@ -10,6 +10,7 @@ import { RelayAllOff, SelectDevice, SelectDeviceOn, SelectDeviceOff } from './Se
 import { GetData } from './GetData.js';
 import { runSinglePageProcess, runNextTankEnviTestProcess, setWebSocketServer, testPowerTableReset } from './RunTestProcess.js';
 import { runTimeModeTestProcess, setWebSocketServer as setTimeModeWebSocketServer } from './RunTimeMode.js';
+import { sleep } from './utils/common.js';
 
 // 테이블 데이터 관련 함수들을 import
 import { updateTableData, broadcastTableData, getCurrentTableData, resetTableData } from './RunTestProcess.js';
@@ -1020,9 +1021,6 @@ function convertStringToArray(str) {
   return str.trim().split(' ').filter(word => word !== '');
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 // 모든 클라이언트에게 메시지를 브로드캐스트하는 함수
 function broadcastToClients(message) {
