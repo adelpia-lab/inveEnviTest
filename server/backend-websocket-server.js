@@ -631,8 +631,8 @@ async function loadProductInput() {
     // console.log(`📖 [Backend WS Server] No saved product input found, using default`);
     // 기본값
     const defaultProductInput = {
-      modelName: '61514540',
-      productNames: ['PL2222', 'PL2233', 'PL2244', 'PL2255', 'PL2266', 'PL2277', 'PL2288', 'PL2299', 'PL2300', 'PL2311']
+      modelName: '60159021',
+      productNames: ['A-001', 'B-002', 'C-003']
     };
     // console.log(`📖 [Backend WS Server] Default product input:`, defaultProductInput);
     return defaultProductInput;

@@ -74,6 +74,9 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
   // 서버에서 보내는 voltagTable 데이터를 직접 저장하는 상태
   const [voltagTableData, setVoltagTableData] = useState<any[][][][] | null>(null);
   
+  // 제품명 상태 (동적으로 업데이트)
+  const [productNames, setProductNames] = useState<string[]>(['A-001', 'B-002', 'C-003']);
+  
    // 테이블 완성도 추적 상태
    const [tableCompletionStatus, setTableCompletionStatus] = useState<{
      totalCells: number;
@@ -554,6 +557,23 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
       const message = event.data;
       
       // PowerTable에서 필요한 메시지만 처리
+      // 0. 제품명 업데이트 메시지 처리
+      if (typeof message === 'string' && message.startsWith('Initial product input:')) {
+        try {
+          const match = message.match(/Initial product input: (.*)/);
+          if (match && match[1]) {
+            const productInputData = JSON.parse(match[1]);
+            if (productInputData.productNames && Array.isArray(productInputData.productNames)) {
+              console.log('🔌 PowerTable: 제품명 업데이트:', productInputData.productNames);
+              setProductNames(productInputData.productNames);
+            }
+          }
+        } catch (error) {
+          console.error('PowerTable: 제품명 업데이트 메시지 파싱 오류:', error);
+        }
+        return;
+      }
+      
       // 1. 테스트 진행상황 메시지 처리
       if (typeof message === 'string' && message.startsWith('[TEST_PROGRESS]')) {
         try {
@@ -1671,7 +1691,7 @@ const PowerTable = React.memo(function PowerTable({ groups, wsConnection, channe
               // 새로운 테이블 구조를 위한 데이터 생성
               const tableRows: JSX.Element[] = [];
               const inputVoltages = ['24V', '18V', '30V'];
-              const productNumbers = ['C005', 'C006', 'C007'];
+              const productNumbers = productNames;
               
               inputVoltages.forEach((inputVoltage, inputIndex) => {
                 productNumbers.forEach((productNumber, productIndex) => {

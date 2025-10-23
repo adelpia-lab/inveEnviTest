@@ -24,8 +24,8 @@ const productInputSchema = z.object({
     .regex(/^\d{8}$/, '모델명은 8자리 숫자만 입력 가능합니다'),
   productNames: z.array(
     z.string()
-      .length(4, '제품명은 4자리여야 합니다')
-      .regex(/^[A-Z]{1}\d{3}$/, '제품명은 1자리 대문자 + 3자리 숫자 형식이어야 합니다')
+      .length(5, '제품명은 5자리여야 합니다')
+      .regex(/^[A-Z0-9]{1}-\d{3}$/, '제품명은 첫번째는 문자/숫자, 두번째는 -, 세번째~다섯번째는 숫자 형식이어야 합니다')
   ).length(3, '제품명은 3개여야 합니다')
 });
 
@@ -33,7 +33,7 @@ type ProductInputData = z.infer<typeof productInputSchema>;
 
 // 기본값 정의
 const MODEL_NAME_INIT = '60159021';
-const PRODUCT_NAME_INIT = ['C005', 'C006', 'C007'];
+const PRODUCT_NAME_INIT = ['A-001', 'B-002', 'C-003'];
 
 interface ProductInputProps {
   wsConnection?: WebSocket;
@@ -42,7 +42,7 @@ interface ProductInputProps {
 
 /**
  * 제품 입력 컴포넌트
- * 모델명(8자리 숫자)과 제품명(1자리 대문자 + 3자리 숫자) 3개를 입력받아 저장
+ * 모델명(8자리 숫자)과 제품명(5자리: 첫번째는 문자/숫자, 두번째는 -, 세번째~다섯번째는 숫자) 3개를 입력받아 저장
  */
 export default function ProductInput({ wsConnection, onSave }: ProductInputProps) {
   // 팝업창 열림/닫힘 상태
@@ -195,7 +195,18 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
 
   // 제품명 입력 필드 변경 핸들러
   const handleProductNameChange = (index: number, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const value = event.target.value.toUpperCase(); // 자동으로 대문자 변환
+    let value = event.target.value.toUpperCase(); // 자동으로 대문자 변환
+    
+    // 5자리 제한
+    if (value.length > 5) {
+      value = value.substring(0, 5);
+    }
+    
+    // 두번째 자리에 '-' 자동 삽입 (사용자가 입력하지 않은 경우)
+    if (value.length >= 2 && value[1] !== '-') {
+      value = value[0] + '-' + value.substring(1);
+    }
+    
     const newProductNames = [...productNames];
     newProductNames[index] = value;
     setProductNames(newProductNames);
@@ -214,10 +225,10 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
     
     // 제품명 검증
     productNames.forEach((name, index) => {
-      if (name.length !== 4) {
-        errors.push(`제품명 ${index + 1}은 4자리여야 합니다`);
-      } else if (!/^[A-Z]{1}\d{3}$/.test(name)) {
-        errors.push(`제품명 ${index + 1}은 1자리 대문자 + 3자리 숫자 형식이어야 합니다`);
+      if (name.length !== 5) {
+        errors.push(`제품명 ${index + 1}은 5자리여야 합니다`);
+      } else if (!/^[A-Z0-9]{1}-\d{3}$/.test(name)) {
+        errors.push(`제품명 ${index + 1}은 첫번째는 문자/숫자, 두번째는 -, 세번째~다섯번째는 숫자 형식이어야 합니다`);
       }
     });
     
@@ -342,7 +353,7 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
           {/* 제품명 입력 필드 목록 */}
           <Box>
             <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 'medium' }}>
-              제품명 (1자리 대문자 + 3자리 숫자)
+              제품명 (5자리: 첫번째는 문자/숫자, 두번째는 -, 세번째~다섯번째는 숫자)
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 2 }}>
               {productNames.map((name, index) => (
@@ -354,10 +365,10 @@ export default function ProductInput({ wsConnection, onSave }: ProductInputProps
                     value={name}
                     onChange={(event) => handleProductNameChange(index, event)}
                     inputProps={{
-                      maxLength: 4,
+                      maxLength: 5,
                       style: { textTransform: 'uppercase' }
                     }}
-                    helperText="예: C001"
+                    helperText="예: A-001"
                     fullWidth
                   />
                 </Box>

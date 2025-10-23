@@ -855,7 +855,7 @@ async function generateStopReport(stopInfo) {
     const getTableOption = await getSafeGetTableOption();
     const testSettings = {
       modelName: getTableOption.productInput?.modelName || 'N/A',
-      productNumber: getTableOption.productInput?.productNumber || 'N/A',
+      productNames: getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'],
       temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
       totalCycles: 1 // 단일 페이지 테스트는 1 사이클
     };
@@ -1689,7 +1689,7 @@ export async function runNextTankEnviTestProcess() {
               // 테스트 설정 정보 수집
               const testSettings = {
                 modelName: getTableOption.productInput?.modelName || 'N/A',
-                productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                productNames: getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'],
                 temperature: getTableOption.highTempSettings?.targetTemp || 'N/A',
                 highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
                 lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
@@ -2006,7 +2006,7 @@ export async function runNextTankEnviTestProcess() {
               // 테스트 설정 정보 수집
               const testSettings = {
                 modelName: getTableOption.productInput?.modelName || 'N/A',
-                productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                productNames: getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'],
                 temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
                 highTempEnabled: getTableOption.highTempSettings?.highTemp || false,
                 lowTempEnabled: getTableOption.lowTempSettings?.lowTemp || false,
@@ -2081,7 +2081,7 @@ export async function runNextTankEnviTestProcess() {
                 
                 const testSettings = {
                   modelName: getTableOption.productInput?.modelName || 'N/A',
-                  productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                  productNames: getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'],
                   temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
                   totalCycles: cycleNumber
                 };
@@ -2318,7 +2318,7 @@ export async function runNextTankEnviTestProcess() {
                     try {
                       const testSettings = {
                         modelName: getTableOption.productInput?.modelName || 'N/A',
-                        productNumber: getTableOption.productInput?.productNumber || 'N/A',
+                        productNames: getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'],
                         temperature: getTableOption.lowTempSettings?.targetTemp || 'N/A',
                         totalCycles: cycleNumber
                       };
@@ -2510,7 +2510,7 @@ export async function runNextTankEnviTestProcess() {
       // 테스트 설정 정보 수집 (에러 발생 시에는 기본값 사용)
       const testSettings = {
         modelName: 'N/A',
-        productNumber: 'N/A',
+        productNames: ['A-001', 'B-002', 'C-003'],
         temperature: 'N/A',
         highTempEnabled: false,
         lowTempEnabled: false,

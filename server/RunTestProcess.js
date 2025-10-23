@@ -416,7 +416,7 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
     // ProductNumber 배열 검증 및 기본값 설정
     if (!data.ProductNumber || !Array.isArray(data.ProductNumber)) {
       console.warn('[SaveData] ⚠️ ProductNumber가 유효하지 않아 기본값을 사용합니다.');
-      data.ProductNumber = ['Unknown'];
+      data.ProductNumber = ['A-001', 'B-002', 'C-003'];
     }
     
     // modelName 검증 및 기본값 설정
@@ -639,7 +639,7 @@ export function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15.0, -1
        
        // 각 전압별로 3개의 행 생성 (C005, C006, C007) - 각 디바이스별로 별도 행
        for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
-         const productNumber = `C00${deviceIndex + 5}`; // C005, C006, C007
+         const productNumber = getTableOption.productInput?.productNames?.[deviceIndex] || `A-00${deviceIndex + 1}`; // 동적 제품명 사용
          
          // 디바이스 선택 상태 확인
          const isDeviceSelected = deviceStates[deviceIndex];
@@ -1652,8 +1652,8 @@ function createFinalResultTable(allCycleResults, getTableOption) {
     
     // 기본 테이블 구조 생성 (채널 1개) - runSinglePageProcess와 동일한 구조
     const finalTable = {
-      modelName: getTableOption.modelName || 'Unknown Model',
-      ProductNumber: getTableOption.ProductNumber || ['Unknown'],
+      modelName: getTableOption.productInput?.modelName || 'Unknown Model',
+      ProductNumber: getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'],
       inputVolt: getTableOption.outVoltSettings || [18, 24, 30],
       reportTable: [{
         TestDate: new Date().toLocaleDateString('en-US'),
@@ -1863,9 +1863,9 @@ function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
     for (let k = 0; k < 3; k++) {
       const inputVoltage = finalTable.inputVolt[k] || 24;
       
-      // 각 제품번호에 대해 테이블 생성 (C005, C006, C007)
+      // 각 제품번호에 대해 테이블 생성 (동적 제품명 사용)
       for (let productIndex = 0; productIndex < 3; productIndex++) {
-        const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
+        const productNumber = getTableOption.productInput?.productNames?.[productIndex] || `A-00${productIndex + 1}`; // 동적 제품명 사용
         
         // 해당 제품번호의 1st-10th 데이터 생성 (Device별 readCount 측정값)
         const measurementData = [];
@@ -3580,17 +3580,22 @@ export async function generateFinalDeviceReport(cycleNumber) {
           }
           
           // 테이블 데이터 행 처리 (saveTotaReportTableToFile 패턴)
-          if (inTableSection && headerFound && line.includes('V,C00')) {
+          if (inTableSection && headerFound && line.includes('V,')) {
             const parts = line.split(',');
             if (parts.length >= 13) { // INPUT,제품번호,1st~10th,A.Q.L = 13개 컬럼
               const inputVoltage = parts[0]; // 18V, 24V, 30V
-              const productNumber = parts[1]; // C005, C006, C007
+              const productNumber = parts[1]; // 동적 제품명 (A-001, B-002, C-003 등)
               const aqlResult = parts[12]; // A.Q.L 컬럼의 G/N 결과
               
-              // 제품번호에서 디바이스 번호 추출 (C005 -> Device 1, C006 -> Device 2, C007 -> Device 3)
-              const deviceMatch = productNumber.match(/C00(\d+)/);
-              if (deviceMatch) {
-                const deviceNumber = parseInt(deviceMatch[1]) - 4; // C005=1, C006=2, C007=3
+              // 제품번호에서 디바이스 번호 추출 (동적 제품명 패턴 지원)
+              let deviceNumber = -1;
+              const productNames = getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'];
+              const deviceIndex = productNames.indexOf(productNumber);
+              if (deviceIndex !== -1) {
+                deviceNumber = deviceIndex + 1; // A-001=1, B-002=2, C-003=3
+              }
+              
+              if (deviceNumber > 0) {
                 const deviceName = `Device ${deviceNumber}`;
                 const channelName = 'Channel 1';
                 

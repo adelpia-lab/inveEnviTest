@@ -616,9 +616,9 @@ async function createFinalReportFile(finalConclusions, directoryPath, directoryN
     for (let k = 0; k < 3; k++) {
       const inputVoltage = [18, 24, 30][k]; // 18V, 24V, 30V
       
-      // 각 제품번호에 대해 테이블 생성 (C005, C006, C007) - 3개 디바이스만
+      // 각 제품번호에 대해 테이블 생성 (동적 제품명 사용) - 3개 디바이스만
       for (let productIndex = 0; productIndex < 3; productIndex++) {
-        const productNumber = `C00${productIndex + 5}`; // C005, C006, C007
+        const productNumber = getTableOption.productInput?.productNames?.[productIndex] || `A-00${productIndex + 1}`; // 동적 제품명 사용
         const deviceName = `Device ${productIndex + 1}`; // Device 1, Device 2, Device 3
         const deviceIndex = productIndex; // Device 1 -> index 0
         const isDeviceSelected = deviceStates[deviceIndex];
