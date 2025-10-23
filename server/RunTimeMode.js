@@ -4,7 +4,7 @@ import { SendVoltCommand } from './SetVolt.js';
 import { ReadVolt } from './ReadVolt.js';
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
-import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData, updateTableData, getCurrentTableData, resetTableData } from './RunTestProcess.js';
+import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData, updateTableData, getCurrentTableData, resetTableData, setCurrentTestDirectoryPath } from './RunTestProcess.js';
 import { sleep, getFormattedDateTime, getDateDirectoryName, Now } from './utils/common.js';
 import fs from 'fs';
 import path from 'path';
@@ -59,11 +59,7 @@ export function setWebSocketServer(wss) {
   console.log('[RunTestProcess] WebSocket 서버 참조 설정됨');
 }
 
-// 전역 변수를 설정하는 함수
-export function setCurrentTestDirectoryPath(path) {
-  currentTestDirectoryPath = path;
-  console.log(`[RunTimeMode] 현재 테스트 디렉토리 경로 설정: ${path}`);
-}
+// 전역 변수를 설정하는 함수 (RunTestProcess.js에서 import하여 사용)
 
 // 전역 변수를 가져오는 함수
 export function getCurrentTestDirectoryPath() {
@@ -1018,6 +1014,8 @@ export async function runTimeModeTestProcess() {
     const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
     // 전역 변수에 전체 디렉토리 경로 저장
     currentTestDirectoryPath = dateFolderPath;
+    // RunTestProcess.js의 전역 변수도 동기화
+    setCurrentTestDirectoryPath(dateFolderPath);
     
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });
@@ -1446,6 +1444,8 @@ export async function runNextTankEnviTestProcess() {
     const dateFolderPath = path.join(dataFolderPath, currentTestDirectoryName);
     // 전역 변수에 전체 디렉토리 경로 저장
     currentTestDirectoryPath = dateFolderPath;
+    // RunTestProcess.js의 전역 변수도 동기화
+    setCurrentTestDirectoryPath(dateFolderPath);
     
     if (!fs.existsSync(dateFolderPath)) {
       fs.mkdirSync(dateFolderPath, { recursive: true });

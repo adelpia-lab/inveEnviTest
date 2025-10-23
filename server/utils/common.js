@@ -13,7 +13,7 @@ export function sleep(ms) {
 }
 
 /**
- * 현재 날짜와 시간을 포맷된 문자열로 반환
+ * 현재 날짜와 시간을 포맷된 문자열로 반환 (Windows 파일명 안전)
  * @returns {string} - 포맷된 날짜 시간 문자열
  */
 export function getFormattedDateTime() {
@@ -25,7 +25,8 @@ export function getFormattedDateTime() {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const seconds = String(now.getSeconds()).padStart(2, '0');
   
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  // Windows에서 안전한 파일명을 위해 콜론을 하이픈으로 변경
+  return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
 }
 
 /**

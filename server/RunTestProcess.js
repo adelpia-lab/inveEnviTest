@@ -436,14 +436,14 @@ export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15
     
     const filename = `${getFormattedDateTime()}_Cycle${cycleNumber}_${testType}.csv`;
     
-    // ===== 전역 변수에서 테스트 디렉토리 경로 사용 (새로 생성하지 않음) =====
+    // ===== 디렉토리 경로 설정 및 생성 =====
     let dateFolderPath = currentTestDirectoryPath;
     let dateDirectoryName = '';
     
     if (!dateFolderPath) {
-      console.log(`[SaveData] 📁 전역 디렉토리 경로가 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
+      console.log(`[SaveData] 📁 전역 디렉토리 경로가 설정되지 않음 - 새로 생성`);
       
-      // Automatically find the most recent test directory
+      // 새로운 디렉토리 생성
       try {
         const dataFolderPath = path.join(process.cwd(), 'Data');
         
@@ -453,29 +453,20 @@ export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15
           console.log(`[SaveData] 📁 Data 폴더 생성됨: ${dataFolderPath}`);
         }
         
-        const directories = fs.readdirSync(dataFolderPath, { withFileTypes: true })
-          .filter(dirent => dirent.isDirectory())
-          .map(dirent => dirent.name)
-          .filter(name => /^\d{8}_\d{4}$/.test(name)) // Filter for date format YYYYMMDD_HHMM
-          .sort()
-          .reverse(); // Most recent first
-        
-        if (directories.length > 0) {
-          dateDirectoryName = directories[0];
-          dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
-          console.log(`[SaveData] 📁 자동으로 최근 테스트 디렉토리 발견: ${dateDirectoryName}`);
-        } else {
-          // 기존 디렉토리가 없으면 새로 생성
-          dateDirectoryName = getDateDirectoryName();
-          dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
-          console.log(`[SaveData] 📁 새로운 테스트 디렉토리 생성: ${dateDirectoryName}`);
-        }
-      } catch (error) {
-        console.error(`[SaveData] ❌ 자동 디렉토리 검색 실패: ${error.message}`);
-        // 대체 경로로 현재 시간 기반 디렉토리 생성
+        // 현재 시간 기반 디렉토리 생성
         dateDirectoryName = getDateDirectoryName();
-        const dataFolderPath = path.join(process.cwd(), 'Data');
         dateFolderPath = path.join(dataFolderPath, dateDirectoryName);
+        console.log(`[SaveData] 📁 새로운 테스트 디렉토리 생성: ${dateDirectoryName}`);
+        
+        // 전역 변수에 설정
+        setCurrentTestDirectoryPath(dateFolderPath);
+        
+      } catch (error) {
+        console.error(`[SaveData] ❌ 디렉토리 생성 실패: ${error.message}`);
+        // 대체 경로로 fallback 디렉토리 사용
+        const dataFolderPath = path.join(process.cwd(), 'Data');
+        dateFolderPath = path.join(dataFolderPath, 'fallback');
+        dateDirectoryName = 'fallback';
         console.log(`[SaveData] 📁 대체 경로로 디렉토리 설정: ${dateFolderPath}`);
       }
     } else {
@@ -484,49 +475,16 @@ export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15
       console.log(`[SaveData] 📁 전역 변수에서 디렉토리 경로 사용: ${dateFolderPath}`);
     }
     
-    // 디렉토리 생성 및 검증 강화
-    if (!fs.existsSync(dateFolderPath)) {
-      try {
-        console.log(`[SaveData] 📁 디렉토리 생성 시도: ${dateFolderPath}`);
-        fs.mkdirSync(dateFolderPath, { recursive: true });
-        
-        // 생성 후 재확인
-        if (!fs.existsSync(dateFolderPath)) {
-          throw new Error(`디렉토리 생성 실패: ${dateFolderPath}`);
-        }
-        
-        console.log(`[SaveData] ✅ 테스트 결과 저장 디렉토리 생성 성공: ${dateFolderPath}`);
-        console.log(`[SaveData] 📅 디렉토리명: ${dateDirectoryName} (${new Date().toLocaleString('en-US')})`);
-        
-        // 클라이언트에게 디렉토리 생성 알림 전송
-        if (globalWss) {
-          const dirCreateMessage = `[DIRECTORY_CREATED] ${dateDirectoryName}`;
-          let sentCount = 0;
-          globalWss.clients.forEach(client => {
-            if (client.readyState === 1) { // WebSocket.OPEN
-              client.send(dirCreateMessage);
-              sentCount++;
-            }
-          });
-          console.log(`[SaveData] 📤 디렉토리 생성 알림 전송 완료 - 클라이언트 수: ${sentCount}`);
-        }
-      } catch (error) {
-        console.error(`[SaveData] ❌ 디렉토리 생성 실패: ${error.message}`);
-        return { success: false, error: `디렉토리 생성 실패: ${error.message}` };
-      }
-    } else {
-      console.log(`[SaveData] 📁 기존 디렉토리 사용: ${dateFolderPath}`);
-    }
-    
-    // 디렉토리 쓰기 권한 확인
+    // 단순한 디렉토리 생성 (재귀적으로 생성)
     try {
-      fs.accessSync(dateFolderPath, fs.constants.W_OK);
-      console.log(`[SaveData] ✅ 디렉토리 쓰기 권한 확인됨: ${dateFolderPath}`);
+      fs.mkdirSync(dateFolderPath, { recursive: true });
+      console.log(`[SaveData] ✅ 디렉토리 생성/확인: ${dateFolderPath}`);
     } catch (error) {
-      console.error(`[SaveData] ❌ 디렉토리 쓰기 권한 없음: ${dateFolderPath}`);
-      return { success: false, error: `디렉토리 쓰기 권한이 없습니다: ${dateFolderPath}` };
+      console.error(`[SaveData] ❌ 디렉토리 생성 실패: ${error.message}`);
+      return { success: false, error: `디렉토리 생성 실패: ${error.message}` };
     }
     
+    // 파일 경로 생성
     const filePath = path.join(dateFolderPath, filename);
     console.log(`[SaveData] 📄 파일 저장 경로: ${filePath}`);
     
@@ -723,46 +681,28 @@ export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15
      csvContent += `Document Version,PS-14(Rev.1)\n`;
      csvContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
     
-    // 파일 저장 전 최종 검증
+    // 단순한 파일 저장
     console.log(`[SaveData] 📄 파일 저장 시작: ${filename}`);
     console.log(`[SaveData] 📊 CSV 내용 크기: ${csvContent.length} bytes`);
     
-    // 디렉토리 존재 재확인
-    if (!fs.existsSync(dateFolderPath)) {
-      console.error(`[SaveData] ❌ 저장 직전 디렉토리 존재 확인 실패: ${dateFolderPath}`);
-      return { success: false, error: '저장 직전 디렉토리가 존재하지 않습니다.' };
-    }
-    
-    // 파일 저장 시도
     try {
+      // 파일 쓰기
       fs.writeFileSync(filePath, csvContent, 'utf8');
       console.log(`[SaveData] ✅ 파일 저장 성공: ${filename}`);
       console.log(`[SaveData] 📄 저장된 파일 경로: ${filePath}`);
       
-      // 저장 후 파일 존재 확인
-      if (fs.existsSync(filePath)) {
-        const stats = fs.statSync(filePath);
-        console.log(`[SaveData] ✅ 저장된 파일 확인됨 - 크기: ${stats.size} bytes`);
-      } else {
-        console.warn(`[SaveData] ⚠️ 파일 저장 후 존재 확인 실패: ${filePath}`);
-      }
-      
     } catch (writeError) {
       console.error(`[SaveData] ❌ 파일 쓰기 실패: ${writeError.message}`);
       console.error(`[SaveData] ❌ 파일 경로: ${filePath}`);
-      console.error(`[SaveData] ❌ 디렉토리 권한 확인 필요`);
       
-      // 대체 저장 경로 시도
+      // 단순한 fallback 시도
       try {
         const fallbackPath = path.join(process.cwd(), 'Data', 'fallback', filename);
         const fallbackDir = path.dirname(fallbackPath);
         
-        if (!fs.existsSync(fallbackDir)) {
-          fs.mkdirSync(fallbackDir, { recursive: true });
-          console.log(`[SaveData] 📁 대체 저장 디렉토리 생성: ${fallbackDir}`);
-        }
-        
+        fs.mkdirSync(fallbackDir, { recursive: true });
         fs.writeFileSync(fallbackPath, csvContent, 'utf8');
+        
         console.log(`[SaveData] ✅ 대체 경로에 파일 저장 성공: ${fallbackPath}`);
         return { success: true, filename, filePath: fallbackPath, fallback: true };
         
