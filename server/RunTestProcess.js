@@ -1824,10 +1824,27 @@ function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
           measurementData.push('-');
         }
         
-        // A.Q.L 계산 (전압별 그룹 결과 적용)
-        // 해당 전압 그룹의 모든 디바이스가 G이면 G, 하나라도 N이면 N
-        const voltageGroupResult = calculateVoltageGroupResult(reportData, k);
-        const aql = voltageGroupResult && voltageGroupResult.allGood ? 'G' : 'N';
+        // A.Q.L 계산 (개별 디바이스별 측정값 기반)
+        // 해당 디바이스의 모든 측정값이 200-242 범위에 있으면 G, 하나라도 범위를 벗어나면 N
+        let aql = 'G'; // 기본값은 G
+        
+        if (isDeviceSelected) {
+          // 선택된 디바이스의 경우 실제 측정값 확인
+          for (let i = 0; i < measurementData.length; i++) {
+            const measurement = measurementData[i];
+            if (measurement !== '-' && measurement !== '-.-') {
+              // 측정값이 범위를 벗어나면 N
+              if (measurement < 200 || measurement > 242) {
+                aql = 'N';
+                console.log(`[SaveFinalResultTable] ${productNumber} ${inputVoltage}V 측정값 ${measurement}이 범위(200-242)를 벗어남 - AQL: N`);
+                break;
+              }
+            }
+          }
+        } else {
+          // 선택되지 않은 디바이스는 "-.-"
+          aql = '-.-';
+        }
         
         // 테이블 행 생성 (그림과 동일한 형태)
         csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
@@ -3540,10 +3557,19 @@ export async function generateFinalDeviceReport(cycleNumber) {
             // 하나라도 N이면 해당 전압 그룹은 N
             if (measurementData.aql === 'N') {
               voltageGroupResults[voltage].allGood = false;
+              console.log(`[FinalDeviceReport] ${voltage} 그룹에서 ${deviceName}이 N - 전압 그룹 결과: N`);
             }
           }
         }
       }
+    }
+    
+    // 전압별 그룹 결과 최종 확인 및 로깅
+    for (const [voltage, groupResult] of Object.entries(voltageGroupResults)) {
+      console.log(`[FinalDeviceReport] ${voltage} 그룹 최종 결과: ${groupResult.allGood ? 'G' : 'N'} (디바이스 수: ${groupResult.devices.length})`);
+      groupResult.devices.forEach(device => {
+        console.log(`[FinalDeviceReport]   - ${device.deviceName}: ${device.aql}`);
+      });
     }
     
     // 2단계: 전압별 그룹 결과를 바탕으로 디바이스별 최종 결론 생성
@@ -3555,13 +3581,17 @@ export async function generateFinalDeviceReport(cycleNumber) {
       if (isDeviceSelected) {
         if (results.totalTests > 0) {
           // 해당 디바이스가 참여한 전압 그룹들의 결과를 확인
+          // 모든 전압(18V, 24V, 30V)에서 G여야 디바이스가 G가 됨
           let deviceConclusion = 'G'; // 기본값은 G
           
           if (results.measurements) {
-            for (const [voltage, measurementData] of Object.entries(results.measurements)) {
+            // 모든 전압 그룹을 확인 (18V, 24V, 30V)
+            const requiredVoltages = ['18V', '24V', '30V'];
+            for (const voltage of requiredVoltages) {
               if (voltageGroupResults[voltage] && !voltageGroupResults[voltage].allGood) {
                 // 해당 전압 그룹에서 하나라도 N이 있으면 전체 디바이스는 N
                 deviceConclusion = 'N';
+                console.log(`[FinalDeviceReport] ${deviceName} ${voltage} 그룹에서 N 발견 - 디바이스 결론: N`);
                 break;
               }
             }
@@ -3579,7 +3609,7 @@ export async function generateFinalDeviceReport(cycleNumber) {
             isSelected: true
           };
           
-          console.log(`[FinalDeviceReport] ${deviceName} 최종 결론: ${deviceConclusion} (전압별 그룹 판단 적용) - 선택됨`);
+          console.log(`[FinalDeviceReport] ${deviceName} 최종 결론: ${deviceConclusion} (모든 전압 그룹 판단 적용) - 선택됨`);
           console.log(`[FinalDeviceReport] 전압별 그룹 결과: 18V=${voltageGroupResults['18V'].allGood ? 'G' : 'N'}, 24V=${voltageGroupResults['24V'].allGood ? 'G' : 'N'}, 30V=${voltageGroupResults['30V'].allGood ? 'G' : 'N'}`);
         } else {
           console.log(`[FinalDeviceReport] ${deviceName}: 테스트 없음 - 스킵`);
@@ -3742,11 +3772,12 @@ export async function generateFinalDeviceReport(cycleNumber) {
           }
         }
         
-        // A.Q.L 계산 (선택되지 않은 디바이스는 "-.-")
+        // A.Q.L 계산 (디바이스별 최종 결론 적용)
         let aql;
         if (isDeviceSelected) {
-          const voltageGroupResult = finalConclusions[deviceName]?.voltageGroupResults?.[`${inputVoltage}V`];
-          aql = voltageGroupResult && voltageGroupResult.allGood ? 'G' : 'N';
+          // 디바이스별 최종 결론 사용 (모든 전압에서 G여야 G)
+          const deviceConclusion = finalConclusions[deviceName]?.conclusion;
+          aql = deviceConclusion === 'G' ? 'G' : 'N';
         } else {
           aql = '-.-';
         }
