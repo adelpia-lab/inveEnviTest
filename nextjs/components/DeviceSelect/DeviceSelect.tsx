@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import { useIsClient } from '../../lib/useIsClient';
 
-export default function DeviceSelect({initialValue, onSelectionChange, wsConnection, onTimeModeClick, onSimulationChange}) {
+export default function DeviceSelect({initialValue, onSelectionChange, wsConnection, onTimeModeClick, onSimulationChange, isTimeModeEnabled = false}) {
   const devices = [
     { value: "#1 Device", label: "#1", index: 0 },
     { value: "#2 Device", label: "#2", index: 1 },
@@ -270,37 +270,56 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
         maxHeight: '540px',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 0.5, gap: 1 }}> {/* 마진 줄임 */}
-        {!isSelectionMode ? (
-          <>
-            <Button 
-              variant="outlined" 
-              color="primary" 
-              onClick={handleSelectButtonClick}
-              size="small"
-              disabled={isLoading}
-              sx={{ py: 0.5 }} // 버튼 높이 줄임
-            >
-              선택
-            </Button>
-            <Button 
-              variant="outlined" 
-              color="secondary" 
-              onClick={handleReadButtonClick}
-              size="small"
-              disabled={isLoading || isReading}
-              sx={{ py: 0.5 }} // 버튼 높이 줄임
-            >
-              {isReading ? '읽는 중...' : 'READ'}
-            </Button>
+      {/* 수직 배치를 위한 컨테이너 */}
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        gap: 1,
+        mb: 1
+      }}>
+        {/* 선택 버튼 */}
+        {!isSelectionMode && (
+          <Button 
+            variant="outlined" 
+            color="primary" 
+            onClick={handleSelectButtonClick}
+            size="small"
+            disabled={isLoading}
+            sx={{ 
+              py: 0.5,
+              width: '100%',
+              maxWidth: '120px'
+            }}
+          >
+            선택
+          </Button>
+        )}
+        
+        {/* READ 버튼 */}
+        {!isSelectionMode && (
+          <Button 
+            variant="outlined" 
+            color="secondary" 
+            onClick={handleReadButtonClick}
+            size="small"
+            disabled={isLoading || isReading}
+            sx={{ 
+              py: 0.5,
+              width: '100%',
+              maxWidth: '120px'
+            }}
+          >
+            {isReading ? '읽는 중...' : 'READ'}
+          </Button>
+        )}
 
-          </>
-        ) : null}
+        {/* 로딩 및 저장 상태 표시 */}
         {isLoading && (
           <Typography 
             variant="caption" 
             color="info.main" 
-            sx={{ ml: 1, fontSize: '0.7rem' }}
+            sx={{ fontSize: '0.7rem' }}
           >
             로딩 중...
           </Typography>
@@ -309,60 +328,101 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
           <Typography 
             variant="caption" 
             color="success.main" 
-            sx={{ ml: 1, fontSize: '0.7rem' }}
+            sx={{ fontSize: '0.7rem' }}
           >
             저장됨 ✓
           </Typography>
         )}
       </Box>
 
+      {/* 선택 모드일 때 CANCEL/ACCEPT 버튼들을 디바이스 체크박스 상부에 수직 배치 */}
+      {isSelectionMode && (
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          gap: 1,
+          alignItems: 'center',
+          mb: 1
+        }}>
+          <Button 
+            variant="contained" 
+            color="error" 
+            onClick={handleCancelClick}
+            size="small"
+            sx={{ 
+              width: '100%',
+              maxWidth: '120px',
+              py: 0.5
+            }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            color="success" 
+            onClick={handleAcceptClick}
+            size="small"
+            sx={{ 
+              width: '100%',
+              maxWidth: '120px',
+              py: 0.5
+            }}
+          >
+            Accept
+          </Button>
+        </Box>
+      )}
+
+      {/* 디바이스 체크박스들을 수직으로 배치 */}
       <Box sx={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(2, 1fr)', // 2열 그리드로 변경
-        gap: 0.5, // 간격 줄임
-        maxHeight: '400px',
-        overflow: 'auto'
+        display: 'flex', 
+        flexDirection: 'column',
+        gap: 0.5,
+        alignItems: 'center',
+        mb: 1
       }}>
         {devices.map((device) => {
           const isSelected = isDeviceSelected(device.index);
           
           return (
             <FormControlLabel
-              key={device.value} // Use stable key
+              key={device.value}
               control={
                 <Checkbox
                   checked={isSelected}
                   onChange={() => handleCheckboxChange(device.index)}
                   disabled={!isSelectionMode || isLoading}
-                  size="small" // 체크박스 크기 줄임
+                  size="small"
                   sx={{
                     color: 'white',
                     '&.Mui-checked': {
                       color: 'primary.main',
                     },
-                    padding: '2px', // 패딩 줄임
+                    padding: '2px',
                   }}
                 />
               }
               label={device.label}
               sx={{
                 color: 'white',
-                fontSize: '0.75rem', // 폰트 크기 줄임
+                fontSize: '0.75rem',
                 minWidth: 'fit-content',
-                margin: 0, // 마진 제거
-                padding: '2px', // 패딩 줄임
+                margin: 0,
+                padding: '2px',
+                width: '100%',
+                justifyContent: 'center'
               }}
             />
           );
         })}
       </Box>
       
-      {/* 시뮬레이션 토글 버튼과 TimeMode 버튼을 inner grid로 배치 */}
+      {/* 시뮬레이션 토글 버튼과 TimeMode 버튼을 수직으로 배치 */}
       <Box sx={{ 
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr', // 2열 그리드
+        display: 'flex',
+        flexDirection: 'column',
         gap: 1,
-        mt: 1,
+        alignItems: 'center',
         mb: 1
       }}>
         <Button 
@@ -374,14 +434,16 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
             py: 0.5,
             px: 1,
             fontSize: '0.7rem',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            width: '100%',
+            maxWidth: '120px'
           }}
         >
           {isSimulationEnabled ? '시뮬레이션 ON' : '시뮬레이션 OFF'}
         </Button>
         <Button 
-          variant="outlined"
-          color="primary"
+          variant={isTimeModeEnabled ? "contained" : "outlined"}
+          color={isTimeModeEnabled ? "success" : "primary"}
           onClick={() => {
             console.log('TimeMode button clicked in DeviceSelect');
             if (onTimeModeClick) {
@@ -395,42 +457,15 @@ export default function DeviceSelect({initialValue, onSelectionChange, wsConnect
             py: 0.5,
             px: 1,
             fontSize: '0.7rem',
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            width: '100%',
+            maxWidth: '120px'
           }}
         >
-          TimeMode
+          {isTimeModeEnabled ? 'TimeMode ON' : 'TimeMode'}
         </Button>
       </Box>
 
-      {isSelectionMode && (
-        <Box sx={{ 
-          display: 'flex', 
-          flexDirection: 'row', // 가로 배치로 변경
-          gap: 1, 
-          mt: 1, // 마진 줄임
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <Button 
-            variant="contained" 
-            color="error" 
-            onClick={handleCancelClick}
-            size="small"
-            sx={{ width: '80px', py: 0.5 }} // 버튼 크기 줄임
-          >
-            Cancel
-          </Button>
-          <Button 
-            variant="contained" 
-            color="success" 
-            onClick={handleAcceptClick}
-            size="small"
-            sx={{ width: '80px', py: 0.5 }} // 버튼 크기 줄임
-          >
-            Accept
-          </Button>
-        </Box>
-      )}
     </Box>
   );
 }

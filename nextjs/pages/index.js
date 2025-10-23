@@ -100,6 +100,24 @@ const [showTimeWindow, setShowTimeWindow] = useState(false);
 const [testDuration, setTestDuration] = useState(0); // 총 테스트 시간 (분)
 const [testStartTime, setTestStartTime] = useState(null); // 테스트 시작 시간
 const [isSimulationEnabled, setIsSimulationEnabled] = useState(false); // 시뮬레이션 모드 상태
+const [isTimeModeEnabled, setIsTimeModeEnabled] = useState(false); // 타임모드 상태
+
+// localStorage에서 타임모드 상태 로드
+useEffect(() => {
+  if (typeof window !== 'undefined') {
+    const storedTimeModeSettings = localStorage.getItem('timeModeSettings');
+    if (storedTimeModeSettings) {
+      try {
+        const parsed = JSON.parse(storedTimeModeSettings);
+        if (parsed.isTimeModeEnabled !== undefined) {
+          setIsTimeModeEnabled(parsed.isTimeModeEnabled);
+        }
+      } catch (error) {
+        console.error('Failed to parse stored time mode settings:', error);
+      }
+    }
+  }
+}, []);
 
 // 시간진행 윈도우 표시/숨김 함수
 const showTimeProgressWindow = (duration) => {
@@ -803,6 +821,9 @@ const sendMessage = () => {
     console.log('TimeMode: 저장된 시간 값들:', timeValues);
     console.log('TimeMode: 활성화 상태:', isTimeModeEnabled);
     
+    // 타임모드 상태 업데이트
+    setIsTimeModeEnabled(isTimeModeEnabled);
+    
     // 시간 값과 활성화 상태를 함께 서버로 전송
     const timeModeSettings = {
       ...timeValues,
@@ -878,6 +899,7 @@ const sendMessage = () => {
               wsConnection={ws.current}
               onTimeModeClick={handleTimeModeButtonClick}
               onSimulationChange={handleSimulationChange}
+              isTimeModeEnabled={isTimeModeEnabled}
             />
           </div>
           <div className={styles.bodyItem}>

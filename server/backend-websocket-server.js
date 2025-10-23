@@ -2370,8 +2370,8 @@ function setupWebSocketEventHandlers(wss) {
                         console.log(`🔌 [Backend WS Server] Relay test on port ${portNumber} with device ${deviceNumber}`);
                         
                         // Validate device range
-                        if (deviceNumber < 1 || deviceNumber > 10) {
-                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~10)`;
+                        if (deviceNumber < 1 || deviceNumber > 3) {
+                            const responseMessage = `[RELAY_TEST] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~3)`;
                             console.log(`❌ [Backend WS Server] Relay ${portNumber} test failed - device out of range: ${deviceNumber}`);
                             ws.send(responseMessage);
                             return;
@@ -2424,8 +2424,8 @@ function setupWebSocketEventHandlers(wss) {
                         console.log(`🔌 [Backend WS Server] Relay ON on port ${portNumber} with device ${deviceNumber}`);
                         
                         // Validate device range
-                        if (deviceNumber < 1 || deviceNumber > 10) {
-                            const responseMessage = `[RELAY_ON] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~10)`;
+                        if (deviceNumber < 1 || deviceNumber > 3) {
+                            const responseMessage = `[RELAY_ON] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~3)`;
                             console.log(`❌ [Backend WS Server] Relay ${portNumber} ON failed - device out of range: ${deviceNumber}`);
                             ws.send(responseMessage);
                             return;
@@ -2486,8 +2486,8 @@ function setupWebSocketEventHandlers(wss) {
                         console.log(`🔌 [Backend WS Server] Relay OFF on port ${portNumber} with device ${deviceNumber}`);
                         
                         // Validate device range
-                        if (deviceNumber < 1 || deviceNumber > 10) {
-                            const responseMessage = `[RELAY_OFF] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~10)`;
+                        if (deviceNumber < 1 || deviceNumber > 3) {
+                            const responseMessage = `[RELAY_OFF] PORT:${portNumber} STATUS:error MESSAGE:디바이스 번호 범위 오류 (1~3)`;
                             console.log(`❌ [Backend WS Server] Relay ${portNumber} OFF failed - device out of range: ${deviceNumber}`);
                             ws.send(responseMessage);
                             return;
