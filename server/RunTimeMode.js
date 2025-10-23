@@ -3,7 +3,7 @@ import { RelayAllOff, SelectDeviceOn, SelectDeviceOff } from './SelectDevice.js'
 import { SendVoltCommand } from './SetVolt.js';
 import { ReadVolt } from './ReadVolt.js';
 import { ReadChamber } from './ReadChamber.js'; 
-import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
+import { getProcessStopRequested, setProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
 import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData, updateTableData, getCurrentTableData, resetTableData } from './RunTestProcess.js';
 import { sleep, getFormattedDateTime, getDateDirectoryName, Now } from './utils/common.js';
 import fs from 'fs';
@@ -947,6 +947,12 @@ export async function runTimeModeTestProcess() {
     const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[TimeModeTestProcess] 🔄 TimeMode 테스트 프로세스 시작 (${modeText})`);
     
+    // cleanup 후 재시작을 위해 중지 플래그 초기화
+    if (getProcessStopRequested()) {
+      console.log(`[TimeModeTestProcess] 🔄 cleanup 후 재시작 - 중지 플래그 초기화`);
+      setProcessStopRequested(false);
+    }
+    
     // 전체 테스트 프로세스 시작 시 테이블 데이터 초기화 제거
     // 각 runSinglePageProcess에서 개별적으로 초기화하므로 여기서는 초기화하지 않음
     console.log(`[TimeModeTestProcess] ✅ TimeMode 테스트 프로세스 시작 - 각 단계별 개별 초기화 방식 사용`);
@@ -1392,6 +1398,12 @@ export async function runNextTankEnviTestProcess() {
   try {
     const modeText = getSimulationMode() ? '시뮬레이션 모드' : '실제 모드';
     console.log(`[NextTankEnviTestProcess] 🔄 환경 테스트 프로세스 시작 (${modeText})`);
+    
+    // cleanup 후 재시작을 위해 중지 플래그 초기화
+    if (getProcessStopRequested()) {
+      console.log(`[NextTankEnviTestProcess] 🔄 cleanup 후 재시작 - 중지 플래그 초기화`);
+      setProcessStopRequested(false);
+    }
     
     // 전체 테스트 프로세스 시작 시 테이블 데이터 초기화 (한 번만)
     resetTableData();
