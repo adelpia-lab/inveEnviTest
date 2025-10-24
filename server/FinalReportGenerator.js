@@ -7,6 +7,32 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * 제품 입력 정보를 파일에서 읽어오는 함수
+ * @returns {Object} 제품 입력 정보 (modelName, productNames)
+ */
+function loadProductInput() {
+  try {
+    const productInputPath = path.join(__dirname, 'product_input.json');
+    if (fs.existsSync(productInputPath)) {
+      const data = fs.readFileSync(productInputPath, 'utf-8');
+      const productInput = JSON.parse(data);
+      console.log(`[FinalReportGenerator] Product input loaded: ${JSON.stringify(productInput)}`);
+      return productInput;
+    }
+  } catch (error) {
+    console.warn(`[FinalReportGenerator] Failed to load product input: ${error.message}`);
+  }
+  
+  // 기본값
+  const defaultProductInput = {
+    modelName: 'Unknown Model',
+    productNames: ['A-001', 'B-002', 'C-003']
+  };
+  console.log(`[FinalReportGenerator] Using default product input: ${JSON.stringify(defaultProductInput)}`);
+  return defaultProductInput;
+}
+
+/**
  * 디바이스 선택 상태를 파일에서 읽어오는 함수
  * @returns {Array} 선택된 디바이스 상태 배열 (10개 요소, true/false)
  */
@@ -95,6 +121,10 @@ export async function generateFinalReportFromDirectory(directoryPath, directoryN
     const deviceStates = loadDeviceStates();
     console.log(`[FinalReportGenerator] 로드된 디바이스 선택 상태: ${JSON.stringify(deviceStates)}`);
     
+    // 제품 입력 정보 로드
+    const productInput = loadProductInput();
+    console.log(`[FinalReportGenerator] 로드된 제품 입력 정보: ${JSON.stringify(productInput)}`);
+    
     // CSV 파일 검색
     const csvFiles = scanCSVFilesInDirectory(directoryPath);
     console.log(`[FinalReportGenerator] 발견된 CSV 파일: ${csvFiles.length}개`);
@@ -104,14 +134,14 @@ export async function generateFinalReportFromDirectory(directoryPath, directoryN
     }
     
     // CSV 파일들 분석 (디바이스 선택 상태 포함)
-    const deviceResults = analyzeCSVFiles(csvFiles, directoryPath, deviceStates);
+    const deviceResults = analyzeCSVFiles(csvFiles, directoryPath, deviceStates, productInput);
     console.log(`[FinalReportGenerator] 분석된 디바이스: ${Object.keys(deviceResults).length}개`);
     
     // 최종 결론 생성 (디바이스 선택 상태 포함)
     const finalConclusions = generateFinalConclusions(deviceResults, deviceStates);
     
     // 보고서 파일 생성
-    const reportResult = await createFinalReportFile(finalConclusions, directoryPath, directoryName, deviceStates);
+    const reportResult = await createFinalReportFile(finalConclusions, directoryPath, directoryName, deviceStates, productInput);
     
     console.log(`[FinalReportGenerator] 최종보고서 생성 완료: ${reportResult.filename}`);
     
@@ -224,9 +254,10 @@ function isVoltageMeasurementFile(filename) {
  * @param {Array} csvFiles - 분석할 CSV 파일 목록
  * @param {string} directoryPath - 디렉토리 경로
  * @param {Array} deviceStates - 디바이스 선택 상태 배열
+ * @param {Object} productInput - 제품 입력 정보
  * @returns {Object} 디바이스별 분석 결과
  */
-function analyzeCSVFiles(csvFiles, directoryPath, deviceStates) {
+function analyzeCSVFiles(csvFiles, directoryPath, deviceStates, productInput) {
   // 3개 디바이스, 1개 채널 구조로 초기화 (상세한 측정 데이터 포함)
   const deviceResults = {
     'Device 1': {
@@ -275,7 +306,7 @@ function analyzeCSVFiles(csvFiles, directoryPath, deviceStates) {
       const dataLines = lines.slice(1);
       
       // 디바이스 정보 추출 (상세한 측정 데이터 포함)
-      const deviceInfo = extractDeviceInfoFromCSV(headerLine, dataLines, csvFile.filename, deviceStates);
+      const deviceInfo = extractDeviceInfoFromCSV(headerLine, dataLines, csvFile.filename, deviceStates, productInput);
       
       if (deviceInfo && deviceInfo.deviceData) {
         // 3개 디바이스별 결과 분석 (선택된 디바이스만)
@@ -344,9 +375,10 @@ function analyzeCSVFiles(csvFiles, directoryPath, deviceStates) {
  * @param {Array} dataLines - 데이터 라인들
  * @param {string} filename - 파일명
  * @param {Array} deviceStates - 디바이스 선택 상태 배열
+ * @param {Object} productInput - 제품 입력 정보
  * @returns {Object|null} 디바이스 정보
  */
-function extractDeviceInfoFromCSV(headerLine, dataLines, filename, deviceStates) {
+function extractDeviceInfoFromCSV(headerLine, dataLines, filename, deviceStates, productInput) {
   try {
     console.log(`[FinalReportGenerator] CSV 파일 분석 시작: ${filename}`);
     
@@ -372,8 +404,19 @@ function extractDeviceInfoFromCSV(headerLine, dataLines, filename, deviceStates)
         continue;
       }
       
-      // 테이블 데이터 행 처리 (saveTotaReportTableToFile 패턴)
-      if (inTableSection && headerFound && (line.includes('V,C-') || line.includes('V,C00'))) {
+      // 테이블 데이터 행 처리 (다양한 제품번호 형태 지원)
+      if (inTableSection && headerFound && (
+        line.includes('V,C-') || 
+        line.includes('V,C00') || 
+        line.includes('V,1-') || 
+        line.includes('V,2-') || 
+        line.includes('V,3-') ||
+        line.includes('V,A-') ||
+        line.includes('V,B-') ||
+        line.includes('V,D-') ||
+        /V,\d+-\d+/.test(line) ||
+        /V,[A-Z]-\d+/.test(line)
+      )) {
         const parts = line.split(',');
         if (parts.length >= 13) { // INPUT,제품번호,1st~10th,A.Q.L = 13개 컬럼
           const inputVoltage = parts[0]; // 18V, 24V, 30V
@@ -405,21 +448,64 @@ function extractDeviceInfoFromCSV(headerLine, dataLines, filename, deviceStates)
             }
           }
           
-          // 제품번호에서 디바이스 번호 추출
+          // 제품번호에서 디바이스 번호 추출 (product_input.json 순서 기준)
           let deviceNumber = null;
           let deviceName = null;
           
-          // C-001, C-002, C-003 형식 처리
-          const deviceMatch1 = productNumber.match(/C-00(\d+)/);
-          if (deviceMatch1) {
-            deviceNumber = parseInt(deviceMatch1[1]);
+          // product_input.json의 productNames 배열에서 순서로 디바이스 번호 결정
+          const productNumbers = productInput?.productNames || ['A-001', 'B-002', 'C-003'];
+          const deviceIndex = productNumbers.indexOf(productNumber);
+          
+          if (deviceIndex !== -1) {
+            // product_input.json에서 찾은 경우, 인덱스 + 1이 디바이스 번호
+            deviceNumber = deviceIndex + 1;
             deviceName = `Device ${deviceNumber}`;
+            console.log(`[FinalReportGenerator] ${productNumber} -> ${deviceName} (product_input.json 순서 기준)`);
           } else {
-            // C005, C006, C007 형식 처리 (기존 호환성)
-            const deviceMatch2 = productNumber.match(/C00(\d+)/);
-            if (deviceMatch2) {
+            // product_input.json에서 찾지 못한 경우, 기존 로직 사용 (호환성)
+            
+            // 1. C-001, C-002, C-003 형식 처리
+            const deviceMatch1 = productNumber.match(/C-00(\d+)/);
+            if (deviceMatch1) {
+              deviceNumber = parseInt(deviceMatch1[1]);
+              deviceName = `Device ${deviceNumber}`;
+              console.log(`[FinalReportGenerator] ${productNumber} -> ${deviceName} (C-00X 형식)`);
+            } 
+            // 2. C005, C006, C007 형식 처리 (기존 호환성)
+            else if (productNumber.match(/C00(\d+)/)) {
+              const deviceMatch2 = productNumber.match(/C00(\d+)/);
               deviceNumber = parseInt(deviceMatch2[1]) - 4; // C005=1, C006=2, C007=3
               deviceName = `Device ${deviceNumber}`;
+              console.log(`[FinalReportGenerator] ${productNumber} -> ${deviceName} (C00X 형식)`);
+            }
+            // 3. 1-123, 2-124, 3-125 형식 처리 (숫자로 시작하는 제품번호)
+            else if (productNumber.match(/^(\d+)-(\d+)$/)) {
+              const deviceMatch3 = productNumber.match(/^(\d+)-(\d+)$/);
+              deviceNumber = parseInt(deviceMatch3[1]);
+              deviceName = `Device ${deviceNumber}`;
+              console.log(`[FinalReportGenerator] ${productNumber} -> ${deviceName} (숫자-숫자 형식)`);
+            }
+            // 4. A-001, B-002, D-003 등 문자로 시작하는 제품번호 처리
+            else if (productNumber.match(/^([A-Z])-(\d+)$/)) {
+              const deviceMatch4 = productNumber.match(/^([A-Z])-(\d+)$/);
+              const letter = deviceMatch4[1];
+              const number = parseInt(deviceMatch4[2]);
+              // A=1, B=2, C=3, D=4... 순서로 매핑
+              deviceNumber = letter.charCodeAt(0) - 64; // A=65, B=66, C=67...
+              deviceName = `Device ${deviceNumber}`;
+              console.log(`[FinalReportGenerator] ${productNumber} -> ${deviceName} (문자-숫자 형식)`);
+            }
+            // 5. 기타 숫자로만 구성된 제품번호 (123, 124, 125 등)
+            else if (productNumber.match(/^(\d+)$/)) {
+              const deviceMatch5 = productNumber.match(/^(\d+)$/);
+              const number = parseInt(deviceMatch5[1]);
+              // 마지막 자리수로 디바이스 번호 결정 (123->3, 124->4, 125->5)
+              deviceNumber = number % 10;
+              if (deviceNumber === 0) deviceNumber = 10; // 0인 경우 10으로 처리
+              deviceName = `Device ${deviceNumber}`;
+              console.log(`[FinalReportGenerator] ${productNumber} -> ${deviceNumber} (숫자만 형식)`);
+            } else {
+              console.warn(`[FinalReportGenerator] ${productNumber} - 매칭되지 않는 제품번호 형식`);
             }
           }
           
@@ -471,17 +557,20 @@ function extractDeviceInfoFromCSV(headerLine, dataLines, filename, deviceStates)
     // 처리된 디바이스가 없으면 기본값 설정 (3개 디바이스, 1개 채널)
     if (processedDevices === 0) {
       console.warn(`[FinalReportGenerator] ${filename}에서 A.Q.L 결과를 찾을 수 없음 - 기본값 설정`);
+      const productNumbers = productInput?.productNames || ['A-001', 'B-002', 'C-003'];
+      
       for (let i = 1; i <= 3; i++) {
         const deviceName = `Device ${i}`;
         const deviceIndex = i - 1;
         const isDeviceSelected = deviceStates[deviceIndex];
         
         if (isDeviceSelected) {
+          const productNumber = productNumbers[i - 1] || `C-00${i}`;
           deviceData[deviceName] = {
             measurements: {
-              '18V': { productNumber: `C-00${i}`, measurements: ['-','-','-','-','-','-','-','-','-','-'], aql: 'N' },
-              '24V': { productNumber: `C-00${i}`, measurements: ['-','-','-','-','-','-','-','-','-','-'], aql: 'N' },
-              '30V': { productNumber: `C-00${i}`, measurements: ['-','-','-','-','-','-','-','-','-','-'], aql: 'N' }
+              '18V': { productNumber: productNumber, measurements: ['-','-','-','-','-','-','-','-','-','-'], aql: 'N' },
+              '24V': { productNumber: productNumber, measurements: ['-','-','-','-','-','-','-','-','-','-'], aql: 'N' },
+              '30V': { productNumber: productNumber, measurements: ['-','-','-','-','-','-','-','-','-','-'], aql: 'N' }
             },
             totalTests: 3,
             passedTests: 0,
@@ -623,9 +712,10 @@ function generateFinalConclusions(deviceResults, deviceStates) {
  * @param {string} directoryPath - 디렉토리 경로
  * @param {string} directoryName - 디렉토리 이름
  * @param {Array} deviceStates - 디바이스 선택 상태 배열
+ * @param {Object} productInput - 제품 입력 정보
  * @returns {Object} 파일 생성 결과
  */
-async function createFinalReportFile(finalConclusions, directoryPath, directoryName, deviceStates) {
+async function createFinalReportFile(finalConclusions, directoryPath, directoryName, deviceStates, productInput) {
   try {
     console.log(`[FinalReportGenerator] 최종보고서 파일 생성 시작`);
     console.log(`[FinalReportGenerator] 디렉토리 경로: ${directoryPath}`);
@@ -660,10 +750,14 @@ async function createFinalReportFile(finalConclusions, directoryPath, directoryN
     // CSV 보고서 내용 생성 (실제 테스트 결과 기반 테이블)
     let reportContent = '';
     
-    // 헤더 정보
+    // 헤더 정보 (실제 제품 입력 정보 사용)
+    const modelName = productInput?.modelName || 'Unknown Model';
+    const productNumbers = productInput?.productNames || ['A-001', 'B-002', 'C-003'];
+    const productNumberString = productNumbers.join(';');
+    
     reportContent += `Document No.,K2-AD-110-A241023-001\n`;
-    reportContent += `Product Name,Device Comprehensive Test Report\n`;
-    reportContent += `Product Number,Device 1-3\n`;
+    reportContent += `Product Name,${modelName}\n`;
+    reportContent += `Product Number,${productNumberString}\n`;
     reportContent += `Test Date,${new Date().toLocaleDateString('en-US')}\n`;
     reportContent += `Test Time,${new Date().toLocaleTimeString('en-US')}\n`;
     reportContent += `Test Temperature,Comprehensive Analysis\n`;
@@ -736,7 +830,7 @@ async function createFinalReportFile(finalConclusions, directoryPath, directoryN
           // 각 디바이스별로 행 생성
           for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
             const deviceName = `Device ${deviceIndex + 1}`;
-            const productNumber = `C-00${deviceIndex + 1}`;
+            const productNumber = productNumbers[deviceIndex] || `C-00${deviceIndex + 1}`;
             const isDeviceSelected = deviceStates[deviceIndex];
             
             if (isDeviceSelected && fileResults[fileName][deviceName]) {
@@ -797,7 +891,7 @@ async function createFinalReportFile(finalConclusions, directoryPath, directoryN
       for (const voltage of voltageList) {
         for (let deviceIndex = 0; deviceIndex < 3; deviceIndex++) {
           const deviceName = `Device ${deviceIndex + 1}`;
-          const productNumber = `C-00${deviceIndex + 1}`;
+          const productNumber = productNumbers[deviceIndex] || `C-00${deviceIndex + 1}`;
           const isDeviceSelected = deviceStates[deviceIndex];
           
           if (isDeviceSelected && finalConclusions[deviceName]) {
