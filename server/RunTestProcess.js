@@ -4,6 +4,7 @@ import { SendVoltCommand } from './SetVolt.js';
 import { ReadVolt } from './ReadVolt.js';
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
+import { generateFinalReportFromDirectory } from './FinalReportGenerator.js';
 import { sleep, getFormattedDateTime, getDateDirectoryName, Now } from './utils/common.js';
 import fs from 'fs';
 import path from 'path';
@@ -3067,10 +3068,13 @@ export async function runNextTankEnviTestProcess() {
     
     console.log(`[NextTankEnviTestProcess] 모든 사이클(${cycleNumber}회) 완료`);
     
-    // 모든 사이클 완료 후 종합 리포트 생성
+    // 모든 사이클 완료 후 종합 리포트 생성 (FinalReportGenerator 로직 사용)
     console.log(`[NextTankEnviTestProcess] 📄 모든 사이클 완료 - 종합 리포트 생성`);
     try {
-      const finalReportResult = await generateFinalDeviceReport(cycleNumber);
+      const finalReportResult = await generateFinalReportFromDirectory(
+        currentTestDirectoryPath || path.join(process.cwd(), 'Data', 'default'), 
+        currentTestDirectoryName || 'default'
+      );
       if (finalReportResult && finalReportResult.success) {
         console.log(`[NextTankEnviTestProcess] ✅ 종합 리포트 생성 성공: ${finalReportResult.filename}`);
       } else {
@@ -3323,22 +3327,16 @@ function loadDeviceStates() {
  */
 export async function generateFinalDeviceReport(cycleNumber) {
   try {
-    console.log(`[FinalDeviceReport] 디바이스별 종합 리포트 생성 시작 - ${cycleNumber} 사이클`);
-    
-    // getTableOption 로드
-    const getTableOption = await getSafeGetTableOption();
-    console.log(`[FinalDeviceReport] getTableOption 로드 완료`);
-    
-    // 디바이스 선택 상태 로드
-    const deviceStates = loadDeviceStates();
-    console.log(`[FinalDeviceReport] 로드된 디바이스 선택 상태: ${JSON.stringify(deviceStates)}`);
+    console.log(`[FinalDeviceReport] 디바이스별 종합 리포트 생성 시작 - ${cycleNumber} 사이클 (FinalReportGenerator 로직 사용)`);
     
     // ===== 현재 테스트 디렉토리에서만 CSV 파일 검색 =====
     let testDirectoryPath = null;
+    let testDirectoryName = null;
     
     if (currentTestDirectoryPath) {
       // 전역 변수에서 현재 테스트 디렉토리 경로 사용
       testDirectoryPath = currentTestDirectoryPath;
+      testDirectoryName = path.basename(testDirectoryPath);
       console.log(`[FinalDeviceReport] 📁 현재 테스트 디렉토리에서만 파일 검색: ${testDirectoryPath}`);
     } else {
       // 전역 변수가 없으면 자동으로 최근 테스트 디렉토리 검색
@@ -3353,8 +3351,8 @@ export async function generateFinalDeviceReport(cycleNumber) {
             .reverse(); // 최신 순으로 정렬
           
           if (dataFolders.length > 0) {
-            const latestFolder = dataFolders[0];
-            testDirectoryPath = path.join(dataFolderPath, latestFolder);
+            testDirectoryName = dataFolders[0];
+            testDirectoryPath = path.join(dataFolderPath, testDirectoryName);
             console.log(`[FinalDeviceReport] 📁 자동으로 최근 테스트 디렉토리 선택: ${testDirectoryPath}`);
           } else {
             console.error(`[FinalDeviceReport] ❌ Data 폴더에 테스트 디렉토리가 없음`);
@@ -3370,681 +3368,41 @@ export async function generateFinalDeviceReport(cycleNumber) {
       }
     }
     
-    // 테스트 디렉토리가 존재하는지 확인
+    // 디렉토리 존재 확인
     if (!fs.existsSync(testDirectoryPath)) {
       console.error(`[FinalDeviceReport] ❌ 테스트 디렉토리가 존재하지 않음: ${testDirectoryPath}`);
-      return { success: false, error: '테스트 디렉토리가 존재하지 않음' };
+      return { success: false, error: `테스트 디렉토리가 존재하지 않음: ${testDirectoryPath}` };
     }
     
-    // 현재 테스트 디렉토리에서만 CSV 파일 검색
-    const allCsvFiles = [];
+    // FinalReportGenerator.js의 generateFinalReportFromDirectory 함수 사용
+    console.log(`[FinalDeviceReport] FinalReportGenerator 로직으로 최종 리포트 생성 시작`);
+    const finalReportResult = await generateFinalReportFromDirectory(
+      testDirectoryPath || path.join(process.cwd(), 'Data', 'default'), 
+      testDirectoryName || 'default'
+    );
     
-    try {
-      const testDirFiles = fs.readdirSync(testDirectoryPath);
-      console.log(`[FinalDeviceReport] 📁 테스트 디렉토리 파일 목록:`, testDirFiles);
-      
-      // 모든 CSV 파일 검색 (Cycle 포함 여부와 관계없이)
-      const allCsvFilesInDir = testDirFiles.filter(file => file.endsWith('.csv'));
-      console.log(`[FinalDeviceReport] 📁 발견된 모든 CSV 파일:`, allCsvFilesInDir);
-      
-      // Cycle이 포함된 CSV 파일만 필터링
-      const testDirCsvFiles = allCsvFilesInDir.filter(file => file.includes('Cycle'));
-      console.log(`[FinalDeviceReport] 📁 Cycle이 포함된 CSV 파일:`, testDirCsvFiles);
-      
-      // Cycle이 포함된 파일이 없으면 모든 CSV 파일 사용
-      const filesToUse = testDirCsvFiles.length > 0 ? testDirCsvFiles : allCsvFilesInDir;
-      console.log(`[FinalDeviceReport] 📁 사용할 CSV 파일:`, filesToUse);
-      
-      allCsvFiles.push(...filesToUse.map(file => ({ file, directory: '' })));
-      
-      console.log(`[FinalDeviceReport] 📁 현재 테스트 디렉토리에서 발견된 CSV 파일: ${filesToUse.length}개`);
-      
-      // 파일이 없으면 대체 경로에서 검색
-      if (filesToUse.length === 0) {
-        console.warn(`[FinalDeviceReport] ⚠️ 현재 디렉토리에 CSV 파일이 없음 - 대체 경로에서 검색`);
-        
-        // fallback 디렉토리에서 검색
-        const fallbackPath = path.join(process.cwd(), 'Data', 'fallback');
-        if (fs.existsSync(fallbackPath)) {
-          try {
-            const fallbackFiles = fs.readdirSync(fallbackPath);
-            const fallbackCsvFiles = fallbackFiles.filter(file => file.endsWith('.csv'));
-            console.log(`[FinalDeviceReport] 📁 fallback 디렉토리에서 발견된 CSV 파일:`, fallbackCsvFiles);
-            
-            if (fallbackCsvFiles.length > 0) {
-              allCsvFiles.push(...fallbackCsvFiles.map(file => ({ file, directory: 'fallback' })));
-              console.log(`[FinalDeviceReport] 📁 fallback 디렉토리에서 ${fallbackCsvFiles.length}개 파일 추가`);
-            }
-          } catch (fallbackError) {
-            console.error(`[FinalDeviceReport] ❌ fallback 디렉토리 읽기 실패:`, fallbackError.message);
-          }
-        }
-      }
-      
-    } catch (error) {
-      console.error(`[FinalDeviceReport] ❌ 테스트 디렉토리 읽기 실패:`, error.message);
-      return { success: false, error: `테스트 디렉토리 읽기 실패: ${error.message}` };
-    }
-    
-    const csvFiles = allCsvFiles;
-    
-    console.log(`[FinalDeviceReport] 📊 최종 분석 대상 CSV 파일 수: ${csvFiles.length}`);
-    
-    if (csvFiles.length === 0) {
-      console.error(`[FinalDeviceReport] ❌ 분석할 CSV 파일이 없음 - 모든 경로에서 검색 실패`);
-      console.error(`[FinalDeviceReport] ❌ 이는 이전 단계에서 파일 저장이 실패했음을 의미합니다.`);
-      return { success: false, error: '분석할 CSV 파일이 없음 - 파일 저장 실패로 인한 문제' };
-    }
-    
-    console.log(`[FinalDeviceReport] 검색된 디렉토리: ${csvFiles.map(f => f.directory || 'current_test_dir').join(', ')}`);
-    
-    // 디바이스별 G/N 카운트 초기화 (3개 디바이스, 1개 채널) - saveTotaReportTableToFile 패턴에 맞춤
-    const deviceResults = {};
-    for (let device = 1; device <= 3; device++) {
-      deviceResults[`Device ${device}`] = {
-        totalTests: 0,
-        passedTests: 0,
-        failedTests: 0,
-        channels: {
-          'Channel 1': { total: 0, passed: 0, failed: 0 }
-        }
+    if (finalReportResult && finalReportResult.success) {
+      console.log(`[FinalDeviceReport] ✅ FinalReportGenerator 로직으로 최종 리포트 생성 성공: ${finalReportResult.filename}`);
+      return {
+        success: true,
+        filename: finalReportResult.filename,
+        filePath: finalReportResult.filePath,
+        processedFiles: finalReportResult.processedFiles || 0
+      };
+    } else {
+      console.error(`[FinalDeviceReport] ❌ FinalReportGenerator 로직으로 최종 리포트 생성 실패:`, finalReportResult?.error || '알 수 없는 오류');
+      return {
+        success: false,
+        error: finalReportResult?.error || 'FinalReportGenerator 로직 실행 실패'
       };
     }
     
-    // 채널명 매핑 함수 (1개 채널)
-    const getChannelName = (channelIndex) => {
-      return 'Channel 1';
-    };
-
-    // 안전한 속성 접근 함수
-    const safeUpdateChannel = (deviceName, channelName, result) => {
-      try {
-        if (!deviceResults[deviceName]) {
-          console.warn(`[FinalDeviceReport] 알 수 없는 디바이스: ${deviceName}`);
-          return;
-        }
-        
-        if (!deviceResults[deviceName].channels[channelName]) {
-          console.warn(`[FinalDeviceReport] 알 수 없는 채널: ${channelName} for ${deviceName}`);
-          return;
-        }
-        
-        deviceResults[deviceName].totalTests++;
-        deviceResults[deviceName].channels[channelName].total++;
-        
-        if (result === 'G') {
-          deviceResults[deviceName].passedTests++;
-          deviceResults[deviceName].channels[channelName].passed++;
-          console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: G - 통과 증가 (총: ${deviceResults[deviceName].channels[channelName].total})`);
-        } else {
-          deviceResults[deviceName].failedTests++;
-          deviceResults[deviceName].channels[channelName].failed++;
-          console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: N - 실패 증가 (총: ${deviceResults[deviceName].channels[channelName].total})`);
-        }
-        
-        console.log(`[FinalDeviceReport] ${deviceName} ${channelName}: ${result} (총: ${deviceResults[deviceName].channels[channelName].total})`);
-      } catch (error) {
-        console.error(`[FinalDeviceReport] safeUpdateChannel 오류 - ${deviceName} ${channelName}:`, error);
-      }
-    };
-
-    // 각 CSV 파일 분석
-    let processedFiles = 0;
-    console.log(`[FinalDeviceReport] 📊 분석할 CSV 파일 목록:`, csvFiles.map(f => f.file));
-    
-    for (const fileInfo of csvFiles) {
-      const { file: filename, directory } = fileInfo;
-      console.log(`[FinalDeviceReport] 🔍 파일 처리 시작: ${filename} (디렉토리: ${directory || 'current'})`);
-      
-      try {
-        const filePath = directory 
-          ? path.join(testDirectoryPath, directory, filename)
-          : path.join(testDirectoryPath, filename);
-        
-        console.log(`[FinalDeviceReport] 📁 파일 경로: ${filePath}`);
-        
-        // 파일 존재 여부 확인
-        if (!fs.existsSync(filePath)) {
-          console.error(`[FinalDeviceReport] ❌ 파일이 존재하지 않음: ${filePath}`);
-          continue;
-        }
-        
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        console.log(`[FinalDeviceReport] 📄 파일 내용 크기: ${fileContent.length} bytes`);
-        
-        // 파일명에서 사이클 번호와 테스트 유형 추출 (saveTotaReportTableToFile 패턴에 맞춤)
-        console.log(`[FinalDeviceReport] 파일명 분석 중: ${filename}`);
-        const cycleMatch = filename.match(/Cycle(\d+)/);
-        const testTypeMatch = filename.match(/(HighTemp_Test|LowTemp_Test|TimeMode_Test)/);
-        
-        console.log(`[FinalDeviceReport] Cycle 매치 결과:`, cycleMatch);
-        console.log(`[FinalDeviceReport] TestType 매치 결과:`, testTypeMatch);
-        
-        if (!cycleMatch || !testTypeMatch) {
-          console.warn(`[FinalDeviceReport] 파일명 형식 오류: ${filename}`);
-          console.warn(`[FinalDeviceReport] 예상 형식: Cycle숫자_HighTemp_Test 또는 Cycle숫자_LowTemp_Test`);
-          continue;
-        }
-        
-        const cycle = parseInt(cycleMatch[1]);
-        const testType = testTypeMatch[1];
-        
-        console.log(`[FinalDeviceReport] 분석 중: ${filename} (사이클 ${cycle}, ${testType})`);
-        
-        // CSV 내용에서 A.Q.L 컬럼의 G/N 결과 추출 (saveTotaReportTableToFile 패턴)
-        const lines = fileContent.split('\n');
-        let inTableSection = false;
-        let headerFound = false;
-        let processedRows = 0;
-        
-        console.log(`[FinalDeviceReport] ${filename} 분석 시작 - 총 ${lines.length}줄`);
-        
-        for (const line of lines) {
-          // 테이블 헤더 찾기
-          if (line.includes('INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L')) {
-            inTableSection = true;
-            headerFound = true;
-            console.log(`[FinalDeviceReport] 테이블 헤더 발견: ${filename}`);
-            continue;
-          }
-          
-          // 테이블 데이터 행 처리 (saveTotaReportTableToFile 패턴)
-          if (inTableSection && headerFound && line.includes('V,')) {
-            const parts = line.split(',');
-            if (parts.length >= 13) { // INPUT,제품번호,1st~10th,A.Q.L = 13개 컬럼
-              const inputVoltage = parts[0]; // 18V, 24V, 30V
-              const productNumber = parts[1]; // 동적 제품명 (A-001, B-002, C-003 등)
-              const aqlResult = parts[12]; // A.Q.L 컬럼의 G/N 결과
-              
-              // 제품번호에서 디바이스 번호 추출 (동적 제품명 패턴 지원)
-              let deviceNumber = -1;
-              const productNames = getTableOption.productInput?.productNames || ['A-001', 'B-002', 'C-003'];
-              const deviceIndex = productNames.indexOf(productNumber);
-              if (deviceIndex !== -1) {
-                deviceNumber = deviceIndex + 1; // A-001=1, B-002=2, C-003=3
-              }
-              
-              if (deviceNumber > 0) {
-                const deviceName = `Device ${deviceNumber}`;
-                const channelName = 'Channel 1';
-                
-                if (aqlResult && (aqlResult === 'G' || aqlResult === 'NG')) {
-                  const result = aqlResult === 'G' ? 'G' : 'N';
-                  console.log(`[FinalDeviceReport] ${deviceName} ${channelName} (${inputVoltage} ${productNumber}): ${result} - 업데이트 중`);
-                  safeUpdateChannel(deviceName, channelName, result);
-                  processedRows++;
-                } else {
-                  console.log(`[FinalDeviceReport] ${deviceName} ${channelName} (${inputVoltage} ${productNumber}): 알 수 없는 AQL 결과 '${aqlResult}'`);
-                }
-              }
-            }
-          }
-          
-          // 테이블 섹션 종료 조건
-          if (inTableSection && line.trim() === '') {
-            inTableSection = false;
-            headerFound = false;
-            console.log(`[FinalDeviceReport] 테이블 섹션 종료: ${filename}`);
-          }
-        }
-        
-        if (processedRows === 0) {
-          console.warn(`[FinalDeviceReport] ⚠️ ${filename}에서 A.Q.L 결과를 찾을 수 없음`);
-        } else {
-          console.log(`[FinalDeviceReport] ✅ ${filename}에서 총 ${processedRows}개의 A.Q.L 결과 처리 완료`);
-        }
-        
-        processedFiles++;
-        console.log(`[FinalDeviceReport] 📈 현재까지 처리된 파일: ${processedFiles}/${csvFiles.length}`);
-        
-      } catch (fileError) {
-        console.error(`[FinalDeviceReport] 파일 분석 실패: ${filename}`, fileError);
-        console.error(`[FinalDeviceReport] 오류 상세:`, fileError.stack);
-      }
-    }
-    
-    console.log(`[FinalDeviceReport] 처리된 파일 수: ${processedFiles}/${csvFiles.length}`);
-    
-    // 분석 결과 요약 출력
-    console.log(`[FinalDeviceReport] 📊 디바이스별 분석 결과:`);
-    let devicesWithTests = 0;
-    for (const [deviceName, results] of Object.entries(deviceResults)) {
-      console.log(`[FinalDeviceReport] ${deviceName}: 총 ${results.totalTests}회, 통과 ${results.passedTests}회, 실패 ${results.failedTests}회`);
-      if (results.totalTests > 0) {
-        devicesWithTests++;
-        for (const [channelName, channelResult] of Object.entries(results.channels)) {
-          if (channelResult.total > 0) {
-            console.log(`[FinalDeviceReport]   ${channelName}: ${channelResult.passed}/${channelResult.total} (${((channelResult.passed / channelResult.total) * 100).toFixed(1)}%)`);
-          }
-        }
-      } else {
-        console.log(`[FinalDeviceReport]   ${deviceName}: 테스트 데이터 없음`);
-      }
-    }
-    console.log(`[FinalDeviceReport] 📈 테스트가 있는 디바이스 수: ${devicesWithTests}/3`);
-    
-    // 디바이스별 최종 결론 생성
-    const finalConclusions = {};
-    console.log(`[FinalDeviceReport] 디바이스별 최종 결론 생성 시작 (전압별 그룹 단위 G/NG 판단)`);
-    
-    // 전압별 그룹 결과를 저장할 객체
-    const voltageGroupResults = {
-      '18V': { devices: [], allGood: true },
-      '24V': { devices: [], allGood: true },
-      '30V': { devices: [], allGood: true }
-    };
-    
-    // 1단계: 각 디바이스별로 전압별 결과 수집
-    for (const [deviceName, results] of Object.entries(deviceResults)) {
-      console.log(`[FinalDeviceReport] ${deviceName} 분석: 총 ${results.totalTests}회, 통과 ${results.passedTests}회, 실패 ${results.failedTests}회`);
-      
-      if (results.totalTests > 0 && results.measurements) {
-        // 각 전압별로 결과 수집
-        for (const [voltage, measurementData] of Object.entries(results.measurements)) {
-          if (voltageGroupResults[voltage]) {
-            voltageGroupResults[voltage].devices.push({
-              deviceName: deviceName,
-              aql: measurementData.aql,
-              productNumber: measurementData.productNumber
-            });
-            
-            // 하나라도 N이면 해당 전압 그룹은 N
-            if (measurementData.aql === 'N') {
-              voltageGroupResults[voltage].allGood = false;
-              console.log(`[FinalDeviceReport] ${voltage} 그룹에서 ${deviceName}이 N - 전압 그룹 결과: N`);
-            }
-          }
-        }
-      }
-    }
-    
-    // 전압별 그룹 결과 최종 확인 및 로깅
-    for (const [voltage, groupResult] of Object.entries(voltageGroupResults)) {
-      console.log(`[FinalDeviceReport] ${voltage} 그룹 최종 결과: ${groupResult.allGood ? 'G' : 'N'} (디바이스 수: ${groupResult.devices.length})`);
-      groupResult.devices.forEach(device => {
-        console.log(`[FinalDeviceReport]   - ${device.deviceName}: ${device.aql}`);
-      });
-    }
-    
-    // 2단계: 전압별 그룹 결과를 바탕으로 디바이스별 최종 결론 생성
-    console.log(`[FinalDeviceReport] 🎯 디바이스별 최종 결론 생성 시작`);
-    let selectedDevicesCount = 0;
-    
-    for (const [deviceName, results] of Object.entries(deviceResults)) {
-      // 디바이스 선택 상태 확인 (Device 1 = index 0, Device 2 = index 1, Device 3 = index 2)
-      const deviceIndex = parseInt(deviceName.split(' ')[1]) - 1; // Device 1 -> index 0
-      const isDeviceSelected = deviceStates[deviceIndex];
-      
-      console.log(`[FinalDeviceReport] ${deviceName} (index: ${deviceIndex}): 선택됨=${isDeviceSelected}, 테스트=${results.totalTests}회`);
-      
-      if (isDeviceSelected) {
-        selectedDevicesCount++;
-        if (results.totalTests > 0) {
-          // 해당 디바이스가 참여한 전압 그룹들의 결과를 확인
-          // 모든 전압(18V, 24V, 30V)에서 G여야 디바이스가 G가 됨
-          let deviceConclusion = 'G'; // 기본값은 G
-          
-          if (results.measurements) {
-            // 모든 전압 그룹을 확인 (18V, 24V, 30V)
-            const requiredVoltages = ['18V', '24V', '30V'];
-            for (const voltage of requiredVoltages) {
-              if (voltageGroupResults[voltage] && !voltageGroupResults[voltage].allGood) {
-                // 해당 전압 그룹에서 하나라도 N이 있으면 전체 디바이스는 N
-                deviceConclusion = 'N';
-                console.log(`[FinalDeviceReport] ${deviceName} ${voltage} 그룹에서 N 발견 - 디바이스 결론: N`);
-                break;
-              }
-            }
-          }
-          
-          finalConclusions[deviceName] = {
-            conclusion: deviceConclusion,
-            totalTests: results.totalTests,
-            passedTests: results.passedTests,
-            failedTests: results.failedTests,
-            passRate: ((results.passedTests / results.totalTests) * 100).toFixed(2),
-            channels: results.channels,
-            measurements: results.measurements || {}, // 상세한 측정 데이터 포함
-            voltageGroupResults: voltageGroupResults, // 전압별 그룹 결과 포함
-            isSelected: true
-          };
-          
-          console.log(`[FinalDeviceReport] ${deviceName} 최종 결론: ${deviceConclusion} (모든 전압 그룹 판단 적용) - 선택됨`);
-          console.log(`[FinalDeviceReport] 전압별 그룹 결과: 18V=${voltageGroupResults['18V'].allGood ? 'G' : 'N'}, 24V=${voltageGroupResults['24V'].allGood ? 'G' : 'N'}, 30V=${voltageGroupResults['30V'].allGood ? 'G' : 'N'}`);
-        } else {
-          console.log(`[FinalDeviceReport] ${deviceName}: 테스트 없음 - 스킵`);
-        }
-      } else {
-        // 선택되지 않은 디바이스는 "-.-" 표시
-        finalConclusions[deviceName] = {
-          conclusion: '-.-',
-          totalTests: 0,
-          passedTests: 0,
-          failedTests: 0,
-          passRate: '0.00',
-          channels: results.channels,
-          measurements: {},
-          voltageGroupResults: voltageGroupResults,
-          isSelected: false
-        };
-        
-        console.log(`[FinalDeviceReport] ${deviceName} 최종 결론: -.- (선택되지 않음)`);
-      }
-    }
-    
-    console.log(`[FinalDeviceReport] 🎯 최종 결론 생성 완료: ${Object.keys(finalConclusions).length}개 디바이스`);
-    console.log(`[FinalDeviceReport] 📊 선택된 디바이스 수: ${selectedDevicesCount}/3`);
-    
-    // 최종 결론 요약 출력
-    for (const [deviceName, conclusion] of Object.entries(finalConclusions)) {
-      console.log(`[FinalDeviceReport] ${deviceName}: ${conclusion.conclusion} (선택됨: ${conclusion.isSelected}, 테스트: ${conclusion.totalTests}회)`);
-    }
-    
-    // finalConclusions가 비어있으면 경고
-    if (Object.keys(finalConclusions).length === 0) {
-      console.warn(`[FinalDeviceReport] ⚠️ 최종 결론이 비어있음 - 모든 디바이스의 totalTests가 0`);
-      console.warn(`[FinalDeviceReport] ⚠️ CSV 파일에서 데이터를 제대로 읽지 못했을 가능성`);
-    }
-    
-    // 종합 리포트 파일 생성
-    const reportFilename = `${getFormattedDateTime()}_Final_Device_Report.csv`;
-    
-    // ===== 전역 변수에서 테스트 디렉토리명 사용 (새로 생성하지 않음) =====
-    let dateDirectoryName = currentTestDirectoryName;
-
-    // ===== 전역 변수에서 테스트 디렉토리 경로 사용 =====
-    let dateFolderPath = null;
-    
-    if (currentTestDirectoryPath) {
-      // 전역 변수에서 테스트 디렉토리 경로 사용
-      dateFolderPath = currentTestDirectoryPath;
-      console.log(`[FinalDeviceReport] 📁 전역 변수에서 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
-    } else {
-      // RunTimeMode.js의 currentTestDirectoryPath도 확인
-      try {
-        const { getCurrentTestDirectoryPath } = await import('./RunTimeMode.js');
-        const timeModePath = getCurrentTestDirectoryPath();
-        if (timeModePath) {
-          dateFolderPath = timeModePath;
-          console.log(`[FinalDeviceReport] 📁 RunTimeMode에서 테스트 디렉토리 경로 사용: ${dateFolderPath}`);
-        } else {
-          // 전역 변수가 없으면 자동으로 최근 테스트 디렉토리 검색
-          console.warn(`[FinalDeviceReport] ⚠️ 현재 테스트 디렉토리 경로가 설정되지 않음 - 자동으로 최근 테스트 디렉토리 검색`);
-          
-          try {
-            const dataFolderPath = path.join(process.cwd(), 'Data');
-            if (fs.existsSync(dataFolderPath)) {
-              const dataFolders = fs.readdirSync(dataFolderPath)
-                .filter(folder => fs.statSync(path.join(dataFolderPath, folder)).isDirectory())
-                .sort()
-                .reverse(); // 최신 순으로 정렬
-              
-              if (dataFolders.length > 0) {
-                const latestFolder = dataFolders[0];
-                dateFolderPath = path.join(dataFolderPath, latestFolder);
-                console.log(`[FinalDeviceReport] 📁 자동으로 최근 테스트 디렉토리 선택: ${dateFolderPath}`);
-              } else {
-                // Data 폴더에 디렉토리가 없으면 default 디렉토리 생성
-                dateFolderPath = path.join(dataFolderPath, 'default');
-                if (!fs.existsSync(dateFolderPath)) {
-                  fs.mkdirSync(dateFolderPath, { recursive: true });
-                  console.log(`[FinalDeviceReport] 📁 기본 테스트 디렉토리 생성: ${dateFolderPath}`);
-                } else {
-                  console.log(`[FinalDeviceReport] 📁 기본 테스트 디렉토리 사용: ${dateFolderPath}`);
-                }
-              }
-            } else {
-              // Data 폴더가 없으면 생성하고 default 디렉토리도 생성
-              const dataFolderPath = path.join(process.cwd(), 'Data');
-              fs.mkdirSync(dataFolderPath, { recursive: true });
-              dateFolderPath = path.join(dataFolderPath, 'default');
-              fs.mkdirSync(dateFolderPath, { recursive: true });
-              console.log(`[FinalDeviceReport] 📁 Data 폴더 및 기본 테스트 디렉토리 생성: ${dateFolderPath}`);
-            }
-          } catch (error) {
-            console.error(`[FinalDeviceReport] ❌ 최근 테스트 디렉토리 검색 실패:`, error.message);
-            return { success: false, error: `최근 테스트 디렉토리 검색 실패: ${error.message}` };
-          }
-        }
-      } catch (error) {
-        console.error(`[FinalDeviceReport] ❌ RunTimeMode 경로 확인 실패:`, error.message);
-        return { success: false, error: `RunTimeMode 경로 확인 실패: ${error.message}` };
-      }
-    }
-    
-    const reportFilePath = path.join(dateFolderPath, reportFilename);
-    
-    let reportContent = '';
-    
-    // Document header information (saveTotaReportTableToFile 패턴에 맞춤)
-    reportContent += `Document No.,K2-AD-110-A241023-001\n`;
-    reportContent += `Product Name,Device Comprehensive Test Report\n`;
-    reportContent += `Product Number,Device 1-3\n`;
-    reportContent += `Test Date,${new Date().toLocaleDateString('en-US')}\n`;
-    reportContent += `Test Time,${new Date().toLocaleTimeString('en-US')}\n`;
-    reportContent += `Test Temperature,Comprehensive Analysis\n`;
-    reportContent += `Total Cycles,${cycleNumber}\n`;
-    reportContent += `Test Type,Device Comprehensive Test Report\n`;
-    reportContent += `Analyzed Files,${processedFiles}\n`;
-    reportContent += '\n';
-    
-    // 새로운 테이블 구조 (saveTotaReportTableToFile 패턴에 맞춤)
-    reportContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
-    
-    // 3개 input 전압에 대해 각각 Device별 측정값 표시 (saveTotaReportTableToFile 패턴)
-    for (let k = 0; k < 3; k++) {
-      const inputVoltage = [18, 24, 30][k]; // 18V, 24V, 30V
-      
-      // 각 제품번호에 대해 테이블 생성 (동적 제품명 사용) - 3개 디바이스만
-      for (let productIndex = 0; productIndex < 3; productIndex++) {
-        const productNumber = getTableOption.productInput?.productNames?.[productIndex] || `A-00${productIndex + 1}`; // 동적 제품명 사용
-        const deviceName = `Device ${productIndex + 1}`; // Device 1, Device 2, Device 3
-        
-        // 디바이스 선택 상태 확인
-        const deviceIndex = productIndex; // Device 1 = index 0, Device 2 = index 1, Device 3 = index 2
-        const isDeviceSelected = deviceStates[deviceIndex];
-        
-        // 해당 디바이스의 1st-10th 데이터 생성 (실제 측정값 기반)
-        const measurementData = [];
-        let validMeasurements = 0;
-        
-        if (isDeviceSelected) {
-          // 선택된 디바이스의 경우 실제 측정값 표시
-          if (finalConclusions[deviceName] && finalConclusions[deviceName].totalTests > 0) {
-            const deviceResult = finalConclusions[deviceName];
-            
-            // 실제 측정값이 있는 경우 (G/N 결과를 전압값으로 변환)
-            for (let i = 0; i < 10; i++) {
-              if (deviceResult.conclusion === 'G') {
-                measurementData.push('G');
-                validMeasurements++;
-              } else if (deviceResult.conclusion === 'N') {
-                measurementData.push('N');
-                validMeasurements++;
-              } else {
-                measurementData.push('-');
-              }
-            }
-          } else {
-            // 측정값이 없는 경우
-            for (let i = 0; i < 10; i++) {
-              measurementData.push('-');
-            }
-          }
-        } else {
-          // 선택되지 않은 디바이스는 "-.-" 표시
-          for (let i = 0; i < 10; i++) {
-            measurementData.push('-.-');
-          }
-        }
-        
-        // A.Q.L 계산 (디바이스별 최종 결론 적용)
-        let aql;
-        if (isDeviceSelected) {
-          // 디바이스별 최종 결론 사용 (모든 전압에서 G여야 G)
-          const deviceConclusion = finalConclusions[deviceName]?.conclusion;
-          aql = deviceConclusion === 'G' ? 'G' : 'N';
-        } else {
-          aql = '-.-';
-        }
-        
-        // 테이블 행 생성 (saveTotaReportTableToFile 패턴)
-        reportContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
-      }
-    }
-    
-    // Test results summary (xxx_Cycle_HighTemp_Test.csv와 동일한 형태)
-    let totalTests = 0;
-    let passedTests = 0;
-    let failedTests = 0;
-    
-    // 선택된 Device의 모든 측정값을 확인하여 통계 계산
-    for (const [deviceName, conclusion] of Object.entries(finalConclusions)) {
-      if (conclusion.isSelected && conclusion.totalTests > 0) {
-        totalTests += conclusion.totalTests;
-        passedTests += conclusion.passedTests;
-        failedTests += conclusion.failedTests;
-      }
-    }
-    
-    reportContent += '\n';
-    reportContent += `=== Test Results Summary ===\n`;
-    reportContent += `Total Tests,${totalTests}\n`;
-    reportContent += `Passed Tests,${passedTests}\n`;
-    reportContent += `Failed Tests,${failedTests}\n`;
-    reportContent += `Pass Rate,${totalTests > 0 ? ((passedTests / totalTests) * 100).toFixed(2) : 0}%\n`;
-    reportContent += `Test Result,${passedTests > failedTests ? 'PASS' : 'FAIL'}\n`;
-    reportContent += `Operator,System\n`;
-    reportContent += `Document Version,PS-14(Rev.1)\n`;
-    reportContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
-    reportContent += '\n';
-     
-     // Include all test files sequentially
-     reportContent += `=== Test Files Details ===\n`;
-     reportContent += `File Name,Cycle,Test Type,Status,Processed\n`;
-     
-     for (let i = 0; i < csvFiles.length; i++) {
-       const file = csvFiles[i];
-       const filePath = file.directory 
-         ? path.join(file.directory, file.file)
-         : path.join(testDirectoryPath, file.file);
-       
-       // Extract cycle and test type from filename
-       const cycleMatch = file.file.match(/Cycle(\d+)/);
-       const testTypeMatch = file.file.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
-       
-       const cycle = cycleMatch ? cycleMatch[1] : 'Unknown';
-       const testType = testTypeMatch ? testTypeMatch[1] : 'Unknown';
-       const status = i < processedFiles ? 'Processed' : 'Skipped';
-       
-       reportContent += `${file.file},${cycle},${testType},${status},${i < processedFiles ? 'Yes' : 'No'}\n`;
-     }
-     
-     // Include CSV file contents
-     reportContent += `\n`;
-     reportContent += `=== CSV File Contents ===\n`;
-     
-     for (let i = 0; i < csvFiles.length; i++) {
-       const file = csvFiles[i];
-       const filePath = file.directory 
-         ? path.join(file.directory, file.file)
-         : path.join(testDirectoryPath, file.file);
-       
-       try {
-         if (fs.existsSync(filePath)) {
-           const csvContent = fs.readFileSync(filePath, 'utf8');
-           
-           // Extract cycle and test type from filename
-           const cycleMatch = file.file.match(/Cycle(\d+)/);
-           const testTypeMatch = file.file.match(/(HighTemp_Test\d+|LowTemp_Test\d+|TimeMode_Test\d+)/);
-           
-           const cycle = cycleMatch ? cycleMatch[1] : 'Unknown';
-           const testType = testTypeMatch ? testTypeMatch[1] : 'Unknown';
-           
-           reportContent += `\n--- File: ${file.file} (Cycle ${cycle}, ${testType}) ---\n`;
-           reportContent += csvContent;
-           reportContent += `\n--- End of File: ${file.file} ---\n`;
-         } else {
-           reportContent += `\n--- File: ${file.file} (File not found) ---\n`;
-         }
-       } catch (error) {
-         console.error(`[FinalDeviceReport] CSV 파일 읽기 실패: ${file.file}`, error);
-         reportContent += `\n--- File: ${file.file} (Error reading file: ${error.message}) ---\n`;
-       }
-     }
-     
-     reportContent += `\n`;
-     reportContent += `=== Test Conditions ===\n`;
-     reportContent += `High Temperature Test,10 times (per cycle)\n`;
-     reportContent += `Low Temperature Test,10 times (per cycle)\n`;
-     reportContent += `Total Tests,${cycleNumber * 20} times\n`;
-     reportContent += `\n`;
-     reportContent += `=== Conclusion ===\n`;
-     reportContent += `All devices G: Overall Pass\n`;
-     reportContent += `Any device N: That device is defective\n`;
-     reportContent += `\n`;
-     reportContent += `Author,System\n`;
-     reportContent += `Document Version,PS-14(Rev.1)\n`;
-     reportContent += `Company Name,Adelpia Lab Co., Ltd.\n`;
-    
-    // 통계 계산 (선택된 디바이스만 고려)
-    const selectedDevices = Object.values(finalConclusions).filter(c => c.isSelected);
-    const totalDevices = selectedDevices.length;
-    const goodDevices = selectedDevices.filter(c => c.conclusion === 'G').length;
-    const notGoodDevices = selectedDevices.filter(c => c.conclusion === 'N').length;
-    
-    // 파일 저장 (안전한 방식)
-    try {
-      // 디렉토리 생성 (재귀적)
-      fs.mkdirSync(path.dirname(reportFilePath), { recursive: true });
-      
-      // 파일 저장
-      fs.writeFileSync(reportFilePath, reportContent, 'utf8');
-      
-      console.log(`[FinalDeviceReport] 종합 리포트 생성 완료: ${reportFilename}`);
-      console.log(`[FinalDeviceReport] 파일 경로: ${reportFilePath}`);
-      console.log(`[FinalDeviceReport] 전체 디바이스: ${totalDevices}개, 양품: ${goodDevices}개, 불량: ${notGoodDevices}개`);
-      
-    } catch (writeError) {
-      console.error(`[FinalDeviceReport] ❌ 리포트 파일 저장 실패: ${writeError.message}`);
-      
-      // Fallback 경로로 저장 시도
-      try {
-        const fallbackPath = path.join(process.cwd(), 'Data', 'fallback', reportFilename);
-        fs.mkdirSync(path.dirname(fallbackPath), { recursive: true });
-        fs.writeFileSync(fallbackPath, reportContent, 'utf8');
-        
-        console.log(`[FinalDeviceReport] ✅ Fallback 경로에 리포트 저장 성공: ${fallbackPath}`);
-        return {
-          success: true,
-          filename: reportFilename,
-          filePath: fallbackPath,
-          totalDevices,
-          goodDevices,
-          notGoodDevices,
-          deviceResults: finalConclusions,
-          fallback: true
-        };
-        
-      } catch (fallbackError) {
-        console.error(`[FinalDeviceReport] ❌ Fallback 경로 저장도 실패: ${fallbackError.message}`);
-        return { success: false, error: `리포트 저장 실패 (원본: ${writeError.message}, fallback: ${fallbackError.message})` };
-      }
-    }
-    
-    return {
-      success: true,
-      filename: reportFilename,
-      filePath: reportFilePath,
-      totalDevices,
-      goodDevices,
-      notGoodDevices,
-      deviceResults: finalConclusions
-    };
-    
   } catch (error) {
-    console.error('[FinalDeviceReport] 종합 리포트 생성 실패:', error);
-    return { success: false, error: error.message };
+    console.error(`[FinalDeviceReport] ❌ 오류 발생:`, error);
+    return {
+      success: false,
+      error: error.message
+    };
   }
 }
 

@@ -5,6 +5,7 @@ import { ReadVolt } from './ReadVolt.js';
 import { ReadChamber } from './ReadChamber.js'; 
 import { getProcessStopRequested, setProcessStopRequested, setMachineRunningStatus, getCurrentChamberTemperature, getSafeGetTableOption } from './backend-websocket-server.js';
 import { getSimulationMode, saveTotaReportTableToFile, generateFinalDeviceReport, generateInterruptedTestResultFile, broadcastTableData, updateTableData, getCurrentTableData, resetTableData, setCurrentTestDirectoryPath } from './RunTestProcess.js';
+import { generateFinalReportFromDirectory } from './FinalReportGenerator.js';
 import { sleep, getFormattedDateTime, getDateDirectoryName, Now } from './utils/common.js';
 import fs from 'fs';
 import path from 'path';
@@ -1253,10 +1254,13 @@ export async function runTimeModeTestProcess() {
       }
     }
     
-    // i. 최종 보고서 생성
+    // i. 최종 보고서 생성 (FinalReportGenerator 로직 사용)
     console.log(`[TimeModeTestProcess] 📄 모든 테스트 단계 완료 - 최종 디바이스 리포트 생성`);
     try {
-      const finalReportResult = await generateFinalDeviceReport(4); // 4단계 모두 완료
+      const finalReportResult = await generateFinalReportFromDirectory(
+        currentTestDirectoryPath || path.join(process.cwd(), 'Data', 'default'), 
+        currentTestDirectoryName || 'default'
+      );
       if (finalReportResult && finalReportResult.success) {
         console.log(`[TimeModeTestProcess] ✅ 최종 디바이스 리포트 생성 성공: ${finalReportResult.filename}`);
       } else {
@@ -2397,10 +2401,13 @@ export async function runNextTankEnviTestProcess() {
     
     console.log(`[NextTankEnviTestProcess] 모든 사이클(${cycleNumber}회) 완료`);
     
-    // 모든 사이클 완료 후 종합 리포트 생성
+    // 모든 사이클 완료 후 종합 리포트 생성 (FinalReportGenerator 로직 사용)
     console.log(`[NextTankEnviTestProcess] 📄 모든 사이클 완료 - 종합 리포트 생성`);
     try {
-      const finalReportResult = await generateFinalDeviceReport(cycleNumber);
+      const finalReportResult = await generateFinalReportFromDirectory(
+        currentTestDirectoryPath || path.join(process.cwd(), 'Data', 'default'), 
+        currentTestDirectoryName || 'default'
+      );
       if (finalReportResult && finalReportResult.success) {
         console.log(`[NextTankEnviTestProcess] ✅ 종합 리포트 생성 성공: ${finalReportResult.filename}`);
       } else {
