@@ -584,10 +584,8 @@ export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15
            measurementData: measurementData
          });
          
-         // 하나라도 NG이면 해당 전압 그룹은 NG
-         if (deviceResult === 'NG') {
-           voltageGroupResults[voltageIndex].allGood = false;
-         }
+         // 전압별 그룹 결과는 개별 디바이스 결과와 동일하게 설정 (프론트엔드와 일치)
+         // 각 디바이스는 개별적으로 판단되므로 그룹 결과는 개별 결과와 동일
        }
        
        console.log(`[SaveData] 📊 ${inputVoltage}V 그룹 결과: ${voltageGroupResults[voltageIndex].allGood ? 'G' : 'NG'} (디바이스별: ${voltageGroupResults[voltageIndex].devices.map(d => d.result).join(', ')})`);
@@ -611,12 +609,11 @@ export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15
            const deviceData = voltageGroupResults[voltageIndex].devices[deviceIndex];
            const measurementData = deviceData.measurementData;
            
-           // A.Q.L 계산 (전압별 그룹 결과 적용)
-           const voltageGroupResult = voltageGroupResults[voltageIndex];
-           const aql = voltageGroupResult.allGood ? 'G' : 'NG';
+           // A.Q.L 계산 (개별 디바이스 결과 적용 - 프론트엔드와 동일)
+           const aql = deviceData.result;
            
            // 테이블 행 생성 (그림과 동일한 형태)
-           console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - 최종 측정값: [${measurementData.join(', ')}], AQL: ${aql} (전압별 그룹 결과 적용) - 선택됨`);
+           console.log(`[SaveData] 📊 ${inputVoltage}V ${productNumber} - 최종 측정값: [${measurementData.join(', ')}], AQL: ${aql} (개별 디바이스 결과 적용) - 선택됨`);
            csvContent += `${inputVoltage}V,${productNumber},${measurementData.join(',')},${aql}\n`;
          } else {
            // 선택되지 않은 디바이스는 "-.-" 표시
@@ -1714,34 +1711,41 @@ function calculateVoltageGroupResult(reportData, voltageIndex) {
       let deviceHasGood = false;
       let deviceHasBad = false;
       
-      // 해당 디바이스의 모든 read 결과 확인
+      // 해당 디바이스의 모든 read 결과 확인 (프론트엔드와 동일한 고정 범위 사용)
       for (let readIndex = 0; readIndex < deviceReadCount; readIndex++) {
         const voltageData = reportData.voltagTable[voltageIndex][deviceIndex][readIndex][0];
         if (voltageData && voltageData !== "-.-") {
-          if (voltageData.includes('|G')) {
-            deviceHasGood = true;
-          } else if (voltageData.includes('|N')) {
+          // "221V|G" 형식에서 전압값만 추출
+          const voltageMatch = voltageData.match(/^([\d.-]+)V/);
+          if (voltageMatch) {
+            const voltageValue = parseFloat(voltageMatch[1]);
+            if (!isNaN(voltageValue)) {
+              // 고정 범위(200 <= 측정값 <= 242) 확인
+              if (voltageValue < 200 || voltageValue > 242) {
             deviceHasBad = true;
+                break;
+              } else {
+                deviceHasGood = true;
+              }
+            }
           }
         }
       }
       
-      // 디바이스별 결과 결정 (하나라도 N이 있으면 N)
-      const deviceResult = deviceHasBad ? 'N' : (deviceHasGood ? 'G' : '-');
+      // 디바이스별 결과 결정 (모든 측정값이 허용 범위 내에 있어야 G)
+      const deviceResult = deviceHasBad ? 'NG' : (deviceHasGood ? 'G' : '-');
       
       voltageGroupResult.devices.push({
         deviceIndex: deviceIndex,
         result: deviceResult
       });
       
-      // 하나라도 N이면 해당 전압 그룹은 N
-      if (deviceResult === 'N') {
-        voltageGroupResult.allGood = false;
-      }
+      // 개별 디바이스별 판단이므로 그룹 결과는 개별 결과와 동일
+      // (프론트엔드와 일치하도록 수정)
     }
   }
   
-  console.log(`[CalculateVoltageGroupResult] 전압 인덱스 ${voltageIndex}: ${voltageGroupResult.allGood ? 'G' : 'N'} (디바이스별: ${voltageGroupResult.devices.map(d => d.result).join(', ')})`);
+  console.log(`[CalculateVoltageGroupResult] 전압 인덱스 ${voltageIndex}: 개별 디바이스별 판단 (디바이스별: ${voltageGroupResult.devices.map(d => d.result).join(', ')})`);
   
   return voltageGroupResult;
 }
@@ -1809,6 +1813,10 @@ function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
       // 각 제품번호에 대해 테이블 생성 (동적 제품명 사용)
       for (let productIndex = 0; productIndex < 3; productIndex++) {
         const productNumber = getTableOption.productInput?.productNames?.[productIndex] || `A-00${productIndex + 1}`; // 동적 제품명 사용
+        
+        // 디바이스 선택 상태 확인
+        const deviceStates = loadDeviceStates();
+        const isDeviceSelected = deviceStates[productIndex];
         
         // 해당 제품번호의 1st-10th 데이터 생성 (Device별 readCount 측정값)
         const measurementData = [];
