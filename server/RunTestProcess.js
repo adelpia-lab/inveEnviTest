@@ -523,7 +523,7 @@ export async function saveTotaReportTableToFile(data, channelVoltages = [5.0, 15
     csvContent += '\n';
     
      // 새로운 테이블 구조 (그림과 유사한 형태)
-     csvContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
+     csvContent += `INPUT,Product Number,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
      
      // 전압별 그룹 결과를 미리 계산
      const voltageGroupResults = {};
@@ -1804,7 +1804,7 @@ function saveFinalResultTable(finalTable, getTableOption, totalCycles) {
     csvContent += '\n';
     
     // 새로운 테이블 구조 (그림과 유사한 형태)
-    csvContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
+    csvContent += `INPUT,Product Number,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
     
     // Generate table for each input voltage and product number (그림과 동일한 형태)
     for (let k = 0; k < 3; k++) {

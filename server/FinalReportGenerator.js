@@ -348,7 +348,7 @@ function extractDeviceInfoFromCSV(headerLine, dataLines, filename, deviceStates)
     
     for (const line of dataLines) {
       // 테이블 헤더 찾기 (saveTotaReportTableToFile 패턴)
-      if (line.includes('INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L')) {
+      if (line.includes('INPUT,Product Number,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L') || line.includes('INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L')) {
         inTableSection = true;
         headerFound = true;
         console.log(`[FinalReportGenerator] 테이블 헤더 발견: ${filename}`);
@@ -607,7 +607,7 @@ async function createFinalReportFile(finalConclusions, directoryPath, directoryN
     reportContent += `\n`;
     
     // 상세한 전압 테이블 (saveTotaReportTableToFile 패턴)
-    reportContent += `INPUT,제품번호,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
+    reportContent += `INPUT,Product Number,1st,2nd,3rd,4th,5th,6th,7th,8th,9th,10th,A.Q.L\n`;
     
     // 3개 input 전압에 대해 각각 Device별 측정값 표시
     for (let k = 0; k < 3; k++) {
@@ -615,7 +615,7 @@ async function createFinalReportFile(finalConclusions, directoryPath, directoryN
       
       // 각 제품번호에 대해 테이블 생성 (동적 제품명 사용) - 3개 디바이스만
       for (let productIndex = 0; productIndex < 3; productIndex++) {
-        const productNumber = getTableOption.productInput?.productNames?.[productIndex] || `A-00${productIndex + 1}`; // 동적 제품명 사용
+        const productNumber = `C-00${productIndex + 1}`; // 기본 제품명 사용 (C-001, C-002, C-003)
         const deviceName = `Device ${productIndex + 1}`; // Device 1, Device 2, Device 3
         const deviceIndex = productIndex; // Device 1 -> index 0
         const isDeviceSelected = deviceStates[deviceIndex];
